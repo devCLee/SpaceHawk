@@ -34,6 +34,22 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://spacehawk:spacehawk@localhost:5432/spacehawk"
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- Stage 1 thin-slice knobs ---
+    # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
+    # In the air-gapped enclave this is pointed at the offline mirror instead.
+    celestrak_gp_url: str = "https://celestrak.org/NORAD/elements/gp.php"
+    celestrak_group: str = "active"
+    # Cap ingested objects for the spike: keep the catalog small enough to render
+    # with the (pre-migration) Entity path and to propagate every tick cheaply.
+    ingest_limit: int = 200
+    # How often the background loop re-propagates the set and refreshes Redis.
+    propagation_interval_sec: int = 5
+    # Trivial rule-based alert: object inside this lat/lon box (Korean theatre).
+    roi_lat_min: float = 33.0
+    roi_lat_max: float = 43.0
+    roi_lon_min: float = 124.0
+    roi_lon_max: float = 132.0
+
 
 def get_settings() -> Settings:
     """Return application settings (call site can be overridden in tests via DI)."""
