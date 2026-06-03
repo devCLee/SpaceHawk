@@ -18,6 +18,16 @@ if (typeof window !== "undefined") {
 const ORBIT_PERIOD_SEC = 90 * 60;
 const ORBIT_WINDOW_ORBITS = 3;
 
+/**
+ * Globe data source:
+ * - "offline": Cesium's bundled Natural Earth II imagery (copied into
+ *   /cesium/Assets) + the default ellipsoid. No Cesium Ion, no network — works
+ *   in an air-gapped enclave and requires no token.
+ * - "online": Cesium Ion world imagery + world terrain + OSM Buildings. Requires
+ *   NEXT_PUBLIC_CESIUM_TOKEN and internet access.
+ */
+type GlobeMode = "offline" | "online";
+
 export const CesiumComponent: React.FunctionComponent<{
   CesiumJs: CesiumType;
   positions: Position[];
@@ -28,82 +38,89 @@ export const CesiumComponent: React.FunctionComponent<{
   const addedScenePrimitives = React.useRef<Cesium3DTileset[]>([]);
   const orbitEntitiesRef = React.useRef<Entity[]>([]);
   const [isLoaded, setIsLoaded] = React.useState(false);
+  const [mode, setMode] = React.useState<GlobeMode>("offline");
 
-  const cleanUpPrimitives = React.useCallback(() => {
-    //On NextJS 13.4+, React Strict Mode is on by default.
-    //The block below will remove all added primitives from the scene.
-    addedScenePrimitives.current.forEach((scenePrimitive) => {
-      if (cesiumViewer.current !== null) {
-        cesiumViewer.current.scene.primitives.remove(scenePrimitive);
-      }
-    });
-    addedScenePrimitives.current = [];
-  }, []);
-
-  const initializeCesiumJs = React.useCallback(async () => {
-    if (cesiumViewer.current !== null) {
-      //Using the Sandcastle example below
-      //https://sandcastle.cesium.com/?src=3D%20Tiles%20Feature%20Styling.html
-      const osmBuildingsTileset = await CesiumJs.createOsmBuildingsAsync();
-
-      //Clean up potentially already-existing primitives.
-      cleanUpPrimitives();
-
-      //Adding tile and adding to addedScenePrimitives to keep track and delete in-case of a re-render.
-      const osmBuildingsTilesetPrimitive =
-        cesiumViewer.current.scene.primitives.add(osmBuildingsTileset);
-      addedScenePrimitives.current.push(osmBuildingsTilesetPrimitive);
-
-      //Add any provided positions as simple point entities (static).
-      positions.forEach((p) => {
-        cesiumViewer.current?.entities.add({
-          position: CesiumJs.Cartesian3.fromDegrees(
-            p.lng,
-            p.lat,
-            p.height ?? 0
-          ),
-          point: {
-            pixelSize: 10,
-            color: CesiumJs.Color.YELLOW,
-            outlineColor: CesiumJs.Color.BLACK,
-            outlineWidth: 1,
-          },
-        });
-      });
-
-      setIsLoaded(true);
-    }
-  }, [positions, CesiumJs, cleanUpPrimitives]);
-
+  // (Re)create the Cesium viewer whenever the globe mode changes. The imagery /
+  // terrain providers are chosen at construction time, so switching mode rebuilds
+  // the viewer. Satellites re-render via the `isLoaded` effect below.
   React.useEffect(() => {
-    if (cesiumViewer.current === null && cesiumContainerRef.current) {
-      //OPTIONAL: Assign access Token here
-      //Guide: https://cesium.com/learn/ion/cesium-ion-access-tokens/
-      CesiumJs.Ion.defaultAccessToken = `${process.env.NEXT_PUBLIC_CESIUM_TOKEN}`;
+    if (cesiumContainerRef.current === null) return;
 
-      //NOTE: Always utilize CesiumJs; do not import them from "cesium"
-      cesiumViewer.current = new CesiumJs.Viewer(cesiumContainerRef.current, {
-        //Using the Sandcastle example below
-        //https://sandcastle.cesium.com/?src=3D%20Tiles%20Feature%20Styling.html
+    // Tear down any existing viewer (mode switch / React strict-mode remount).
+    if (cesiumViewer.current !== null && !cesiumViewer.current.isDestroyed()) {
+      cesiumViewer.current.destroy();
+    }
+    cesiumViewer.current = null;
+    addedScenePrimitives.current = [];
+    orbitEntitiesRef.current = [];
+    setIsLoaded(false);
+
+    let cancelled = false;
+
+    if (mode === "online") {
+      // Configure the Ion token only if provided; an "undefined" token 401s.
+      if (process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
+        CesiumJs.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
+      }
+      const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
         terrain: CesiumJs.Terrain.fromWorldTerrain(),
       });
+      cesiumViewer.current = viewer;
 
-      //NOTE: Example of configuring a Cesium viewer
-      cesiumViewer.current.clock.clockStep =
-        CesiumJs.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
+      // OSM Buildings (Ion asset). Non-blocking: failure must not hide the globe
+      // or the satellites.
+      CesiumJs.createOsmBuildingsAsync()
+        .then((osmBuildings) => {
+          if (cancelled || cesiumViewer.current === null) return;
+          const primitive = viewer.scene.primitives.add(osmBuildings);
+          addedScenePrimitives.current.push(primitive);
+        })
+        .catch(() => {
+          /* Ion unavailable (no token / offline) — globe still renders. */
+        });
+    } else {
+      // Offline: bundled Natural Earth II imagery + default ellipsoid, no Ion.
+      const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
+        baseLayer: CesiumJs.ImageryLayer.fromProviderAsync(
+          CesiumJs.TileMapServiceImageryProvider.fromUrl(
+            CesiumJs.buildModuleUrl("Assets/Textures/NaturalEarthII")
+          ),
+          {}
+        ),
+        baseLayerPicker: false,
+        geocoder: false,
+      });
+      cesiumViewer.current = viewer;
     }
 
+    cesiumViewer.current.clock.clockStep =
+      CesiumJs.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
+
+    // Add any provided positions as simple static point entities.
+    positions.forEach((p) => {
+      cesiumViewer.current?.entities.add({
+        position: CesiumJs.Cartesian3.fromDegrees(p.lng, p.lat, p.height ?? 0),
+        point: {
+          pixelSize: 10,
+          color: CesiumJs.Color.YELLOW,
+          outlineColor: CesiumJs.Color.BLACK,
+          outlineWidth: 1,
+        },
+      });
+    });
+
+    setIsLoaded(true);
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mode, CesiumJs]);
 
-  React.useEffect(() => {
-    if (isLoaded) return;
-    initializeCesiumJs();
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [positions, isLoaded]);
-
-  // When tleEntries are provided and viewer is ready: sample each orbit at 1-second steps and add one entity per TLE with SampledPositionProperty so they move in real time (1 s UTC = 1 s in scene).
+  // When tleEntries are provided and the viewer is ready: sample each orbit at
+  // 10-second steps and add one moving entity per TLE (SampledPositionProperty)
+  // so they animate in real time (1 s UTC = 1 s in scene). Re-runs on mode switch
+  // because the viewer is rebuilt and isLoaded toggles.
   React.useEffect(() => {
     if (!isLoaded || !cesiumViewer.current) {
       return;
@@ -114,7 +131,7 @@ export const CesiumComponent: React.FunctionComponent<{
 
     // Remove previous orbit entities
     orbitEntitiesRef.current.forEach((entity) => {
-      viewer.entities.remove(entity);
+      if (!viewer.isDestroyed()) viewer.entities.remove(entity);
     });
     orbitEntitiesRef.current = [];
 
@@ -124,9 +141,7 @@ export const CesiumComponent: React.FunctionComponent<{
 
     const now = new Date();
     const startTime = now.getTime();
-    const endTime =
-      startTime +
-      ORBIT_WINDOW_ORBITS * ORBIT_PERIOD_SEC * 1000;
+    const endTime = startTime + ORBIT_WINDOW_ORBITS * ORBIT_PERIOD_SEC * 1000;
 
     for (const entry of tleEntries) {
       const { TLE_LINE1: line1, TLE_LINE2: line2, OBJECT_NAME: name } = entry;
@@ -162,7 +177,6 @@ export const CesiumComponent: React.FunctionComponent<{
           pixelSize: 4,
           color: Cesium.Color.WHITE,
           outlineColor: Cesium.Color.BLACK,
-          // outlineWidth: 1,
         },
       });
       orbitEntitiesRef.current.push(entity);
@@ -175,22 +189,50 @@ export const CesiumComponent: React.FunctionComponent<{
     viewer.clock.multiplier = 1;
     viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
     viewer.clock.shouldAnimate = true;
-    // viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
 
     return () => {
       orbitEntitiesRef.current.forEach((entity) => {
-        viewer.entities.remove(entity);
+        if (!viewer.isDestroyed()) viewer.entities.remove(entity);
       });
       orbitEntitiesRef.current = [];
     };
   }, [isLoaded, CesiumJs, tleEntries]);
 
   return (
-    <div
-      ref={cesiumContainerRef}
-      id="cesium-container"
-      style={{ height: "calc(100vh - 56px)", width: "100vw" }}
-    />
+    <div style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() =>
+          setMode((m) => (m === "offline" ? "online" : "offline"))
+        }
+        style={{
+          position: "absolute",
+          top: 8,
+          left: 8,
+          zIndex: 10,
+          padding: "6px 12px",
+          borderRadius: 6,
+          border: "1px solid rgba(255,255,255,0.4)",
+          background: "rgba(0,0,0,0.6)",
+          color: "#fff",
+          fontSize: 13,
+          cursor: "pointer",
+        }}
+        title={
+          mode === "offline"
+            ? "Currently offline (no Ion). Switch to Ion world imagery + terrain (needs token + internet)."
+            : "Currently online (Cesium Ion). Switch to bundled offline imagery."
+        }
+      >
+        Globe: {mode === "offline" ? "Offline" : "Online (Ion)"} — switch to{" "}
+        {mode === "offline" ? "Online" : "Offline"}
+      </button>
+      <div
+        ref={cesiumContainerRef}
+        id="cesium-container"
+        style={{ height: "calc(100vh - 56px)", width: "100vw" }}
+      />
+    </div>
   );
 };
 
