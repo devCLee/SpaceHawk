@@ -17,6 +17,7 @@ from orbital_engine.config import get_settings
 
 LATEST_STATE_KEY = "state:latest"
 ALERT_CHANNEL = "alerts"
+SYNC_MARKER_PREFIX = "sync:marker:"  # + source name -> ISO timestamp of last sync
 
 _client: redis.Redis | None = None
 
@@ -48,6 +49,16 @@ async def read_latest_state() -> dict[str, Any] | None:
 
 async def publish_alert(alert: dict[str, Any]) -> None:
     await get_client().publish(ALERT_CHANNEL, json.dumps(alert))
+
+
+async def read_sync_marker(source: str) -> str | None:
+    """Last successful incremental-sync watermark (ISO ts) for a source, if any."""
+    return await get_client().get(f"{SYNC_MARKER_PREFIX}{source}")
+
+
+async def write_sync_marker(source: str, iso_timestamp: str) -> None:
+    """Persist the incremental-sync watermark for a source."""
+    await get_client().set(f"{SYNC_MARKER_PREFIX}{source}", iso_timestamp)
 
 
 async def close() -> None:
