@@ -54,6 +54,17 @@ This document records intentional choices so they are not “fixed” accidental
 
 ---
 
+### Ingestion scheduler (Stage 2)
+
+- **Decision**: Use **Celery with a Redis broker** for periodic multi-source ingestion, rather than an in-process scheduler (e.g. APScheduler).
+- **Rationale**: Stage 7 (P2b) ML jobs need a distributed task queue; reusing one broker now avoids re-platforming the scheduler later. Redis is already deployed for hot state, so the broker adds no new infrastructure type.
+- **Implications**:
+  - Ingestion runs as separate `worker` + `beat` processes (see `infra/docker-compose.yml`), not inside the FastAPI process.
+  - Task logic stays in `orbital_engine.ingestion.runner` (async, unit-tested); Celery tasks in `orbital_engine.scheduler.tasks` are thin `asyncio.run` wrappers.
+  - Per-source cadence lives in `beat_schedule`; unavailable sources are skipped inside the task, so activation is config-driven.
+
+---
+
 ### How to add new decisions
 
 When you make a new intentional choice that will affect future work:
