@@ -12,7 +12,8 @@
     "build": "npm run build --workspace apps/web",
     "start": "npm run start --workspace apps/web",
     "lint": "npm run lint --workspace apps/web",
-    "typecheck": "npm run typecheck --workspace apps/web"
+    "typecheck": "npm run typecheck --workspace apps/web && npm run typecheck --workspace @spacehawk/shared-types",
+    "gen:client": "npm run generate --workspace @spacehawk/shared-types"
   },
   "engines": {
     "node": ">=22"
