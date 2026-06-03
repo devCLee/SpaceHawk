@@ -7,7 +7,7 @@ so the contract surfaces in the OpenAPI document (and thus the generated TS clie
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -21,7 +21,7 @@ class ServiceInfo(BaseModel):
     environment: str
 
 
-class LivenessStatus(str, Enum):
+class LivenessStatus(StrEnum):
     OK = "ok"
 
 
@@ -29,7 +29,7 @@ class Liveness(BaseModel):
     status: LivenessStatus = LivenessStatus.OK
 
 
-class ReadinessStatus(str, Enum):
+class ReadinessStatus(StrEnum):
     READY = "ready"
     NOT_READY = "not_ready"
 

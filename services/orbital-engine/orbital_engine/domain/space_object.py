@@ -15,7 +15,7 @@ records that validate against the JSON Schema.
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import (
@@ -27,14 +27,14 @@ from pydantic import (
 )
 
 
-class DataSource(str, Enum):
+class DataSource(StrEnum):
     SPACE_TRACK = "SPACE-TRACK"
     CELESTRAK = "CELESTRAK"
     DISCOS = "DISCOS"
     LEOLABS = "LEOLABS"
 
 
-class ObjectType(str, Enum):
+class ObjectType(StrEnum):
     PAYLOAD = "PAYLOAD"
     ROCKET_BODY = "ROCKET BODY"
     DEBRIS = "DEBRIS"
@@ -42,19 +42,19 @@ class ObjectType(str, Enum):
     TBA = "TBA"
 
 
-class RcsSize(str, Enum):
+class RcsSize(StrEnum):
     SMALL = "SMALL"
     MEDIUM = "MEDIUM"
     LARGE = "LARGE"
 
 
-class ClassificationType(str, Enum):
+class ClassificationType(StrEnum):
     UNCLASSIFIED = "U"
     CONFIDENTIAL = "C"
     SECRET = "S"
 
 
-class MeanElementTheory(str, Enum):
+class MeanElementTheory(StrEnum):
     SGP4 = "SGP4"
     SDP4 = "SDP4"
 
@@ -100,9 +100,13 @@ class SpaceObject(BaseModel):
     source_file_id: int | None = Field(default=None, validation_alias=_alias("FILE", "source_file_id"))
     data_source: DataSource = Field(default=DataSource.SPACE_TRACK, validation_alias=_alias("data_source"))
     originator: str | None = Field(default=None, validation_alias=_alias("ORIGINATOR", "originator"))
-    ccsds_omm_vers: str | None = Field(default=None, validation_alias=_alias("CCSDS_OMM_VERS", "ccsds_omm_vers"))
+    ccsds_omm_vers: str | None = Field(
+        default=None, validation_alias=_alias("CCSDS_OMM_VERS", "ccsds_omm_vers")
+    )
     comment: str | None = Field(default=None, validation_alias=_alias("COMMENT", "comment"))
-    creation_date: datetime | None = Field(default=None, validation_alias=_alias("CREATION_DATE", "creation_date"))
+    creation_date: datetime | None = Field(
+        default=None, validation_alias=_alias("CREATION_DATE", "creation_date")
+    )
     ingested_at: datetime | None = Field(default=None, validation_alias=_alias("ingested_at"))
 
     # --- Object metadata ---
@@ -138,14 +142,22 @@ class SpaceObject(BaseModel):
 
     # --- SGP4 / TLE parameters ---
     ephemeris_type: int = Field(default=0, validation_alias=_alias("EPHEMERIS_TYPE", "ephemeris_type"))
-    element_set_no: int | None = Field(default=None, validation_alias=_alias("ELEMENT_SET_NO", "element_set_no"))
+    element_set_no: int | None = Field(
+        default=None, validation_alias=_alias("ELEMENT_SET_NO", "element_set_no")
+    )
     rev_at_epoch: int | None = Field(default=None, validation_alias=_alias("REV_AT_EPOCH", "rev_at_epoch"))
     bstar: float | None = Field(default=None, validation_alias=_alias("BSTAR", "bstar"))
-    mean_motion_dot: float | None = Field(default=None, validation_alias=_alias("MEAN_MOTION_DOT", "mean_motion_dot"))
-    mean_motion_ddot: float | None = Field(default=None, validation_alias=_alias("MEAN_MOTION_DDOT", "mean_motion_ddot"))
+    mean_motion_dot: float | None = Field(
+        default=None, validation_alias=_alias("MEAN_MOTION_DOT", "mean_motion_dot")
+    )
+    mean_motion_ddot: float | None = Field(
+        default=None, validation_alias=_alias("MEAN_MOTION_DDOT", "mean_motion_ddot")
+    )
 
     # --- Derived quantities (carried from source when present) ---
-    semimajor_axis_km: float | None = Field(default=None, validation_alias=_alias("SEMIMAJOR_AXIS", "semimajor_axis_km"))
+    semimajor_axis_km: float | None = Field(
+        default=None, validation_alias=_alias("SEMIMAJOR_AXIS", "semimajor_axis_km")
+    )
     period_min: float | None = Field(default=None, validation_alias=_alias("PERIOD", "period_min"))
     apoapsis_km: float | None = Field(default=None, validation_alias=_alias("APOAPSIS", "apoapsis_km"))
     periapsis_km: float | None = Field(default=None, validation_alias=_alias("PERIAPSIS", "periapsis_km"))

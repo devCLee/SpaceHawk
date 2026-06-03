@@ -21,6 +21,7 @@ dev = [
     "jsonschema>=4.21",
     "pytest>=8.0",
     "httpx>=0.27",
+    "ruff>=0.4",
 ]
 
 [project.scripts]
@@ -35,3 +36,13 @@ include = ["orbital_engine*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# Migrations are framework-shaped; allow their conventional unused imports.
+[tool.ruff.lint.per-file-ignores]
+"migrations/*" = ["F401"]
