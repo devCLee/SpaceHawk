@@ -10,12 +10,13 @@ the TLE lines the propagator (server) and satellite.js (client) both consume.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.domain.space_object import DataSource, ObjectType, SpaceObject
+from orbital_engine.ingestion.base import SourceAdapter
 from orbital_engine.logging import get_logger
 
 log = get_logger("ingestion.celestrak")
@@ -81,3 +82,20 @@ async def fetch_celestrak(settings: Settings | None = None) -> list[SpaceObject]
     objects = normalize(omm_resp.json(), tle_resp.text, limit=settings.ingest_limit)
     log.info("ingest.celestrak", group=settings.celestrak_group, count=len(objects))
     return objects
+
+
+class CelestrakAdapter(SourceAdapter):
+    """Celestrak GP source behind the uniform adapter interface.
+
+    Always available: Celestrak needs no credentials (in the enclave the URL is
+    repointed at the offline mirror). Delegates to the module-level fetch/normalize
+    so the existing pure-function tests keep covering the parsing logic.
+    """
+
+    source: ClassVar[DataSource] = DataSource.CELESTRAK
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+
+    async def fetch(self) -> list[SpaceObject]:
+        return await fetch_celestrak(self.settings)
