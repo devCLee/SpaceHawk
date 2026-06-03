@@ -14,12 +14,18 @@ from orbital_engine.ingestion.base import SourceAdapter
 from orbital_engine.ingestion.celestrak import CelestrakAdapter
 from orbital_engine.ingestion.discos import DiscosAdapter
 from orbital_engine.ingestion.leolabs import LeolabsAdapter
+from orbital_engine.ingestion.spacetrack import SpaceTrackAdapter
 
 
 def all_adapters(settings: Settings | None = None) -> list[SourceAdapter]:
-    """Every known adapter, regardless of whether it is configured."""
+    """Every known adapter, regardless of whether it is configured.
+
+    Order is source priority (most-authoritative first): Space-Track, then the
+    redundant/low-latency Celestrak, then the stubbed feeds.
+    """
     settings = settings or get_settings()
     return [
+        SpaceTrackAdapter(settings),
         CelestrakAdapter(settings),
         DiscosAdapter(settings),
         LeolabsAdapter(settings),

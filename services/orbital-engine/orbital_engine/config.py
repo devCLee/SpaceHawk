@@ -41,6 +41,17 @@ class Settings(BaseSettings):
     leolabs_api_key: str | None = None
     leolabs_api_secret: str | None = None
 
+    # --- Space-Track (authoritative primary source) ---
+    # In the enclave the base URL points at the cross-domain mirror, not the
+    # public site (air-gap §4.6). Identity/password unset => adapter unavailable.
+    spacetrack_base_url: str = "https://www.space-track.org"
+    spacetrack_identity: str | None = None
+    spacetrack_password: str | None = None
+    # Stay under Space-Track's published 30 req/min ceiling.
+    spacetrack_max_requests_per_min: int = 20
+    # Cap per-query rows in dev; None (no limit) for the full catalog in the enclave.
+    spacetrack_query_limit: int | None = None
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.

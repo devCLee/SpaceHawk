@@ -51,11 +51,16 @@ async def test_stub_fetch_raises_not_implemented() -> None:
 
 def test_registry_lists_all_known_sources() -> None:
     sources = {a.source for a in all_adapters(Settings())}
-    assert sources == {DataSource.CELESTRAK, DataSource.DISCOS, DataSource.LEOLABS}
+    assert sources == {
+        DataSource.SPACE_TRACK,
+        DataSource.CELESTRAK,
+        DataSource.DISCOS,
+        DataSource.LEOLABS,
+    }
 
 
 def test_available_adapters_filters_unconfigured() -> None:
-    # With no creds, only Celestrak is fetchable.
+    # With no creds, only Celestrak (needs none) is fetchable.
     available = available_adapters(Settings())
     assert [a.source for a in available] == [DataSource.CELESTRAK]
 
