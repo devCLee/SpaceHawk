@@ -38,7 +38,8 @@ yarn-error.log*
 .agents
 
 # graphify
-/src/graphify-out/cache
+/graphify-out/cache
+.graphify*
 .graphify_python
 .graphifyignore
 
@@ -51,3 +52,6 @@ next-env.d.ts
 
 # cesium files that gets copied over by copy webpack plugin
 /public/cesium
+
+# fonts
+/public/fonts
