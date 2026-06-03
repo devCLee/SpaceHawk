@@ -1,0 +1,68 @@
+# SpaceHawk local development stack.
+#   docker compose -f infra/docker-compose.yml up
+# Brings up the database (Postgres + PostGIS + TimescaleDB), Redis, the Orbital
+# Engine (FastAPI), and the web app (Next.js). Values here are DEV defaults only;
+# the air-gapped enclave supplies real credentials/images via environment.
+
+name: spacehawk
+
+services:
+  db:
+    # timescaledb-ha bundles PostgreSQL 16 + TimescaleDB + PostGIS.
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-spacehawk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spacehawk}
+      POSTGRES_DB: ${POSTGRES_DB:-spacehawk}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spacehawk} -d ${POSTGRES_DB:-spacehawk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  orbital-engine:
+    build:
+      context: ../services/orbital-engine
+      dockerfile: ../../infra/orbital-engine.Dockerfile
+    environment:
+      ORBITAL_ENGINE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-spacehawk}:${POSTGRES_PASSWORD:-spacehawk}@db:5432/${POSTGRES_DB:-spacehawk}
+      ORBITAL_ENGINE_REDIS_URL: redis://redis:6379/0
+      ORBITAL_ENGINE_ENVIRONMENT: development
+      ORBITAL_ENGINE_LOG_JSON: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/web.Dockerfile
+    environment:
+      NODE_ENV: production
+      # Internal address of the Orbital Engine (server-side calls only).
+      ORBITAL_ENGINE_URL: http://orbital-engine:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - orbital-engine
+
+volumes:
+  db_data:

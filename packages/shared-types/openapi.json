@@ -1,0 +1,145 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SpaceHawk Orbital Engine",
+    "description": "SpaceHawk Orbital Engine \u2014 internal domain/compute API (ingestion, catalog, propagation, screening, analytics). Reached only by the web/BFF tier over a private network; never serves HTML.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Service information",
+        "operationId": "service_info__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness probe",
+        "operationId": "liveness_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Liveness"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness probe",
+        "operationId": "readiness_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Liveness": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/LivenessStatus",
+            "default": "ok"
+          }
+        },
+        "type": "object",
+        "title": "Liveness"
+      },
+      "LivenessStatus": {
+        "type": "string",
+        "enum": [
+          "ok"
+        ],
+        "title": "LivenessStatus"
+      },
+      "Readiness": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ReadinessStatus"
+          },
+          "checks": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Checks",
+            "description": "Per-dependency readiness (e.g. postgres, redis). Empty until wired up."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "Readiness"
+      },
+      "ReadinessStatus": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "not_ready"
+        ],
+        "title": "ReadinessStatus"
+      },
+      "ServiceInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "environment"
+        ],
+        "title": "ServiceInfo"
+      }
+    }
+  }
+}
