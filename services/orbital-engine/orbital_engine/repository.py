@@ -107,3 +107,73 @@ async def count_objects() -> int:
     async with get_engine().connect() as conn:
         result = await conn.execute(text("SELECT count(*) FROM space_object"))
         return int(result.scalar_one())
+
+
+# ---------------------------------------------------------------------------
+# gp_history — append-only element-set time series (TimescaleDB hypertable).
+# One row per (object, epoch); the substrate for maneuver/RPO history (P2a).
+# Re-ingesting the same element set is a no-op (PK conflict ignored).
+# ---------------------------------------------------------------------------
+_HISTORY_COLUMNS: tuple[str, ...] = (
+    "object_id",
+    "epoch",
+    "data_source",
+    "gp_id",
+    "mean_motion",
+    "eccentricity",
+    "inclination",
+    "ra_of_asc_node",
+    "arg_of_pericenter",
+    "mean_anomaly",
+    "bstar",
+    "semimajor_axis_km",
+    "period_min",
+    "apoapsis_km",
+    "periapsis_km",
+    "tle_line1",
+    "tle_line2",
+)
+
+_HISTORY_INSERT_SQL = text(
+    "INSERT INTO gp_history ({cols}) VALUES ({binds}) "
+    "ON CONFLICT (object_id, epoch) DO NOTHING".format(
+        cols=", ".join(_HISTORY_COLUMNS),
+        binds=", ".join(f":{c}" for c in _HISTORY_COLUMNS),
+    )
+)
+
+
+def _to_history_row(obj: SpaceObject) -> dict[str, Any]:
+    data = obj.model_dump(mode="python")
+    return {c: data.get(c) for c in _HISTORY_COLUMNS}
+
+
+async def append_history(objects: list[SpaceObject]) -> int:
+    """Append each object's current element set to gp_history (idempotent per epoch).
+
+    Returns the number of rows offered; a row already present for (object, epoch)
+    is silently skipped so re-ingests don't duplicate history.
+    """
+    if not objects:
+        return 0
+    rows = [_to_history_row(o) for o in objects]
+    async with get_engine().begin() as conn:
+        await conn.execute(_HISTORY_INSERT_SQL, rows)
+    return len(rows)
+
+
+async def fetch_history(object_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+    """Return an object's element-set history, newest epoch first."""
+    sql = (
+        "SELECT object_id, epoch, data_source, mean_motion, eccentricity, inclination, "
+        "       ra_of_asc_node, arg_of_pericenter, mean_anomaly, bstar, "
+        "       semimajor_axis_km, period_min, apoapsis_km, periapsis_km "
+        "FROM gp_history WHERE object_id = :oid ORDER BY epoch DESC"
+    )
+    params: dict[str, Any] = {"oid": object_id}
+    if limit is not None:
+        sql += " LIMIT :lim"
+        params["lim"] = int(limit)
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql), params)
+        return [dict(row) for row in result.mappings()]

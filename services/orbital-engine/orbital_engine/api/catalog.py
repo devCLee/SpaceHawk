@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from orbital_engine.config import get_settings
 from orbital_engine.ingestion.celestrak import fetch_celestrak
-from orbital_engine.repository import fetch_catalog, upsert_objects
+from orbital_engine.repository import append_history, fetch_catalog, upsert_objects
 from orbital_engine.state import ALERT_CHANNEL, get_client, read_latest_state
 
 router = APIRouter(tags=["catalog"])
@@ -62,6 +62,7 @@ async def get_catalog() -> list[dict[str, Any]]:
 async def run_ingest() -> IngestResult:
     objects = await fetch_celestrak(get_settings())
     written = await upsert_objects(objects)
+    await append_history(objects)
     return IngestResult(written=written)
 
 
