@@ -68,10 +68,222 @@
           }
         }
       }
+    },
+    "/catalog": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Current catalog",
+        "operationId": "get_catalog_catalog_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogObject"
+                  },
+                  "type": "array",
+                  "title": "Response Get Catalog Catalog Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingest/run": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Trigger Celestrak ingest",
+        "operationId": "run_ingest_ingest_run_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/state/latest": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Latest propagated state",
+        "operationId": "get_latest_state_state_latest_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LatestState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/stream": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Alert stream (SSE)",
+        "operationId": "alerts_stream_alerts_stream_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "CatalogObject": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "title": "Object Id"
+          },
+          "norad_cat_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Norad Cat Id"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "object_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Type"
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Code"
+          },
+          "tle_line0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tle Line0"
+          },
+          "tle_line1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tle Line1"
+          },
+          "tle_line2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tle Line2"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "object_name"
+        ],
+        "title": "CatalogObject"
+      },
+      "IngestResult": {
+        "properties": {
+          "written": {
+            "type": "integer",
+            "title": "Written"
+          }
+        },
+        "type": "object",
+        "required": [
+          "written"
+        ],
+        "title": "IngestResult"
+      },
+      "LatestState": {
+        "properties": {
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "default": 0
+          },
+          "objects": {
+            "items": {
+              "$ref": "#/components/schemas/StateObject"
+            },
+            "type": "array",
+            "title": "Objects"
+          }
+        },
+        "type": "object",
+        "title": "LatestState"
+      },
       "Liveness": {
         "properties": {
           "status": {
@@ -139,6 +351,51 @@
           "environment"
         ],
         "title": "ServiceInfo"
+      },
+      "StateObject": {
+        "properties": {
+          "object_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Id"
+          },
+          "object_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Name"
+          },
+          "lat_deg": {
+            "type": "number",
+            "title": "Lat Deg"
+          },
+          "lon_deg": {
+            "type": "number",
+            "title": "Lon Deg"
+          },
+          "alt_km": {
+            "type": "number",
+            "title": "Alt Km"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lat_deg",
+          "lon_deg",
+          "alt_km"
+        ],
+        "title": "StateObject"
       }
     }
   }

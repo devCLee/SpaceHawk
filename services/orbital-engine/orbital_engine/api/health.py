@@ -60,8 +60,9 @@ def liveness() -> Liveness:
 
 
 @router.get("/health/ready", response_model=Readiness, summary="Readiness probe")
-def readiness() -> Readiness:
-    checks: dict[str, bool] = {}
-    status = ReadinessStatus.READY if all(checks.values()) else ReadinessStatus.READY
-    # No external dependencies are wired yet, so the service is ready once running.
+async def readiness() -> Readiness:
+    from orbital_engine import db, state
+
+    checks = {"postgres": await db.ping(), "redis": await state.ping()}
+    status = ReadinessStatus.READY if all(checks.values()) else ReadinessStatus.NOT_READY
     return Readiness(status=status, checks=checks)

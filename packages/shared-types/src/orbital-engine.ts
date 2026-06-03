@@ -55,10 +55,114 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current catalog */
+        get: operations["get_catalog_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingest/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trigger Celestrak ingest */
+        post: operations["run_ingest_ingest_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/state/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest propagated state */
+        get: operations["get_latest_state_state_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/alerts/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Alert stream (SSE) */
+        get: operations["alerts_stream_alerts_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** CatalogObject */
+        CatalogObject: {
+            /** Object Id */
+            object_id: string;
+            /** Norad Cat Id */
+            norad_cat_id?: number | null;
+            /** Object Name */
+            object_name: string;
+            /** Object Type */
+            object_type?: string | null;
+            /** Country Code */
+            country_code?: string | null;
+            /** Tle Line0 */
+            tle_line0?: string | null;
+            /** Tle Line1 */
+            tle_line1?: string | null;
+            /** Tle Line2 */
+            tle_line2?: string | null;
+        };
+        /** IngestResult */
+        IngestResult: {
+            /** Written */
+            written: number;
+        };
+        /** LatestState */
+        LatestState: {
+            /** Generated At */
+            generated_at?: string | null;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /** Objects */
+            objects?: components["schemas"]["StateObject"][];
+        };
         /** Liveness */
         Liveness: {
             /** @default ok */
@@ -93,6 +197,19 @@ export interface components {
             version: string;
             /** Environment */
             environment: string;
+        };
+        /** StateObject */
+        StateObject: {
+            /** Object Id */
+            object_id?: string | null;
+            /** Object Name */
+            object_name?: string | null;
+            /** Lat Deg */
+            lat_deg: number;
+            /** Lon Deg */
+            lon_deg: number;
+            /** Alt Km */
+            alt_km: number;
         };
     };
     responses: never;
@@ -159,6 +276,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Readiness"];
+                };
+            };
+        };
+    };
+    get_catalog_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogObject"][];
+                };
+            };
+        };
+    };
+    run_ingest_ingest_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestResult"];
+                };
+            };
+        };
+    };
+    get_latest_state_state_latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatestState"];
+                };
+            };
+        };
+    };
+    alerts_stream_alerts_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
