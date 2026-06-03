@@ -16,6 +16,7 @@ import redis.asyncio as redis
 from orbital_engine.config import get_settings
 
 LATEST_STATE_KEY = "state:latest"
+OBJECT_STATE_PREFIX = "state:object:"  # + USOID -> latest propagated state (TTL'd)
 ALERT_CHANNEL = "alerts"
 SYNC_MARKER_PREFIX = "sync:marker:"  # + source name -> ISO timestamp of last sync
 
@@ -44,6 +45,31 @@ async def write_latest_state(state: dict[str, Any]) -> None:
 
 async def read_latest_state() -> dict[str, Any] | None:
     raw = await get_client().get(LATEST_STATE_KEY)
+    return json.loads(raw) if raw else None
+
+
+async def write_object_states(states: list[dict[str, Any]], ttl_sec: int) -> int:
+    """Cache each object's latest propagated state under its own TTL'd key.
+
+    Per-object keys let the BFF read a single object's current state without
+    deserializing the whole-catalog snapshot, and the TTL means a stalled
+    propagation loop lets state expire rather than serving silently-stale data.
+    Returns the number of objects written.
+    """
+    written = 0
+    pipe = get_client().pipeline()
+    for s in states:
+        oid = s.get("object_id")
+        if not oid:
+            continue
+        pipe.set(f"{OBJECT_STATE_PREFIX}{oid}", json.dumps(s), ex=ttl_sec)
+        written += 1
+    await pipe.execute()
+    return written
+
+
+async def read_object_state(object_id: str) -> dict[str, Any] | None:
+    raw = await get_client().get(f"{OBJECT_STATE_PREFIX}{object_id}")
     return json.loads(raw) if raw else None
 
 
