@@ -51,6 +51,35 @@ services:
       redis:
         condition: service_healthy
 
+  # Periodic multi-source ingestion: Celery worker executes tasks, beat enqueues
+  # them on the per-source schedule. Both reuse the orbital-engine image.
+  ingest-worker:
+    build:
+      context: ../services/orbital-engine
+      dockerfile: ../../infra/orbital-engine.Dockerfile
+    command: ["celery", "-A", "orbital_engine.scheduler.celery_app", "worker", "--loglevel=info"]
+    environment:
+      ORBITAL_ENGINE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-spacehawk}:${POSTGRES_PASSWORD:-spacehawk}@db:5432/${POSTGRES_DB:-spacehawk}
+      ORBITAL_ENGINE_REDIS_URL: redis://redis:6379/0
+      ORBITAL_ENGINE_LOG_JSON: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  ingest-beat:
+    build:
+      context: ../services/orbital-engine
+      dockerfile: ../../infra/orbital-engine.Dockerfile
+    command: ["celery", "-A", "orbital_engine.scheduler.celery_app", "beat", "--loglevel=info"]
+    environment:
+      ORBITAL_ENGINE_REDIS_URL: redis://redis:6379/0
+      ORBITAL_ENGINE_LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   web:
     build:
       context: ..

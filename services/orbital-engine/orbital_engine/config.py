@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     # Cap per-query rows in dev; None (no limit) for the full catalog in the enclave.
     spacetrack_query_limit: int | None = None
 
+    # --- Scheduler (Celery + Redis broker; see docs/DECISIONS.md) ---
+    # Default the broker/backend to the same Redis as hot state; override per-env.
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
+    # Per-source ingest cadence (seconds). Space-Track hourly (rate-limited,
+    # authoritative); Celestrak more frequent (redundant/low-latency).
+    spacetrack_ingest_interval_sec: int = 3600
+    celestrak_ingest_interval_sec: int = 1800
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.
