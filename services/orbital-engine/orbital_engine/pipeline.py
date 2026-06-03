@@ -21,7 +21,7 @@ from orbital_engine.repository import (
     fetch_catalog,
     upsert_objects,
 )
-from orbital_engine.state import publish_alert, write_latest_state
+from orbital_engine.state import publish_alert, write_latest_state, write_object_states
 
 log = get_logger("pipeline")
 
@@ -52,6 +52,7 @@ async def run_propagation_loop(settings: Settings, stop: asyncio.Event) -> None:
                     "objects": states,
                 }
             )
+            await write_object_states(states, settings.state_ttl_sec)
             for alert in monitor.evaluate(states):
                 await publish_alert(alert)
                 log.info("pipeline.alert", object_id=alert["object_id"])

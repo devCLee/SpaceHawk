@@ -17,7 +17,12 @@ from orbital_engine.propagation.coordinates import gmst_rad, teme_to_geodetic
 
 
 def propagate_tle(line1: str, line2: str, when: datetime) -> dict[str, Any] | None:
-    """Propagate one TLE to ``when`` (UTC). None if SGP4 reports an error."""
+    """Propagate one TLE to ``when`` (UTC). None if the propagator reports an error.
+
+    python-sgp4 selects SGP4 (near-earth) vs SDP4 (deep-space, period >= 225 min)
+    from the element set itself; ``Satrec.method`` ('n'/'d') reports which ran, so
+    the catalog covers both regimes with one call. We surface it as ``theory``.
+    """
     sat = Satrec.twoline2rv(line1, line2)
     t = when.astimezone(UTC)
     jd, fr = jday(t.year, t.month, t.day, t.hour, t.minute, t.second + t.microsecond / 1e6)
@@ -27,6 +32,7 @@ def propagate_tle(line1: str, line2: str, when: datetime) -> dict[str, Any] | No
     lat, lon, alt = teme_to_geodetic(r, jd + fr)
     return {
         "epoch": t.isoformat(),
+        "theory": "SDP4" if sat.method == "d" else "SGP4",
         "teme_position_km": list(r),
         "teme_velocity_km_s": list(v),
         "lat_deg": lat,

@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     ingest_limit: int = 200
     # How often the background loop re-propagates the set and refreshes Redis.
     propagation_interval_sec: int = 5
+    # TTL on per-object latest-state keys; a few propagation cycles, so a stalled
+    # loop lets state expire instead of serving silently-stale positions.
+    state_ttl_sec: int = 60
     # Trivial rule-based alert: object inside this lat/lon box (Korean theatre).
     roi_lat_min: float = 33.0
     roi_lat_max: float = 43.0
