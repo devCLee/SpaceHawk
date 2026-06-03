@@ -1,4 +1,5 @@
 import CesiumWrapper from "../Components/CesiumWrapper";
+import AlertToast from "../Components/AlertToast";
 import mainData from "@/data/main.json";
 import type { TleObject } from "../utils/sgp4FromTle";
 import { fetchCatalog, type CatalogObject } from "@/lib/orbital-engine";
@@ -33,5 +34,10 @@ export default async function MainPage() {
     tleEntries = fallbackEntries;
   }
 
-  return <CesiumWrapper positions={[]} tleEntries={tleEntries} />;
+  return (
+    <>
+      <CesiumWrapper positions={[]} tleEntries={tleEntries} />
+      <AlertToast />
+    </>
+  );
 }
