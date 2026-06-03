@@ -109,6 +109,74 @@ async def count_objects() -> int:
         return int(result.scalar_one())
 
 
+# Columns returned to the catalog list/feed (matches the API CatalogObject).
+_LIST_COLUMNS = (
+    "object_id, norad_cat_id, object_name, object_type, country_code, "
+    "tle_line0, tle_line1, tle_line2"
+)
+
+
+async def query_catalog(
+    *,
+    q: str | None = None,
+    object_type: str | None = None,
+    country_code: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Filter the on-orbit catalog. All filters are optional and AND-combined.
+
+    ``q`` matches object name, international designator, or NORAD id substring.
+    Values are bound parameters (no string interpolation); enum/int columns are
+    compared as text so a plain string param needs no cast.
+    """
+    clauses = ["decay_date IS NULL"]
+    params: dict[str, Any] = {}
+    if q:
+        clauses.append(
+            "(object_name ILIKE :q OR intl_designator ILIKE :q "
+            "OR CAST(norad_cat_id AS text) LIKE :q)"
+        )
+        params["q"] = f"%{q}%"
+    if object_type:
+        clauses.append("object_type::text = :otype")
+        params["otype"] = object_type
+    if country_code:
+        clauses.append("country_code = :cc")
+        params["cc"] = country_code
+    where = " AND ".join(clauses)
+    sql = (
+        f"SELECT {_LIST_COLUMNS} FROM space_object WHERE {where} "
+        "ORDER BY object_name LIMIT :lim OFFSET :off"
+    )
+    params["lim"] = max(1, min(int(limit), 5000))
+    params["off"] = max(0, int(offset))
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql), params)
+        return [dict(row) for row in result.mappings()]
+
+
+# Full record returned by the object-detail endpoint.
+_DETAIL_COLUMNS = (
+    "object_id, norad_cat_id, intl_designator, data_source, originator, "
+    "object_name, object_type, rcs_size, classification_type, country_code, "
+    "launch_date, decay_date, site, epoch, mean_motion, eccentricity, inclination, "
+    "ra_of_asc_node, arg_of_pericenter, mean_anomaly, ephemeris_type, bstar, "
+    "mean_motion_dot, mean_motion_ddot, semimajor_axis_km, period_min, "
+    "apoapsis_km, periapsis_km, mean_element_theory, ref_frame, "
+    "tle_line0, tle_line1, tle_line2, ingested_at"
+)
+
+
+async def get_object(object_id: str) -> dict[str, Any] | None:
+    """Return one object's full record, or None if not catalogued."""
+    sql = f"SELECT {_DETAIL_COLUMNS} FROM space_object WHERE object_id = :oid"
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql), {"oid": object_id})
+        row = result.mappings().first()
+        return dict(row) if row else None
+
+
 # ---------------------------------------------------------------------------
 # gp_history — append-only element-set time series (TimescaleDB hypertable).
 # One row per (object, epoch); the substrate for maneuver/RPO history (P2a).

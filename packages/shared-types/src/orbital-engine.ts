@@ -62,8 +62,59 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Current catalog */
+        /** Query the catalog */
         get: operations["get_catalog_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/{object_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Object detail */
+        get: operations["get_object_detail_catalog__object_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/{object_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Object element-set history */
+        get: operations["get_object_history_catalog__object_id__history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/{object_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Object latest state */
+        get: operations["get_object_latest_state_catalog__object_id__state_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -98,6 +149,29 @@ export interface paths {
         };
         /** Latest propagated state */
         get: operations["get_latest_state_state_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/state/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live latest-state stream (SSE)
+         * @description Push the latest propagated snapshot on each propagation cycle (one-way SSE).
+         *
+         *     Lets the dashboard receive live-state deltas without polling; the browser
+         *     interpolates between snapshots (dev-plan §4.2/§4.5).
+         */
+        get: operations["state_stream_state_stream_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -146,6 +220,48 @@ export interface components {
             /** Tle Line2 */
             tle_line2?: string | null;
         };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HistoryPoint
+         * @description One element set in an object's time series (gp_history).
+         */
+        HistoryPoint: {
+            /** Object Id */
+            object_id: string;
+            /**
+             * Epoch
+             * Format: date-time
+             */
+            epoch: string;
+            /** Data Source */
+            data_source?: string | null;
+            /** Mean Motion */
+            mean_motion?: number | null;
+            /** Eccentricity */
+            eccentricity?: number | null;
+            /** Inclination */
+            inclination?: number | null;
+            /** Ra Of Asc Node */
+            ra_of_asc_node?: number | null;
+            /** Arg Of Pericenter */
+            arg_of_pericenter?: number | null;
+            /** Mean Anomaly */
+            mean_anomaly?: number | null;
+            /** Bstar */
+            bstar?: number | null;
+            /** Semimajor Axis Km */
+            semimajor_axis_km?: number | null;
+            /** Period Min */
+            period_min?: number | null;
+            /** Apoapsis Km */
+            apoapsis_km?: number | null;
+            /** Periapsis Km */
+            periapsis_km?: number | null;
+        };
         /** IngestResult */
         IngestResult: {
             /** Written */
@@ -173,6 +289,80 @@ export interface components {
          * @enum {string}
          */
         LivenessStatus: "ok";
+        /**
+         * ObjectDetail
+         * @description Full catalog record for the per-satellite info sidebar (#9h).
+         */
+        ObjectDetail: {
+            /** Object Id */
+            object_id: string;
+            /** Norad Cat Id */
+            norad_cat_id?: number | null;
+            /** Intl Designator */
+            intl_designator?: string | null;
+            /** Data Source */
+            data_source?: string | null;
+            /** Originator */
+            originator?: string | null;
+            /** Object Name */
+            object_name: string;
+            /** Object Type */
+            object_type?: string | null;
+            /** Rcs Size */
+            rcs_size?: string | null;
+            /** Classification Type */
+            classification_type?: string | null;
+            /** Country Code */
+            country_code?: string | null;
+            /** Launch Date */
+            launch_date?: string | null;
+            /** Decay Date */
+            decay_date?: string | null;
+            /** Site */
+            site?: string | null;
+            /** Epoch */
+            epoch?: string | null;
+            /** Mean Motion */
+            mean_motion?: number | null;
+            /** Eccentricity */
+            eccentricity?: number | null;
+            /** Inclination */
+            inclination?: number | null;
+            /** Ra Of Asc Node */
+            ra_of_asc_node?: number | null;
+            /** Arg Of Pericenter */
+            arg_of_pericenter?: number | null;
+            /** Mean Anomaly */
+            mean_anomaly?: number | null;
+            /** Ephemeris Type */
+            ephemeris_type?: number | null;
+            /** Bstar */
+            bstar?: number | null;
+            /** Mean Motion Dot */
+            mean_motion_dot?: number | null;
+            /** Mean Motion Ddot */
+            mean_motion_ddot?: number | null;
+            /** Semimajor Axis Km */
+            semimajor_axis_km?: number | null;
+            /** Period Min */
+            period_min?: number | null;
+            /** Apoapsis Km */
+            apoapsis_km?: number | null;
+            /** Periapsis Km */
+            periapsis_km?: number | null;
+            /** Mean Element Theory */
+            mean_element_theory?: string | null;
+            /** Ref Frame */
+            ref_frame?: string | null;
+            /** Tle Line0 */
+            tle_line0?: string | null;
+            /** Tle Line1 */
+            tle_line1?: string | null;
+            /** Tle Line2 */
+            tle_line2?: string | null;
+            /** Ingested At */
+            ingested_at?: string | null;
+        };
         /** Readiness */
         Readiness: {
             status: components["schemas"]["ReadinessStatus"];
@@ -210,6 +400,19 @@ export interface components {
             lon_deg: number;
             /** Alt Km */
             alt_km: number;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -282,7 +485,15 @@ export interface operations {
     };
     get_catalog_catalog_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Name / intl-designator / NORAD substring */
+                q?: string | null;
+                /** @description PAYLOAD / ROCKET BODY / DEBRIS / ... */
+                object_type?: string | null;
+                country_code?: string | null;
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -296,6 +507,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CatalogObject"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_object_detail_catalog__object_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_object_history_catalog__object_id__history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_object_latest_state_catalog__object_id__state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StateObject"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -336,6 +651,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LatestState"];
+                };
+            };
+        };
+    };
+    state_stream_state_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
