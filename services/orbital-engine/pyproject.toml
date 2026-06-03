@@ -1,0 +1,27 @@
+[project]
+name = "orbital-engine"
+version = "0.1.0"
+description = "SpaceHawk Orbital Engine — Python/FastAPI domain & compute tier"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+# Tooling used in Stage 0 to validate the canonical model against the JSON Schema
+# contract and the sample catalog. The FastAPI/web/runtime deps are added with the
+# service skeleton in the next Stage 0 sub-task.
+dev = [
+    "jsonschema>=4.21",
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["orbital_engine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
