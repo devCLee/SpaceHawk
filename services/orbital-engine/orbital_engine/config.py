@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # Web/BFF origin allowed to call the internal API (the Next.js tier).
     cors_allow_origins: list[str] = ["http://localhost:3000"]
 
+    # Connection strings (overridden by env in compose/enclave).
+    database_url: str = "postgresql+psycopg://spacehawk:spacehawk@localhost:5432/spacehawk"
+    redis_url: str = "redis://localhost:6379/0"
+
 
 def get_settings() -> Settings:
     """Return application settings (call site can be overridden in tests via DI)."""
