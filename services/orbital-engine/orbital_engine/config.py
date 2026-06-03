@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://spacehawk:spacehawk@localhost:5432/spacehawk"
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- Source credentials (Stage 2) ---
+    # Presence of these gates SourceAdapter.available(): unset => the scheduler
+    # skips the source. None in dev/air-gap until each feed's agreement lands.
+    discos_api_token: str | None = None
+    leolabs_api_key: str | None = None
+    leolabs_api_secret: str | None = None
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.
