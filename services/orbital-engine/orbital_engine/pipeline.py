@@ -15,7 +15,12 @@ from orbital_engine.config import Settings
 from orbital_engine.ingestion.celestrak import fetch_celestrak
 from orbital_engine.logging import get_logger
 from orbital_engine.propagation.sgp4_service import propagate_objects
-from orbital_engine.repository import count_objects, fetch_catalog, upsert_objects
+from orbital_engine.repository import (
+    append_history,
+    count_objects,
+    fetch_catalog,
+    upsert_objects,
+)
 from orbital_engine.state import publish_alert, write_latest_state
 
 log = get_logger("pipeline")
@@ -27,6 +32,7 @@ async def ingest_if_empty(settings: Settings) -> int:
         return 0
     objects = await fetch_celestrak(settings)
     written = await upsert_objects(objects)
+    await append_history(objects)
     log.info("pipeline.ingest", written=written)
     return written
 
