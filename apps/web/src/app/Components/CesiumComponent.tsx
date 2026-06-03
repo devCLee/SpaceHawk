@@ -119,8 +119,10 @@ export const CesiumComponent: React.FunctionComponent<{
 
   // When tleEntries are provided and the viewer is ready: sample each orbit at
   // 10-second steps and add one moving entity per TLE (SampledPositionProperty)
-  // so they animate in real time (1 s UTC = 1 s in scene). Re-runs on mode switch
-  // because the viewer is rebuilt and isLoaded toggles.
+  // so they animate in real time (1 s UTC = 1 s in scene). Keyed on `mode` so it
+  // re-runs after every viewer rebuild: a mode switch calls setIsLoaded(false)
+  // then setIsLoaded(true) in the same synchronous pass, which React batches to a
+  // no-op (true -> true), so `isLoaded` alone never re-triggers this effect.
   React.useEffect(() => {
     if (!isLoaded || !cesiumViewer.current) {
       return;
@@ -196,7 +198,7 @@ export const CesiumComponent: React.FunctionComponent<{
       });
       orbitEntitiesRef.current = [];
     };
-  }, [isLoaded, CesiumJs, tleEntries]);
+  }, [isLoaded, CesiumJs, tleEntries, mode]);
 
   return (
     <div style={{ position: "relative" }}>
