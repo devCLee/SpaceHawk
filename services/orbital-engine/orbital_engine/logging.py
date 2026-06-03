@@ -22,9 +22,7 @@ def configure_logging(*, level: str = "info", json_logs: bool = False) -> None:
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
-    processors.append(
-        structlog.processors.JSONRenderer() if json_logs else structlog.dev.ConsoleRenderer()
-    )
+    processors.append(structlog.processors.JSONRenderer() if json_logs else structlog.dev.ConsoleRenderer())
 
     structlog.configure(
         processors=processors,
