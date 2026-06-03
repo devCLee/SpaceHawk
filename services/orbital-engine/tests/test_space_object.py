@@ -23,12 +23,12 @@ SCHEMA_PATH = REPO_ROOT / "packages" / "shared-types" / "schemas" / "space-objec
 
 @pytest.fixture(scope="module")
 def sample_records() -> list[dict]:
-    return json.loads(SAMPLE_CATALOG.read_text())
+    return json.loads(SAMPLE_CATALOG.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
 def schema() -> dict:
-    return json.loads(SCHEMA_PATH.read_text())
+    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
 def test_sample_catalog_present(sample_records: list[dict]) -> None:
