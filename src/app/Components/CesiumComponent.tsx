@@ -73,10 +73,8 @@ export const CesiumComponent: React.FunctionComponent<{
       });
 
       setIsLoaded(true);
-
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }
-  }, [positions]);
+  }, [positions, CesiumJs, cleanUpPrimitives]);
 
   React.useEffect(() => {
     if (cesiumViewer.current === null && cesiumContainerRef.current) {
