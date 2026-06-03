@@ -6,7 +6,6 @@ import { Cesium3DTileset, type Entity, type Viewer } from "cesium";
 import type { Position } from "../types/position";
 import type { TleObject } from "../utils/sgp4FromTle";
 import { runOneSgp4ToLatLonAlt } from "../utils/sgp4FromTle";
-import { dateToJulianDate } from "../example_utils/date";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
@@ -185,10 +184,6 @@ export const CesiumComponent: React.FunctionComponent<{
       orbitEntitiesRef.current = [];
     };
   }, [isLoaded, CesiumJs, tleEntries]);
-
-  //NOTE: Examples of typing... See above on "import type"
-  const entities: Entity[] = [];
-  const julianDate = dateToJulianDate(CesiumJs, new Date());
 
   return (
     <div

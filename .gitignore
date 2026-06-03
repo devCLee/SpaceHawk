@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -15,10 +16,22 @@
 
 # next.js
 /.next/
+**/.next/
 /out/
+**/out/
 
 # production
 /build
+
+# python (services/orbital-engine)
+__pycache__/
+*.py[cod]
+.venv/
+**/.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # misc
 .DS_Store
@@ -52,6 +65,8 @@ next-env.d.ts
 
 # cesium files that gets copied over by copy webpack plugin
 /public/cesium
+apps/web/public/cesium
 
 # fonts
 /public/fonts
+apps/web/public/fonts
