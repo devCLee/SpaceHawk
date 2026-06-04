@@ -7,6 +7,7 @@
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
+import { AuthProvider } from "@/app/context/AuthContext";
 
 export default function Providers({
   children,
@@ -23,8 +24,10 @@ export default function Providers({
   );
   return (
     <QueryClientProvider client={client}>
-      {children}
-      <Toaster theme="dark" position="top-center" richColors />
+      <AuthProvider>
+        {children}
+        <Toaster theme="dark" position="top-center" richColors />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
