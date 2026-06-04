@@ -2,10 +2,25 @@
 
 import React from "react";
 import type { CesiumType } from "../types/cesium";
-import { Cesium3DTileset, type Entity, type Viewer } from "cesium";
+import {
+  Cesium3DTileset,
+  type Entity,
+  type PointPrimitive,
+  type PointPrimitiveCollection,
+  type ScreenSpaceEventHandler,
+  type Viewer,
+} from "cesium";
+import {
+  twoline2satrec,
+  propagate,
+  gstime,
+  eciToGeodetic,
+  degreesLat,
+  degreesLong,
+  type SatRec,
+} from "satellite.js";
 import type { Position } from "../types/position";
 import type { TleObject } from "../utils/sgp4FromTle";
-import { runOneSgp4ToLatLonAlt } from "../utils/sgp4FromTle";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
@@ -14,9 +29,17 @@ if (typeof window !== "undefined") {
   (window as any).CESIUM_BASE_URL = "/cesium";
 }
 
-/** One orbit period in seconds (LEO ~90 min). Sample 1 step per second. */
+/** One orbit period in seconds (LEO ~90 min). */
 const ORBIT_PERIOD_SEC = 90 * 60;
-const ORBIT_WINDOW_ORBITS = 3;
+/** How far before/after "now" the selected object's orbit line is sampled. */
+const ORBIT_WINDOW_SEC = ORBIT_PERIOD_SEC;
+/** Sample step for the selected orbit polyline. */
+const ORBIT_SAMPLE_STEP_SEC = 20;
+/** How often (sim seconds) the full catalog's point positions are re-propagated. */
+const POSITION_UPDATE_SEC = 1;
+
+const POINT_SIZE = 3;
+const SELECTED_POINT_SIZE = 10;
 
 /**
  * Globe data source:
@@ -28,6 +51,40 @@ const ORBIT_WINDOW_ORBITS = 3;
  */
 type GlobeMode = "offline" | "online";
 
+/** A parsed catalog object: SGP4 record + its GPU point + identity. */
+interface RenderedSat {
+  id: string;
+  name: string;
+  satrec: SatRec;
+  primitive: PointPrimitive;
+}
+
+/** Default Cesium widgets to hide — keep timeline/animation (time control) and
+ * the scene-mode picker (2D/3D toggle); drop the rest of the chrome. */
+const HIDDEN_WIDGETS = {
+  homeButton: false,
+  navigationHelpButton: false,
+  fullscreenButton: false,
+  geocoder: false,
+  infoBox: false,
+  selectionIndicator: false,
+} as const;
+
+/** TEME (ECI km) -> geodetic lat/lon/alt(m) at `date`, or null if SGP4 fails. */
+function geodeticAt(
+  satrec: SatRec,
+  date: Date
+): { lat: number; lon: number; altM: number } | null {
+  const pv = propagate(satrec, date);
+  if (pv === null || pv.position == null) return null;
+  const gd = eciToGeodetic(pv.position, gstime(date));
+  return {
+    lat: degreesLat(gd.latitude),
+    lon: degreesLong(gd.longitude),
+    altM: gd.height * 1000,
+  };
+}
+
 export const CesiumComponent: React.FunctionComponent<{
   CesiumJs: CesiumType;
   positions: Position[];
@@ -36,9 +93,14 @@ export const CesiumComponent: React.FunctionComponent<{
   const cesiumViewer = React.useRef<Viewer | null>(null);
   const cesiumContainerRef = React.useRef<HTMLDivElement>(null);
   const addedScenePrimitives = React.useRef<Cesium3DTileset[]>([]);
-  const orbitEntitiesRef = React.useRef<Entity[]>([]);
+  const pointsRef = React.useRef<PointPrimitiveCollection | null>(null);
+  const satsByIdRef = React.useRef<Map<string, RenderedSat>>(new Map());
+  const pickHandlerRef = React.useRef<ScreenSpaceEventHandler | null>(null);
+  const selectedOrbitRef = React.useRef<Entity | null>(null);
+  const highlightedRef = React.useRef<PointPrimitive | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
   const [mode, setMode] = React.useState<GlobeMode>("offline");
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
   // (Re)create the Cesium viewer whenever the globe mode changes. The imagery /
   // terrain providers are chosen at construction time, so switching mode rebuilds
@@ -52,7 +114,10 @@ export const CesiumComponent: React.FunctionComponent<{
     }
     cesiumViewer.current = null;
     addedScenePrimitives.current = [];
-    orbitEntitiesRef.current = [];
+    pointsRef.current = null;
+    satsByIdRef.current = new Map();
+    selectedOrbitRef.current = null;
+    highlightedRef.current = null;
     setIsLoaded(false);
 
     let cancelled = false;
@@ -64,6 +129,7 @@ export const CesiumComponent: React.FunctionComponent<{
       }
       const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
         terrain: CesiumJs.Terrain.fromWorldTerrain(),
+        ...HIDDEN_WIDGETS,
       });
       cesiumViewer.current = viewer;
 
@@ -88,7 +154,7 @@ export const CesiumComponent: React.FunctionComponent<{
           {}
         ),
         baseLayerPicker: false,
-        geocoder: false,
+        ...HIDDEN_WIDGETS,
       });
       cesiumViewer.current = viewer;
     }
@@ -117,88 +183,182 @@ export const CesiumComponent: React.FunctionComponent<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, CesiumJs]);
 
-  // When tleEntries are provided and the viewer is ready: sample each orbit at
-  // 10-second steps and add one moving entity per TLE (SampledPositionProperty)
-  // so they animate in real time (1 s UTC = 1 s in scene). Keyed on `mode` so it
-  // re-runs after every viewer rebuild: a mode switch calls setIsLoaded(false)
-  // then setIsLoaded(true) in the same synchronous pass, which React batches to a
-  // no-op (true -> true), so `isLoaded` alone never re-triggers this effect.
+  // Render the full catalog as a single GPU-batched PointPrimitiveCollection
+  // (dev-plan §4.3 — Entity-per-object does not scale to 10k+). Each point's
+  // position is re-propagated on a throttled clock tick; selection is via
+  // scene picking. Keyed on `mode` so it re-runs after every viewer rebuild.
   React.useEffect(() => {
-    if (!isLoaded || !cesiumViewer.current) {
-      return;
-    }
+    if (!isLoaded || !cesiumViewer.current) return;
 
     const viewer = cesiumViewer.current;
     const Cesium = CesiumJs;
 
-    // Remove previous orbit entities
-    orbitEntitiesRef.current.forEach((entity) => {
-      if (!viewer.isDestroyed()) viewer.entities.remove(entity);
-    });
-    orbitEntitiesRef.current = [];
+    const points = new Cesium.PointPrimitiveCollection();
+    viewer.scene.primitives.add(points);
+    pointsRef.current = points;
 
-    if (!tleEntries || tleEntries.length === 0) {
-      return;
-    }
+    const satsById = new Map<string, RenderedSat>();
+    satsByIdRef.current = satsById;
+    highlightedRef.current = null;
 
     const now = new Date();
-    const startTime = now.getTime();
-    const endTime = startTime + ORBIT_WINDOW_ORBITS * ORBIT_PERIOD_SEC * 1000;
 
-    for (const entry of tleEntries) {
-      const { TLE_LINE1: line1, TLE_LINE2: line2, OBJECT_NAME: name } = entry;
-      if (!line1 || !line2) continue;
+    (tleEntries ?? []).forEach((entry, index) => {
+      const { TLE_LINE1: line1, TLE_LINE2: line2 } = entry;
+      if (!line1 || !line2) return;
 
-      const property = new Cesium.SampledPositionProperty(
-        Cesium.ReferenceFrame.FIXED
-      );
+      const satrec = twoline2satrec(line1, line2);
+      const id = entry.OBJECT_ID ?? entry.OBJECT_NAME ?? `sat-${index}`;
+      const geo = geodeticAt(satrec, now);
+      if (geo === null) return;
 
-      for (let t = startTime; t <= endTime; t += 10000) {
-        const date = new Date(t);
-        const result = runOneSgp4ToLatLonAlt(line1, line2, date);
-        if (!result) continue;
-        const jd = Cesium.JulianDate.fromDate(date);
-        const cartesian = Cesium.Cartesian3.fromDegrees(
-          result.lng,
-          result.lat,
-          result.height * 1000
-        );
-        property.addSample(jd, cartesian);
-      }
-
-      const entity = viewer.entities.add({
-        name: name ?? undefined,
-        availability: new Cesium.TimeIntervalCollection([
-          new Cesium.TimeInterval({
-            start: Cesium.JulianDate.fromDate(new Date(startTime)),
-            stop: Cesium.JulianDate.fromDate(new Date(endTime)),
-          }),
-        ]),
-        position: property,
-        point: {
-          pixelSize: 4,
-          color: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-        },
+      const primitive = points.add({
+        id,
+        position: Cesium.Cartesian3.fromDegrees(geo.lon, geo.lat, geo.altM),
+        pixelSize: POINT_SIZE,
+        color: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 1,
       });
-      orbitEntitiesRef.current.push(entity);
-    }
 
-    // Drive clock by real time: 1 second UTC = 1 second in the scene
-    viewer.clock.startTime = Cesium.JulianDate.fromDate(new Date(startTime));
-    viewer.clock.stopTime = Cesium.JulianDate.fromDate(new Date(endTime));
+      satsById.set(id, {
+        id,
+        name: entry.OBJECT_NAME ?? id,
+        satrec,
+        primitive,
+      });
+    });
+
+    // Drive the clock by real time: 1 second UTC = 1 second in the scene.
     viewer.clock.currentTime = Cesium.JulianDate.fromDate(now);
     viewer.clock.multiplier = 1;
     viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
     viewer.clock.shouldAnimate = true;
 
-    return () => {
-      orbitEntitiesRef.current.forEach((entity) => {
-        if (!viewer.isDestroyed()) viewer.entities.remove(entity);
+    // Re-propagate every point on a throttled cadence (POSITION_UPDATE_SEC of
+    // sim time). The Web Worker offload (Stage 3, later branch) moves this off
+    // the main thread for catalog-scale counts.
+    let lastUpdate = now;
+    const onTick = viewer.clock.onTick.addEventListener((clock) => {
+      const date = Cesium.JulianDate.toDate(clock.currentTime);
+      if (Math.abs(date.getTime() - lastUpdate.getTime()) < POSITION_UPDATE_SEC * 1000) {
+        return;
+      }
+      lastUpdate = date;
+      satsById.forEach((sat) => {
+        const geo = geodeticAt(sat.satrec, date);
+        if (geo === null) return;
+        sat.primitive.position = Cesium.Cartesian3.fromDegrees(
+          geo.lon,
+          geo.lat,
+          geo.altM
+        );
       });
-      orbitEntitiesRef.current = [];
+    });
+
+    // Left-click selects the object under the cursor (our points carry a string
+    // id; Entities/other primitives are ignored).
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    pickHandlerRef.current = handler;
+    handler.setInputAction(
+      (movement: ScreenSpaceEventHandler.PositionedEvent) => {
+        const picked = viewer.scene.pick(movement.position) as
+          | { id?: unknown }
+          | undefined;
+        const pickedId = picked?.id;
+        if (typeof pickedId === "string" && satsById.has(pickedId)) {
+          setSelectedId(pickedId);
+        } else {
+          setSelectedId(null);
+        }
+      },
+      Cesium.ScreenSpaceEventType.LEFT_CLICK
+    );
+
+    return () => {
+      onTick();
+      if (!handler.isDestroyed()) handler.destroy();
+      pickHandlerRef.current = null;
+      if (!viewer.isDestroyed()) viewer.scene.primitives.remove(points);
+      pointsRef.current = null;
+      satsByIdRef.current = new Map();
+      highlightedRef.current = null;
     };
   }, [isLoaded, CesiumJs, tleEntries, mode]);
+
+  // Highlight the selected point and draw its orbit/ground track as a single
+  // time-dynamic Entity (dev-plan §4.3 — Entity reserved for the selected
+  // handful only).
+  React.useEffect(() => {
+    if (!isLoaded || !cesiumViewer.current) return;
+
+    const viewer = cesiumViewer.current;
+    const Cesium = CesiumJs;
+
+    // Reset the previously-highlighted point.
+    if (highlightedRef.current && !viewer.isDestroyed()) {
+      highlightedRef.current.color = Cesium.Color.WHITE;
+      highlightedRef.current.pixelSize = POINT_SIZE;
+      highlightedRef.current = null;
+    }
+    // Remove the previous orbit.
+    if (selectedOrbitRef.current && !viewer.isDestroyed()) {
+      viewer.entities.remove(selectedOrbitRef.current);
+      selectedOrbitRef.current = null;
+    }
+
+    if (selectedId === null) return;
+    const sat = satsByIdRef.current.get(selectedId);
+    if (!sat) return;
+
+    // Highlight the point.
+    sat.primitive.color = Cesium.Color.YELLOW;
+    sat.primitive.pixelSize = SELECTED_POINT_SIZE;
+    highlightedRef.current = sat.primitive;
+
+    // Sample one orbit around "now" for the path line.
+    const property = new Cesium.SampledPositionProperty(
+      Cesium.ReferenceFrame.FIXED
+    );
+    const center = Cesium.JulianDate.toDate(viewer.clock.currentTime).getTime();
+    for (
+      let t = center - ORBIT_WINDOW_SEC * 1000;
+      t <= center + ORBIT_WINDOW_SEC * 1000;
+      t += ORBIT_SAMPLE_STEP_SEC * 1000
+    ) {
+      const date = new Date(t);
+      const geo = geodeticAt(sat.satrec, date);
+      if (geo === null) continue;
+      property.addSample(
+        Cesium.JulianDate.fromDate(date),
+        Cesium.Cartesian3.fromDegrees(geo.lon, geo.lat, geo.altM)
+      );
+    }
+
+    selectedOrbitRef.current = viewer.entities.add({
+      name: sat.name,
+      position: property,
+      path: {
+        resolution: ORBIT_SAMPLE_STEP_SEC,
+        width: 2,
+        leadTime: ORBIT_PERIOD_SEC,
+        trailTime: ORBIT_PERIOD_SEC,
+        material: Cesium.Color.YELLOW.withAlpha(0.6),
+      },
+    });
+
+    return () => {
+      if (highlightedRef.current && !viewer.isDestroyed()) {
+        highlightedRef.current.color = Cesium.Color.WHITE;
+        highlightedRef.current.pixelSize = POINT_SIZE;
+        highlightedRef.current = null;
+      }
+      if (selectedOrbitRef.current && !viewer.isDestroyed()) {
+        viewer.entities.remove(selectedOrbitRef.current);
+        selectedOrbitRef.current = null;
+      }
+    };
+  }, [selectedId, isLoaded, CesiumJs, tleEntries, mode]);
 
   return (
     <div style={{ position: "relative" }}>

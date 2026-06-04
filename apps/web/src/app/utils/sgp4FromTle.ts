@@ -11,6 +11,9 @@ export interface TleObject {
   TLE_LINE1: string;
   TLE_LINE2: string;
   OBJECT_NAME?: string;
+  /** Canonical catalog id (USOID) — stable handle for click-selection. */
+  OBJECT_ID?: string;
+  NORAD_CAT_ID?: number | null;
 }
 
 /**

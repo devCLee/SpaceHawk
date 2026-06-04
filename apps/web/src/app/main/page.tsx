@@ -14,6 +14,8 @@ function toTleEntries(rows: CatalogObject[]): TleObject[] {
       TLE_LINE1: r.tle_line1 as string,
       TLE_LINE2: r.tle_line2 as string,
       OBJECT_NAME: r.object_name,
+      OBJECT_ID: r.object_id,
+      NORAD_CAT_ID: r.norad_cat_id,
     }));
 }
 
