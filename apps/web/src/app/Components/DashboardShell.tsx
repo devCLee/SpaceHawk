@@ -7,6 +7,7 @@
 import React from "react";
 import CesiumWrapper from "./CesiumWrapper";
 import SatelliteInfoPanel from "./SatelliteInfoPanel";
+import ControlRail from "./ControlRail";
 import { SelectedSatelliteProvider } from "../context/SelectedSatelliteContext";
 import type { TleObject } from "../utils/sgp4FromTle";
 
@@ -16,6 +17,7 @@ export const DashboardShell: React.FunctionComponent<{
   return (
     <SelectedSatelliteProvider>
       <CesiumWrapper positions={[]} tleEntries={tleEntries} />
+      <ControlRail />
       <SatelliteInfoPanel />
     </SelectedSatelliteProvider>
   );
