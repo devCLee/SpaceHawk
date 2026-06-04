@@ -108,14 +108,15 @@ export const CesiumComponent: React.FunctionComponent<{
   const selectedOrbitRef = React.useRef<Entity | null>(null);
   const sensorEntityRef = React.useRef<Entity | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
-  // Default to the online (Cesium Ion) globe; fall back to the bundled offline
-  // imagery only when the browser reports no network connection. This client-
-  // only component (CesiumWrapper loads it ssr:false) so `navigator` is safe.
-  const [mode, setMode] = React.useState<GlobeMode>(() =>
-    typeof navigator !== "undefined" && navigator.onLine === false
-      ? "offline"
-      : "online"
-  );
+  // Default to the bundled offline globe (Natural Earth II). The app ships a
+  // strict CSP (`connect-src 'self'`, Stage 5 hardening) that blocks Cesium Ion,
+  // so attempting Ion on load would emit browser CSP-violation errors plus
+  // Cesium RequestErrorEvents into the console — and those browser-level CSP
+  // logs cannot be suppressed from JS. Offline imagery is same-origin and needs
+  // no network. "Switch to Online" stays available for deployments that
+  // allowlist Ion; the online branch auto-falls-back to offline if Ion is
+  // unreachable (no network / blocked / bad token).
+  const [mode, setMode] = React.useState<GlobeMode>("offline");
 
   // On first mount, if there is no network, tell the user why they're seeing the
   // offline globe. Fires once — manual switches afterward are intentional.
@@ -153,7 +154,18 @@ export const CesiumComponent: React.FunctionComponent<{
       if (process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
         CesiumJs.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
       }
+      // Ion world imagery loads via the Ion REST endpoint (api.cesium.com). That
+      // request can fail for reasons navigator.onLine cannot see: an unset/bad
+      // token, or a CSP `connect-src 'self'` block in a hardened/enclave build.
+      // Key the offline fallback on the imagery load actually failing, so the
+      // globe degrades to the bundled Natural Earth II imagery instead of
+      // rendering blank.
+      const worldImagery = CesiumJs.createWorldImageryAsync();
+      worldImagery.catch(() => {
+        if (!cancelled) setMode("offline");
+      });
       const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
+        baseLayer: CesiumJs.ImageryLayer.fromProviderAsync(worldImagery, {}),
         terrain: CesiumJs.Terrain.fromWorldTerrain(),
         ...HIDDEN_WIDGETS,
       });
