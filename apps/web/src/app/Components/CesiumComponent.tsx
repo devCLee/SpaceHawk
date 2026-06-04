@@ -23,6 +23,7 @@ import type { Position } from "../types/position";
 import type { TleObject } from "../utils/sgp4FromTle";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 import { useCatalogView } from "../context/CatalogViewContext";
+import { useSensor } from "../context/SensorContext";
 import { classifyConstellation } from "../data/constellations";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
@@ -104,10 +105,12 @@ export const CesiumComponent: React.FunctionComponent<{
   const satsByIdRef = React.useRef<Map<string, RenderedSat>>(new Map());
   const pickHandlerRef = React.useRef<ScreenSpaceEventHandler | null>(null);
   const selectedOrbitRef = React.useRef<Entity | null>(null);
+  const sensorEntityRef = React.useRef<Entity | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
   const [mode, setMode] = React.useState<GlobeMode>("offline");
   const { selectedId, setSelectedId } = useSelectedSatellite();
   const { countryFilter, constellationFilter, watchlist } = useCatalogView();
+  const { activeSensor } = useSensor();
 
   // (Re)create the Cesium viewer whenever the globe mode changes. The imagery /
   // terrain providers are chosen at construction time, so switching mode rebuilds
@@ -124,6 +127,7 @@ export const CesiumComponent: React.FunctionComponent<{
     pointsRef.current = null;
     satsByIdRef.current = new Map();
     selectedOrbitRef.current = null;
+    sensorEntityRef.current = null;
     setIsLoaded(false);
 
     let cancelled = false;
@@ -398,6 +402,55 @@ export const CesiumComponent: React.FunctionComponent<{
       }
     };
   }, [selectedId, isLoaded, CesiumJs, tleEntries, mode]);
+
+  // Draw the active sensor's site marker + nominal coverage ring (#9c).
+  React.useEffect(() => {
+    if (!isLoaded || !cesiumViewer.current) return;
+    const viewer = cesiumViewer.current;
+    const Cesium = CesiumJs;
+
+    if (sensorEntityRef.current && !viewer.isDestroyed()) {
+      viewer.entities.remove(sensorEntityRef.current);
+      sensorEntityRef.current = null;
+    }
+    if (!activeSensor) return;
+
+    sensorEntityRef.current = viewer.entities.add({
+      name: activeSensor.name,
+      position: Cesium.Cartesian3.fromDegrees(
+        activeSensor.lonDeg,
+        activeSensor.latDeg,
+        0
+      ),
+      point: {
+        pixelSize: 10,
+        color: Cesium.Color.LIME,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 1,
+      },
+      label: {
+        text: activeSensor.name,
+        font: "12px system-ui, sans-serif",
+        fillColor: Cesium.Color.LIME,
+        pixelOffset: new Cesium.Cartesian2(0, -16),
+        style: Cesium.LabelStyle.FILL,
+      },
+      ellipse: {
+        semiMajorAxis: activeSensor.rangeKm * 1000,
+        semiMinorAxis: activeSensor.rangeKm * 1000,
+        material: Cesium.Color.LIME.withAlpha(0.1),
+        outline: true,
+        outlineColor: Cesium.Color.LIME.withAlpha(0.5),
+      },
+    });
+
+    return () => {
+      if (sensorEntityRef.current && !viewer.isDestroyed()) {
+        viewer.entities.remove(sensorEntityRef.current);
+        sensorEntityRef.current = null;
+      }
+    };
+  }, [activeSensor, isLoaded, CesiumJs, mode]);
 
   return (
     <div style={{ position: "relative" }}>

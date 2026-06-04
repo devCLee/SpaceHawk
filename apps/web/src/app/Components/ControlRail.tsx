@@ -5,6 +5,7 @@
 
 import React from "react";
 import SearchPanel from "./SearchPanel";
+import SensorPanel from "./SensorPanel";
 import {
   CountriesPanel,
   ConstellationsPanel,
@@ -30,6 +31,7 @@ export const ControlRail: React.FunctionComponent = () => {
       <SearchPanel />
       <CountriesPanel />
       <ConstellationsPanel />
+      <SensorPanel />
       <WatchlistPanel />
     </div>
   );
