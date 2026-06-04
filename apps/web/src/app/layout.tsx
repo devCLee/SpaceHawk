@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Header from "./Components/Header";
+import Providers from "./providers";
 
 export const metadata: Metadata = {
   title: "SpaceHawk",
@@ -27,8 +28,10 @@ export default function RootLayout({
             'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         }}
       >
-        <Header />
-        {children}
+        <Providers>
+          <Header />
+          {children}
+        </Providers>
       </body>
     </html>
   );

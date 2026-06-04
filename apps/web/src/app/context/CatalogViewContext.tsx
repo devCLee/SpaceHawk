@@ -36,10 +36,14 @@ export function CatalogViewProvider({
   >(null);
   const [watchlist, setWatchlist] = React.useState<string[]>([]);
 
-  // Load the persisted watchlist once on mount.
+  // Load the persisted watchlist once on mount. This is intentionally a
+  // post-mount setState (not a lazy initializer): reading localStorage during
+  // render would diverge between the server ([]) and the client, reintroducing
+  // a hydration mismatch. Safe here — it runs once and is not a render loop.
   React.useEffect(() => {
     try {
       const raw = window.localStorage.getItem(WATCHLIST_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe one-time load from localStorage
       if (raw) setWatchlist(JSON.parse(raw) as string[]);
     } catch {
       /* corrupt / unavailable storage — start empty */

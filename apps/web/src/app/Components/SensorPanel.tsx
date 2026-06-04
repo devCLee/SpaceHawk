@@ -16,6 +16,8 @@ import {
   type LookAngle,
   type SatPass,
 } from "../utils/lookAngles";
+import { useApiQuery } from "@/lib/api/useApiQuery";
+import { queryKeys } from "@/lib/api/queryKeys";
 import type { ObjectDetail } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
 
@@ -36,37 +38,22 @@ export const SensorPanel: React.FunctionComponent = () => {
   const { activeSensorId, setActiveSensorId, activeSensor } = useSensor();
   const { selectedId } = useSelectedSatellite();
 
-  const [detail, setDetail] = React.useState<ObjectDetail | null>(null);
   const [live, setLive] = React.useState<LookAngle | null>(null);
-  const [passes, setPasses] = React.useState<SatPass[]>([]);
 
-  // Fetch the selected object's detail (for its TLE) when selection changes.
-  React.useEffect(() => {
-    if (selectedId === null) {
-      setDetail(null);
-      return;
-    }
-    const controller = new AbortController();
-    fetch(`/api/catalog/${encodeURIComponent(selectedId)}`, {
-      signal: controller.signal,
-    })
-      .then((res) => (res.ok ? (res.json() as Promise<ObjectDetail>) : null))
-      .then((d) => setDetail(d))
-      .catch(() => {
-        /* ignore — pass tool stays empty */
-      });
-    return () => controller.abort();
-  }, [selectedId]);
+  const { data: detail } = useApiQuery<ObjectDetail>({
+    queryKey: queryKeys.catalogDetail(selectedId ?? ""),
+    url: `/api/catalog/${encodeURIComponent(selectedId ?? "")}`,
+    options: { enabled: selectedId !== null },
+  });
 
   const line1 = detail?.tle_line1;
   const line2 = detail?.tle_line2;
 
-  // Live look angle for the active sensor + selected object.
+  // Live look angle for the active sensor + selected object (reset by render
+  // gating — no synchronous setState in the effect body). `activeSensor` is a
+  // stable context value, so it's safe as a dependency.
   React.useEffect(() => {
-    if (!activeSensor || !line1 || !line2) {
-      setLive(null);
-      return;
-    }
+    if (!activeSensor || !line1 || !line2) return;
     const observer = {
       latDeg: activeSensor.latDeg,
       lonDeg: activeSensor.lonDeg,
@@ -78,23 +65,18 @@ export const SensorPanel: React.FunctionComponent = () => {
     return () => window.clearInterval(handle);
   }, [activeSensor, line1, line2]);
 
-  // Predict passes once per sensor/object change.
-  React.useEffect(() => {
-    if (!activeSensor || !line1 || !line2) {
-      setPasses([]);
-      return;
-    }
-    setPasses(
-      predictPasses(
-        line1,
-        line2,
-        {
-          latDeg: activeSensor.latDeg,
-          lonDeg: activeSensor.lonDeg,
-          altKm: activeSensor.altKm,
-        },
-        { durationHours: 24, minElevationDeg: 10 }
-      )
+  // Predicted passes — pure derivation from sensor + object, no effect needed.
+  const passes = React.useMemo<SatPass[]>(() => {
+    if (!activeSensor || !line1 || !line2) return [];
+    return predictPasses(
+      line1,
+      line2,
+      {
+        latDeg: activeSensor.latDeg,
+        lonDeg: activeSensor.lonDeg,
+        altKm: activeSensor.altKm,
+      },
+      { durationHours: 24, minElevationDeg: 10 }
     );
   }, [activeSensor, line1, line2]);
 

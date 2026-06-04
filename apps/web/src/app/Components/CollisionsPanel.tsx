@@ -8,7 +8,13 @@
 import React from "react";
 import CollapsiblePanel from "./CollapsiblePanel";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
-import type { Conjunction, ConjunctionSeverity } from "@/lib/orbital-engine";
+import { useApiQuery } from "@/lib/api/useApiQuery";
+import { queryKeys } from "@/lib/api/queryKeys";
+import type {
+  Conjunction,
+  ConjunctionSeverity,
+  ConjunctionsResult,
+} from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
 
 type SortKey = "tca" | "miss" | "pc";
@@ -33,33 +39,17 @@ function sortConjunctions(rows: Conjunction[], key: SortKey): Conjunction[] {
 
 export const CollisionsPanel: React.FunctionComponent = () => {
   const { setSelectedId } = useSelectedSatellite();
-  const [rows, setRows] = React.useState<Conjunction[]>([]);
-  const [available, setAvailable] = React.useState<boolean | null>(null);
-  const [status, setStatus] = React.useState<"loading" | "error" | "ready">(
-    "loading"
-  );
   const [sortKey, setSortKey] = React.useState<SortKey>("tca");
 
-  React.useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/conjunctions", { signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error(`conjunctions failed: ${res.status}`);
-        return res.json() as Promise<{
-          available: boolean;
-          conjunctions: Conjunction[];
-        }>;
-      })
-      .then((data) => {
-        setAvailable(data.available);
-        setRows(data.conjunctions);
-        setStatus("ready");
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") setStatus("error");
-      });
-    return () => controller.abort();
-  }, []);
+  const { data, isLoading, isError } = useApiQuery<ConjunctionsResult>({
+    queryKey: queryKeys.conjunctions(),
+    url: "/api/conjunctions",
+  });
+  const rows = React.useMemo<Conjunction[]>(
+    () => data?.conjunctions ?? [],
+    [data]
+  );
+  const available = data?.available ?? null;
 
   const sorted = React.useMemo(
     () => sortConjunctions(rows, sortKey),
@@ -68,15 +58,15 @@ export const CollisionsPanel: React.FunctionComponent = () => {
 
   return (
     <CollapsiblePanel title="Conjunctions">
-      {status === "loading" && <p style={s.muted}>Loading…</p>}
-      {status === "error" && <p style={s.error}>Screening unavailable.</p>}
-      {status === "ready" && available === false && (
+      {isLoading && <p style={s.muted}>Loading…</p>}
+      {isError && <p style={s.error}>Screening unavailable.</p>}
+      {!isLoading && !isError && available === false && (
         <p style={s.muted}>
           Conjunction screening lands in Stage 4. This panel will list ranked
           conjunctions once the screening service is online.
         </p>
       )}
-      {status === "ready" && available && (
+      {!isLoading && !isError && available && (
         <>
           <select
             style={s.input}
