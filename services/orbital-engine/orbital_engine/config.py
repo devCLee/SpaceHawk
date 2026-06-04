@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     # NORAD ids of protected assets screened continuously vs the whole catalog
     # (the RPO watch-list precursor; empty => bounded all-vs-all screening).
     protected_norad_ids: list[int] = []
+    # Only emit conjunction alerts at or above this tier (the trust-calibrated
+    # floor; LOW-tier approaches are still stored/queryable, just not alerted).
+    conjunction_alert_min_severity: Literal["LOW", "MOD", "HIGH"] = "MOD"
 
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).

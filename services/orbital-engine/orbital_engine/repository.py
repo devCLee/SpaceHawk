@@ -7,6 +7,7 @@ the propagation loop and the BFF only need a projection, not ORM entities.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy import text
@@ -332,3 +333,80 @@ async def query_conjunctions(
     async with get_engine().connect() as conn:
         result = await conn.execute(text(sql), params)
         return [dict(row) for row in result.mappings()]
+
+
+# ---------------------------------------------------------------------------
+# alert — durable, triageable alert log (Stage 4). Conjunction alerts upsert by
+# id (re-emission on escalation refreshes the row); the JSONB payload carries the
+# full conjunction for drill-down. Acknowledge/dismiss is an in-place status edit.
+# ---------------------------------------------------------------------------
+_ALERT_SELECT = (
+    "id, type, severity::text AS severity, object_id, conjunction_id, message, "
+    "payload, status::text AS status, acknowledged_by, acknowledged_at, "
+    "created_at, updated_at"
+)
+
+_ALERT_UPSERT_SQL = text(
+    """
+    INSERT INTO alert (id, type, severity, object_id, conjunction_id, message, payload)
+    VALUES (:id, :type, :severity, :object_id, :conjunction_id, :message,
+            CAST(:payload AS jsonb))
+    ON CONFLICT (id) DO UPDATE SET
+        type = EXCLUDED.type,
+        severity = EXCLUDED.severity,
+        object_id = EXCLUDED.object_id,
+        conjunction_id = EXCLUDED.conjunction_id,
+        message = EXCLUDED.message,
+        payload = EXCLUDED.payload,
+        updated_at = now()
+    """
+)
+
+
+async def record_alert(alert: dict[str, Any]) -> None:
+    """Persist (or refresh) one alert in the durable log."""
+    params = {
+        "id": alert["id"],
+        "type": alert["type"],
+        "severity": alert.get("severity"),
+        "object_id": alert.get("object_id"),
+        "conjunction_id": alert.get("conjunction_id"),
+        "message": alert["message"],
+        "payload": json.dumps(alert.get("payload", {})),
+    }
+    async with get_engine().begin() as conn:
+        await conn.execute(_ALERT_UPSERT_SQL, params)
+
+
+async def query_alerts(
+    *, status: str | None = None, limit: int = 100
+) -> list[dict[str, Any]]:
+    """Return alerts newest-first, optionally filtered by triage status."""
+    where = "WHERE status::text = :st " if status else ""
+    params: dict[str, Any] = {"lim": max(1, min(int(limit), 1000))}
+    if status:
+        params["st"] = status
+    sql = f"SELECT {_ALERT_SELECT} FROM alert {where}ORDER BY created_at DESC LIMIT :lim"
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql), params)
+        return [dict(row) for row in result.mappings()]
+
+
+async def set_alert_status(
+    alert_id: str, *, status: str, acknowledged_by: str | None
+) -> dict[str, Any] | None:
+    """Acknowledge/dismiss an alert. Returns the updated row, or None if absent."""
+    sql = text(
+        f"""
+        UPDATE alert
+           SET status = :st, acknowledged_by = :by, acknowledged_at = now(), updated_at = now()
+         WHERE id = :id
+        RETURNING {_ALERT_SELECT}
+        """
+    )
+    async with get_engine().begin() as conn:
+        result = await conn.execute(
+            sql, {"id": alert_id, "st": status, "by": acknowledged_by}
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None

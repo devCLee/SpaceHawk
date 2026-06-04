@@ -10,8 +10,9 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-from orbital_engine.alerts import RegionMonitor
+from orbital_engine.alerts import ConjunctionAlerter, RegionMonitor
 from orbital_engine.config import Settings
+from orbital_engine.ingestion.cdm import fetch_cdms
 from orbital_engine.ingestion.celestrak import fetch_celestrak
 from orbital_engine.logging import get_logger
 from orbital_engine.propagation.sgp4_service import propagate_objects
@@ -19,8 +20,11 @@ from orbital_engine.repository import (
     append_history,
     count_objects,
     fetch_catalog,
+    record_alert,
+    upsert_conjunctions,
     upsert_objects,
 )
+from orbital_engine.screening import screen_objects
 from orbital_engine.state import publish_alert, write_latest_state, write_object_states
 
 log = get_logger("pipeline")
@@ -63,3 +67,34 @@ async def run_propagation_loop(settings: Settings, stop: asyncio.Event) -> None:
         except TimeoutError:
             pass
     log.info("pipeline.loop.stop")
+
+
+async def run_screening_loop(settings: Settings, stop: asyncio.Event) -> None:
+    """Screen for conjunctions every cycle; persist them and fan out alerts.
+
+    Each cycle ingests any official CDMs (no-op without Space-Track creds), self-
+    screens the catalog (dev-plan §5 Stage 4), upserts both into the conjunction
+    store, then records + publishes alerts for new/escalated events at or above
+    the trust-calibrated tier floor. Runs far less often than the propagation
+    loop — screening is heavier and conjunctions evolve slowly.
+    """
+    alerter = ConjunctionAlerter(settings)
+    log.info("screening.loop.start", interval=settings.conjunction_screen_interval_sec)
+    while not stop.is_set():
+        try:
+            cdm_conjunctions = await fetch_cdms(settings)
+            rows = await fetch_catalog(settings.ingest_limit)
+            screened = screen_objects(rows, settings)
+            written = await upsert_conjunctions(cdm_conjunctions + screened)
+            for alert in alerter.evaluate(cdm_conjunctions + screened):
+                await record_alert(alert)
+                await publish_alert(alert)
+                log.info("screening.alert", id=alert["id"], severity=alert["severity"])
+            log.info("screening.cycle", screened=len(screened), cdms=len(cdm_conjunctions), written=written)
+        except Exception as exc:  # noqa: BLE001 - one bad cycle must not kill the loop
+            log.warning("screening.loop.error", error=str(exc))
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=settings.conjunction_screen_interval_sec)
+        except TimeoutError:
+            pass
+    log.info("screening.loop.stop")

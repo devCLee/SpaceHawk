@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from orbital_engine.config import Settings
+from orbital_engine.domain.conjunction import Conjunction, ConjunctionSeverity
 
 
 class RegionMonitor:
@@ -52,4 +53,59 @@ class RegionMonitor:
                         }
                     )
         self._inside = now_inside
+        return alerts
+
+
+# Tier ordering for "is this worse than what we already alerted on?" comparisons.
+_SEVERITY_RANK: dict[str, int] = {
+    ConjunctionSeverity.LOW.value: 0,
+    ConjunctionSeverity.MOD.value: 1,
+    ConjunctionSeverity.HIGH.value: 2,
+}
+
+
+class ConjunctionAlerter:
+    """Turns screened/CDM conjunctions into alerts, de-duplicated per event.
+
+    Mirrors :class:`RegionMonitor`: only emits when a conjunction is *new* or has
+    *escalated* to a higher tier since it was last alerted, so the analyst is not
+    spammed every screening cycle. Conjunctions below the configured minimum tier
+    are ignored entirely (the trust-calibrated floor that attacks the false-
+    positive drain, roadmap O2/O4).
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self._s = settings
+        self._emitted: dict[str, str] = {}  # conjunction id -> last emitted severity
+
+    def _min_rank(self) -> int:
+        return _SEVERITY_RANK.get(self._s.conjunction_alert_min_severity, 1)
+
+    def _to_alert(self, c: Conjunction) -> dict[str, Any]:
+        tca = c.tca.isoformat() if isinstance(c.tca, datetime) else str(c.tca)
+        return {
+            "id": c.id,
+            "type": "conjunction",
+            "severity": c.severity,
+            "object_id": c.primary_object_id,
+            "conjunction_id": c.id,
+            "message": (
+                f"{c.primary_name} ↔ {c.secondary_name}: "
+                f"{c.miss_distance_km:.2f} km miss @ {tca}"
+            ),
+            "payload": c.model_dump(mode="json"),
+            "ts": datetime.now(UTC).isoformat(),
+        }
+
+    def evaluate(self, conjunctions: list[Conjunction]) -> list[dict[str, Any]]:
+        """Return alert dicts for conjunctions that are new or have escalated."""
+        alerts: list[dict[str, Any]] = []
+        for c in conjunctions:
+            rank = _SEVERITY_RANK.get(c.severity, 0)
+            if rank < self._min_rank():
+                continue
+            prev = self._emitted.get(c.id)
+            if prev is None or rank > _SEVERITY_RANK.get(prev, -1):
+                alerts.append(self._to_alert(c))
+                self._emitted[c.id] = c.severity
         return alerts

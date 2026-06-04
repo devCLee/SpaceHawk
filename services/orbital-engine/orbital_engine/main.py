@@ -9,11 +9,11 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from orbital_engine.api import catalog, health
+from orbital_engine.api import catalog, conjunctions, health
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.db import dispose
 from orbital_engine.logging import configure_logging, get_logger
-from orbital_engine.pipeline import ingest_if_empty, run_propagation_loop
+from orbital_engine.pipeline import ingest_if_empty, run_propagation_loop, run_screening_loop
 from orbital_engine.state import close as close_redis
 
 
@@ -32,14 +32,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await ingest_if_empty(settings)
         except Exception as exc:  # noqa: BLE001
             log.warning("startup.ingest_failed", error=str(exc))
-        task = asyncio.create_task(run_propagation_loop(settings, stop))
+        tasks = [
+            asyncio.create_task(run_propagation_loop(settings, stop)),
+            asyncio.create_task(run_screening_loop(settings, stop)),
+        ]
         try:
             yield
         finally:
             stop.set()
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            for task in tasks:
+                task.cancel()
+            for task in tasks:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             await close_redis()
             await dispose()
 
@@ -64,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(catalog.router)
+    app.include_router(conjunctions.router)
 
     log.info("app.startup", environment=settings.environment, version=settings.version)
     return app
