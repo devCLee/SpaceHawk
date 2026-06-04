@@ -78,3 +78,44 @@ export function runOneSgp4ToLatLonAlt(
   return { lat, lng, height };
 }
 
+export interface Sgp4State {
+  /** Geodetic position (WGS-84). */
+  lat: number;
+  lng: number;
+  /** Altitude in km. */
+  altKm: number;
+  /** ECI velocity components (km/s). */
+  velocity: { x: number; y: number; z: number };
+  /** Speed magnitude (km/s). */
+  speedKmS: number;
+}
+
+/**
+ * Propagate a TLE to geodetic position + ECI velocity at `date`, for the info
+ * sidebar's live Current-Position / Orbital-Velocity readout. Display only —
+ * the Python engine remains authoritative for analysis (dev-plan §4.2). Unlike
+ * {@link runOneSgp4Calculation} this does not log to the console (it runs on a
+ * timer).
+ */
+export function runSgp4State(
+  line1: string,
+  line2: string,
+  date: Date = new Date()
+): Sgp4State | null {
+  const satrec = twoline2satrec(line1, line2);
+  const pv = propagate(satrec, date);
+  if (pv === null || pv.position == null || pv.velocity == null) {
+    return null;
+  }
+
+  const gd = eciToGeodetic(pv.position, gstime(date));
+  const { x, y, z } = pv.velocity;
+  return {
+    lat: degreesLat(gd.latitude),
+    lng: degreesLong(gd.longitude),
+    altKm: gd.height,
+    velocity: { x, y, z },
+    speedKmS: Math.sqrt(x * x + y * y + z * z),
+  };
+}
+

@@ -28,3 +28,43 @@ export async function fetchCatalog(): Promise<CatalogObject[]> {
   }
   return res.json() as Promise<CatalogObject[]>;
 }
+
+/** Full catalog record for the per-satellite info sidebar (#9h). Mirrors the
+ * engine's `ObjectDetail` response model — the subset the sidebar renders. */
+export interface ObjectDetail {
+  object_id: string;
+  norad_cat_id: number | null;
+  intl_designator: string | null;
+  object_name: string;
+  object_type: string | null;
+  country_code: string | null;
+  launch_date: string | null;
+  epoch: string | null;
+  inclination: number | null;
+  eccentricity: number | null;
+  ra_of_asc_node: number | null;
+  arg_of_pericenter: number | null;
+  mean_anomaly: number | null;
+  mean_motion: number | null;
+  semimajor_axis_km: number | null;
+  period_min: number | null;
+  apoapsis_km: number | null;
+  periapsis_km: number | null;
+  tle_line1: string | null;
+  tle_line2: string | null;
+}
+
+/** Fetch one object's full detail. Returns null on 404, throws on other errors. */
+export async function fetchObjectDetail(
+  objectId: string
+): Promise<ObjectDetail | null> {
+  const res = await fetch(
+    `${ENGINE_URL}/catalog/${encodeURIComponent(objectId)}`,
+    { cache: "no-store" }
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`orbital-engine /catalog/${objectId} failed: ${res.status}`);
+  }
+  return res.json() as Promise<ObjectDetail>;
+}
