@@ -136,6 +136,26 @@ class Settings(BaseSettings):
     roi_lon_min: float = 124.0
     roi_lon_max: float = 132.0
 
+    # The insecure development default; production must override it.
+    _DEV_JWT_SECRET = "dev-insecure-change-me"
+
+    def assert_secure_for_environment(self) -> None:
+        """Fail fast on insecure session config in production (Stage 5 hardening).
+
+        HS256 wants a >= 32-byte key (RFC 7518 §3.2), and the dev default is not a
+        secret. In production both are hard errors so a misconfigured enclave
+        deploy cannot silently run with a forgeable session key.
+        """
+        if self.environment != "production":
+            return
+        problems: list[str] = []
+        if self.auth_jwt_secret == self._DEV_JWT_SECRET:
+            problems.append("auth_jwt_secret is still the insecure dev default")
+        if len(self.auth_jwt_secret.encode("utf-8")) < 32:
+            problems.append("auth_jwt_secret must be at least 32 bytes for HS256")
+        if problems:
+            raise RuntimeError("insecure production configuration: " + "; ".join(problems))
+
     def tier_thresholds(self) -> TierThresholds:
         """Build the severity-tier cut points from the configured knobs."""
         return TierThresholds(

@@ -43,8 +43,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# local env files
+# local env files (but keep the committed, secret-free templates)
 .env*
+!.env.example
+!**/.env.example
 
 # claude
 .claude
