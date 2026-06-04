@@ -19,11 +19,31 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
 # Earth gravitational parameter (km^3/s^2), WGS-84 — shared with screening.py.
 _MU_EARTH = 398600.4418
+
+
+class ManeuverType(StrEnum):
+    """Rule-based purpose class (Stage 6 feature #11, dev-plan §5).
+
+    Determined from the Δv direction and magnitude (``maneuver_analysis``):
+    station-keeping (small correction), orbit raise/lower (net in-track ΔSMA),
+    phasing (along-track repositioning without a large ΔSMA), or RPO (assigned by
+    the co-planar RPO monitor in feature #12, which has the target geometry).
+    ``UNKNOWN`` covers plane-change / eccentricity-shaping burns outside the named
+    operational set — explicit rather than a forced (wrong) label.
+    """
+
+    STATION_KEEPING = "STATION_KEEPING"
+    ORBIT_RAISE = "ORBIT_RAISE"
+    ORBIT_LOWER = "ORBIT_LOWER"
+    PHASING = "PHASING"
+    RPO = "RPO"
+    UNKNOWN = "UNKNOWN"
 
 
 def semimajor_axis_km(mean_motion_rev_day: float) -> float:
@@ -66,4 +86,14 @@ class Maneuver(BaseModel):
     delta_raan_deg: float
     detection_statistic: float
     confidence: float
+    # Orbit context at the maneuver (feature #11) — kept on the record so the Δv /
+    # RIC estimate is reproducible from the row alone (explainability, O4).
+    sma_before_km: float | None = None
+    inclination_deg: float | None = None
+    # Δv / RIC decomposition + rule-based purpose (feature #11). All in m/s.
+    delta_v_m_s: float | None = None
+    ric_radial_m_s: float | None = None
+    ric_in_track_m_s: float | None = None
+    ric_cross_track_m_s: float | None = None
+    maneuver_type: ManeuverType = ManeuverType.UNKNOWN
     detected_at: datetime | None = None

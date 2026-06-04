@@ -132,6 +132,12 @@ class Settings(BaseSettings):
     maneuver_detect_interval_sec: int = 3600
     maneuver_history_lookback: int = 90
 
+    # --- Maneuver classification (Stage 6 / roadmap P2a feature #11) ---
+    # Total Δv below this [m/s] is routine station-keeping; ΔSMA at/above this [km]
+    # (when in-track dominates) is an orbit raise/lower vs an along-track phasing.
+    maneuver_station_keeping_dv_m_s: float = 1.0
+    maneuver_orbit_change_min_dsma_km: float = 2.0
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.

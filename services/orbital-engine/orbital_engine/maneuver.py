@@ -34,6 +34,7 @@ from typing import Any
 
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.domain.maneuver import Maneuver, make_maneuver_id, semimajor_axis_km
+from orbital_engine.maneuver_analysis import classify_maneuver
 
 # Scale factor making the MAD a consistent estimator of the standard deviation for
 # normally-distributed data (so ``k`` reads as "k sigma"). 1 / Phi^-1(0.75).
@@ -102,6 +103,8 @@ def _maneuver_from_transition(
         - float(before.get("ra_of_asc_node") or 0.0),
         detection_statistic=statistic,
         confidence=_confidence(statistic, k),
+        sma_before_km=before["_sma"],
+        inclination_deg=float(after.get("inclination") or 0.0),
     )
 
 
@@ -143,4 +146,6 @@ def detect_maneuvers(
         else:
             statistic = _SATURATED_STAT  # noiseless baseline, jump clears the floor
         maneuvers.append(_maneuver_from_transition(series[i], series[i + 1], statistic, k))
-    return maneuvers
+    # Enrich each detection with its Δv / RIC decomposition + purpose class so the
+    # persisted record is analyst-ready (feature #11); detection stays separable.
+    return [classify_maneuver(m, settings) for m in maneuvers]
