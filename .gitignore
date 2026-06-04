@@ -70,3 +70,4 @@ apps/web/public/cesium
 # fonts
 /public/fonts
 apps/web/public/fonts
+.gstack/
