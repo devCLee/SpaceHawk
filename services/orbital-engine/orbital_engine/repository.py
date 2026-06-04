@@ -106,6 +106,24 @@ async def fetch_catalog(limit: int | None = None) -> list[dict[str, Any]]:
         return [dict(row) for row in result.mappings()]
 
 
+async def fetch_catalog_elements(limit: int | None = None) -> list[dict[str, Any]]:
+    """Return current-catalog mean elements for the RPO co-planar screen (Stage 6).
+
+    Distinct from ``fetch_catalog`` (display projection): RPO needs the node
+    (``ra_of_asc_node``) and semi-major axis, which the display feed omits.
+    """
+    sql = (
+        "SELECT object_id, norad_cat_id, object_name, inclination, ra_of_asc_node, "
+        "       mean_motion, semimajor_axis_km "
+        "FROM space_object WHERE decay_date IS NULL ORDER BY object_name"
+    )
+    if limit is not None:
+        sql += f" LIMIT {int(limit)}"
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql))
+        return [dict(row) for row in result.mappings()]
+
+
 async def count_objects() -> int:
     async with get_engine().connect() as conn:
         result = await conn.execute(text("SELECT count(*) FROM space_object"))

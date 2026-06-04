@@ -45,8 +45,11 @@ hypertable — so it runs largely in parallel with the Phase-1 tail.
 2. **maneuver-classification** — Δv (vis-viva tangential approx, target ≤20%) +
    RIC decomposition + rule-based purpose (StationKeeping / OrbitRaise–Lower /
    Phasing / RPO). Extends the `Maneuver` record (migration `0007`).
-3. **rpo-monitoring** — co-planar RPO gates (Δi/ΔRAAN) on the protected-asset
-   list; watch-list model; `ManeuverAlerter` feeding the Stage-4 alert center.
+3. **rpo-monitoring** — co-planar RPO gates (Δi/ΔRAAN/Δa) on the protected-asset
+   list; `RpoMonitor` feeding the Stage-4 alert center. The watch-list stays
+   config-driven (`protected_norad_ids`, the documented RPO precursor shared with
+   Stage-4 screening); a CRUD watch-list table is deferred to avoid overlapping
+   Stage-3's shared user-watchlist model (dev-plan §9f) — out of scope here.
 4. **fingerprinting** — per-object behavioral baselines (maneuver cadence, mean
    Δv, dispersion) + deviation flags (the innovation spine; pure statistics).
 5. **explainability-ui** — `api/maneuvers.py` (ABAC `MANEUVER_INTEL`) + web BFF

@@ -12,6 +12,7 @@ from typing import Any
 
 from orbital_engine.config import Settings
 from orbital_engine.domain.conjunction import Conjunction, ConjunctionSeverity
+from orbital_engine.rpo import RpoEvent
 
 
 class RegionMonitor:
@@ -108,4 +109,59 @@ class ConjunctionAlerter:
             if prev is None or rank > _SEVERITY_RANK.get(prev, -1):
                 alerts.append(self._to_alert(c))
                 self._emitted[c.id] = c.severity
+        return alerts
+
+
+class RpoMonitor:
+    """Turns co-planar RPO events into alerts, de-duplicated per (asset, threat) pair.
+
+    Mirrors :class:`ConjunctionAlerter`: only emits when an RPO geometry is *new*
+    or has *escalated* tier since last alerted, so a persistently co-planar threat
+    does not re-alert every screening cycle (Stage 6 feature #12 → Stage-4 alert
+    center). RPO is a heightened-sensitivity signal, so — unlike conjunctions —
+    there is no minimum-tier floor: every flagged event is worth an analyst's eye.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self._s = settings
+        self._emitted: dict[str, str] = {}  # rpo event id -> last emitted severity
+
+    def _to_alert(self, e: RpoEvent) -> dict[str, Any]:
+        return {
+            "id": e.id,
+            "type": "rpo",
+            "severity": e.severity.value if isinstance(e.severity, ConjunctionSeverity) else e.severity,
+            "object_id": e.protected_object_id,
+            "conjunction_id": None,
+            "message": (
+                f"Co-planar RPO: {e.threat_name} shadowing {e.protected_name} "
+                f"(Δi={e.delta_inc_deg:.2f}°, ΔΩ={e.delta_raan_deg:.2f}°, "
+                f"Δa={e.delta_sma_km:.1f} km)"
+            ),
+            "payload": {
+                "protected_object_id": e.protected_object_id,
+                "protected_norad_cat_id": e.protected_norad_cat_id,
+                "protected_name": e.protected_name,
+                "threat_object_id": e.threat_object_id,
+                "threat_norad_cat_id": e.threat_norad_cat_id,
+                "threat_name": e.threat_name,
+                "delta_inc_deg": e.delta_inc_deg,
+                "delta_raan_deg": e.delta_raan_deg,
+                "delta_sma_km": e.delta_sma_km,
+                "coplanarity": e.coplanarity,
+                "severity": e.severity.value if isinstance(e.severity, ConjunctionSeverity) else e.severity,
+            },
+            "ts": datetime.now(UTC).isoformat(),
+        }
+
+    def evaluate(self, events: list[RpoEvent]) -> list[dict[str, Any]]:
+        """Return alert dicts for RPO events that are new or have escalated."""
+        alerts: list[dict[str, Any]] = []
+        for e in events:
+            sev = e.severity.value if isinstance(e.severity, ConjunctionSeverity) else e.severity
+            rank = _SEVERITY_RANK.get(sev, 0)
+            prev = self._emitted.get(e.id)
+            if prev is None or rank > _SEVERITY_RANK.get(prev, -1):
+                alerts.append(self._to_alert(e))
+                self._emitted[e.id] = sev
         return alerts
