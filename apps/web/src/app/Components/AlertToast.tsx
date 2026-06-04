@@ -40,7 +40,7 @@ export default function AlertToast() {
     <div
       style={{
         position: "fixed",
-        top: 64,
+        top: 112,
         right: 12,
         zIndex: 20,
         width: 320,

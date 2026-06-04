@@ -25,6 +25,7 @@ import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 import { useCatalogView } from "../context/CatalogViewContext";
 import { useSensor } from "../context/SensorContext";
 import { classifyConstellation } from "../data/constellations";
+import { toast } from "sonner";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
@@ -107,7 +108,22 @@ export const CesiumComponent: React.FunctionComponent<{
   const selectedOrbitRef = React.useRef<Entity | null>(null);
   const sensorEntityRef = React.useRef<Entity | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
-  const [mode, setMode] = React.useState<GlobeMode>("offline");
+  // Default to the online (Cesium Ion) globe; fall back to the bundled offline
+  // imagery only when the browser reports no network connection. This client-
+  // only component (CesiumWrapper loads it ssr:false) so `navigator` is safe.
+  const [mode, setMode] = React.useState<GlobeMode>(() =>
+    typeof navigator !== "undefined" && navigator.onLine === false
+      ? "offline"
+      : "online"
+  );
+
+  // On first mount, if there is no network, tell the user why they're seeing the
+  // offline globe. Fires once — manual switches afterward are intentional.
+  React.useEffect(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      toast.warning("No network connection detected — loading the offline globe.");
+    }
+  }, []);
   const { selectedId, setSelectedId } = useSelectedSatellite();
   const { countryFilter, constellationFilter, watchlist } = useCatalogView();
   const { activeSensor } = useSensor();
@@ -548,10 +564,13 @@ export const CesiumComponent: React.FunctionComponent<{
           setMode((m) => (m === "offline" ? "online" : "offline"))
         }
         style={{
+          // Top-right, below the 56px fixed header. The left edge is owned by
+          // the control rail (search/filters), so anchoring here keeps the
+          // toggle from being hidden under the catalog search panel.
           position: "absolute",
-          top: 8,
-          left: 8,
-          zIndex: 10,
+          top: 64,
+          right: 12,
+          zIndex: 30,
           padding: "6px 12px",
           borderRadius: 6,
           border: "1px solid rgba(255,255,255,0.4)",
