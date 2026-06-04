@@ -12,6 +12,8 @@ from typing import Any
 
 from orbital_engine.config import Settings
 from orbital_engine.domain.conjunction import Conjunction, ConjunctionSeverity
+from orbital_engine.domain.maneuver import Maneuver
+from orbital_engine.fingerprint import BaselineDeviation
 from orbital_engine.rpo import RpoEvent
 
 
@@ -164,4 +166,54 @@ class RpoMonitor:
             if prev is None or rank > _SEVERITY_RANK.get(prev, -1):
                 alerts.append(self._to_alert(e))
                 self._emitted[e.id] = sev
+        return alerts
+
+
+class AnomalyMonitor:
+    """Turns baseline-deviation flags into maneuver-anomaly alerts, once per event.
+
+    Stage 6 feature #14 (innovation spine → alert center). A maneuver that departs
+    from the object's behavioral baseline is alerted exactly once (keyed on the
+    maneuver id), carrying the *reasons* the fingerprint flagged it — the
+    explainable-intent signal an analyst acts on. Severity is HIGH for a strong
+    Δv departure or a never-before-seen purpose class, else MOD.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self._s = settings
+        self._emitted: set[str] = set()
+
+    def _severity(self, dev: BaselineDeviation) -> str:
+        strong = dev.novel_type or dev.delta_v_sigma >= 2.0 * self._s.fingerprint_deviation_sigma
+        return ConjunctionSeverity.HIGH.value if strong else ConjunctionSeverity.MOD.value
+
+    def _to_alert(self, dev: BaselineDeviation, m: Maneuver) -> dict[str, Any]:
+        return {
+            "id": f"ANOM:{dev.maneuver_id}",
+            "type": "maneuver-anomaly",
+            "severity": self._severity(dev),
+            "object_id": dev.object_id,
+            "conjunction_id": None,
+            "message": f"{m.object_name} anomalous {m.maneuver_type}: " + "; ".join(dev.reasons),
+            "payload": {
+                "maneuver_id": dev.maneuver_id,
+                "object_id": dev.object_id,
+                "object_name": m.object_name,
+                "maneuver_type": str(m.maneuver_type),
+                "delta_v_m_s": m.delta_v_m_s,
+                "delta_v_sigma": dev.delta_v_sigma,
+                "novel_type": dev.novel_type,
+                "reasons": dev.reasons,
+            },
+            "ts": datetime.now(UTC).isoformat(),
+        }
+
+    def evaluate(self, deviations: list[tuple[BaselineDeviation, Maneuver]]) -> list[dict[str, Any]]:
+        """Return alert dicts for newly-flagged anomalies (one per maneuver)."""
+        alerts: list[dict[str, Any]] = []
+        for dev, maneuver in deviations:
+            if not dev.is_anomalous or f"ANOM:{dev.maneuver_id}" in self._emitted:
+                continue
+            alerts.append(self._to_alert(dev, maneuver))
+            self._emitted.add(f"ANOM:{dev.maneuver_id}")
         return alerts
