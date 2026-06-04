@@ -14,8 +14,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: browser extensions (Grammarly, QuillBot, …)
+    // inject attributes onto <html>/<body> before React hydrates, which would
+    // otherwise log a hydration-mismatch warning. This only suppresses the
+    // warning one level deep on these elements — it does not mask real
+    // mismatches in app components.
+    <html lang="en" suppressHydrationWarning>
       <body
+        suppressHydrationWarning
         style={{
           fontFamily:
             'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
