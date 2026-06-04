@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from orbital_engine.db import get_engine
 from orbital_engine.domain.conjunction import Conjunction
+from orbital_engine.domain.maneuver import Maneuver
 from orbital_engine.domain.space_object import SpaceObject
 
 # Columns written on ingest. ``ingested_at`` is omitted so the DB default (now())
@@ -410,3 +411,51 @@ async def set_alert_status(
         )
         row = result.mappings().first()
         return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# maneuver — detected element-set transitions (Stage 6, dev-plan §5 feature #10).
+# Upsert keyed on the stable maneuver id so a re-scan over overlapping history
+# refreshes the row in place (detected_at re-stamped by the DB).
+# ---------------------------------------------------------------------------
+_MANEUVER_COLUMNS: tuple[str, ...] = (
+    "id",
+    "object_id",
+    "norad_cat_id",
+    "object_name",
+    "epoch_before",
+    "epoch_after",
+    "detected_epoch",
+    "delta_sma_km",
+    "delta_ecc",
+    "delta_inc_deg",
+    "delta_raan_deg",
+    "detection_statistic",
+    "confidence",
+)
+
+_MANEUVER_UPDATE_COLS = tuple(c for c in _MANEUVER_COLUMNS if c != "id")
+
+_MANEUVER_UPSERT_SQL = text(
+    "INSERT INTO maneuver ({cols}) VALUES ({binds}) "
+    "ON CONFLICT (id) DO UPDATE SET {updates}, detected_at = now()".format(
+        cols=", ".join(_MANEUVER_COLUMNS),
+        binds=", ".join(f":{c}" for c in _MANEUVER_COLUMNS),
+        updates=", ".join(f"{c} = EXCLUDED.{c}" for c in _MANEUVER_UPDATE_COLS),
+    )
+)
+
+
+def _to_maneuver_row(m: Maneuver) -> dict[str, Any]:
+    data = m.model_dump(mode="python")
+    return {col: data.get(col) for col in _MANEUVER_COLUMNS}
+
+
+async def upsert_maneuvers(maneuvers: list[Maneuver]) -> int:
+    """Upsert a batch of detected maneuvers. Returns the number written."""
+    if not maneuvers:
+        return 0
+    rows = [_to_maneuver_row(m) for m in maneuvers]
+    async with get_engine().begin() as conn:
+        await conn.execute(_MANEUVER_UPSERT_SQL, rows)
+    return len(rows)

@@ -117,6 +117,21 @@ class Settings(BaseSettings):
     # floor; LOW-tier approaches are still stored/queryable, just not alerted).
     conjunction_alert_min_severity: Literal["LOW", "MOD", "HIGH"] = "MOD"
 
+    # --- Maneuver detection (Stage 6 / roadmap P2a feature #10) ---
+    # Robust V-pattern flag over the gp_history SMA series (orbital_engine.maneuver).
+    # PREFIL needs at least this many element sets before any statistics run.
+    maneuver_min_history_points: int = 4
+    # A step is a maneuver when its deviation from the drag baseline exceeds this
+    # many scaled-MADs (reads as "k sigma"); analyst-tunable, deliberately explainable.
+    maneuver_mad_k: float = 5.0
+    # Absolute floor [km] on the SMA step: suppresses false positives against a
+    # noiseless feed (where any wobble is "infinitely many" MADs out).
+    maneuver_min_delta_sma_km: float = 0.5
+    # How often the detection loop re-scans (seconds) and how many recent element
+    # sets per object to consider (bounds work on a long-lived catalog).
+    maneuver_detect_interval_sec: int = 3600
+    maneuver_history_lookback: int = 90
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.

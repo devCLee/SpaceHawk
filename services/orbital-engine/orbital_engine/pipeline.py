@@ -15,13 +15,16 @@ from orbital_engine.config import Settings
 from orbital_engine.ingestion.cdm import fetch_cdms
 from orbital_engine.ingestion.celestrak import fetch_celestrak
 from orbital_engine.logging import get_logger
+from orbital_engine.maneuver import detect_maneuvers
 from orbital_engine.propagation.sgp4_service import propagate_objects
 from orbital_engine.repository import (
     append_history,
     count_objects,
     fetch_catalog,
+    fetch_history,
     record_alert,
     upsert_conjunctions,
+    upsert_maneuvers,
     upsert_objects,
 )
 from orbital_engine.screening import screen_objects
@@ -98,3 +101,36 @@ async def run_screening_loop(settings: Settings, stop: asyncio.Event) -> None:
         except TimeoutError:
             pass
     log.info("screening.loop.stop")
+
+
+async def run_maneuver_loop(settings: Settings, stop: asyncio.Event) -> None:
+    """Scan each object's element history for maneuvers; persist detections.
+
+    Stage 6 / roadmap P2a feature #10. Runs on its own (slow) cadence: maneuvers
+    are detected over the multi-epoch ``gp_history`` series, which only grows as
+    new element sets ingest, so re-scanning faster than ingest buys nothing. The
+    V-pattern detector (``orbital_engine.maneuver``) is pure; this loop is just
+    the per-object fan-out over the catalog (bounded by ``ingest_limit``).
+    """
+    log.info("maneuver.loop.start", interval=settings.maneuver_detect_interval_sec)
+    while not stop.is_set():
+        try:
+            rows = await fetch_catalog(settings.ingest_limit)
+            detected = 0
+            for row in rows:
+                history = await fetch_history(
+                    row["object_id"], limit=settings.maneuver_history_lookback
+                )
+                # fetch_history is identity-light; carry the catalog name/norad so
+                # detections are labelled without a second query per object.
+                identity = {"object_name": row.get("object_name"), "norad_cat_id": row.get("norad_cat_id")}
+                maneuvers = detect_maneuvers([{**h, **identity} for h in history], settings)
+                detected += await upsert_maneuvers(maneuvers)
+            log.info("maneuver.cycle", objects=len(rows), detected=detected)
+        except Exception as exc:  # noqa: BLE001 - one bad cycle must not kill the loop
+            log.warning("maneuver.loop.error", error=str(exc))
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=settings.maneuver_detect_interval_sec)
+        except TimeoutError:
+            pass
+    log.info("maneuver.loop.stop")
