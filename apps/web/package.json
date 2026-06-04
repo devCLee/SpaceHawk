@@ -12,6 +12,7 @@
     "load-test": "node scripts/load-test.mjs"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.0",
     "cesium": "^1.137.0",
     "next": "^16.1.1",
     "node-modules": "^1.0.1",

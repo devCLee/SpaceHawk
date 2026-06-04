@@ -16,6 +16,8 @@ import React from "react";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 import { useCatalogView } from "../context/CatalogViewContext";
 import { runSgp4State, type Sgp4State } from "../utils/sgp4FromTle";
+import { useApiQuery } from "@/lib/api/useApiQuery";
+import { queryKeys } from "@/lib/api/queryKeys";
 import type { ObjectDetail } from "@/lib/orbital-engine";
 
 /** Live position/velocity refresh cadence. */
@@ -46,49 +48,24 @@ const Group: React.FC<{ title: string; children: React.ReactNode }> = ({
 export const SatelliteInfoPanel: React.FunctionComponent = () => {
   const { selectedId, setSelectedId } = useSelectedSatellite();
   const { isWatched, toggleWatch } = useCatalogView();
-  const [detail, setDetail] = React.useState<ObjectDetail | null>(null);
-  const [status, setStatus] = React.useState<
-    "idle" | "loading" | "error" | "ready"
-  >("idle");
   const [live, setLive] = React.useState<Sgp4State | null>(null);
 
-  // Fetch the selected object's detail whenever the selection changes.
-  React.useEffect(() => {
-    if (selectedId === null) {
-      setDetail(null);
-      setStatus("idle");
-      return;
-    }
-    const controller = new AbortController();
-    setStatus("loading");
-    setDetail(null);
-    setLive(null);
-    fetch(`/api/catalog/${encodeURIComponent(selectedId)}`, {
-      signal: controller.signal,
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`detail fetch failed: ${res.status}`);
-        return res.json() as Promise<ObjectDetail>;
-      })
-      .then((d) => {
-        setDetail(d);
-        setStatus("ready");
-      })
-      .catch((err) => {
-        if (err.name === "AbortError") return;
-        setStatus("error");
-      });
-    return () => controller.abort();
-  }, [selectedId]);
+  const {
+    data: detail,
+    isLoading,
+    isError,
+  } = useApiQuery<ObjectDetail>({
+    queryKey: queryKeys.catalogDetail(selectedId ?? ""),
+    url: `/api/catalog/${encodeURIComponent(selectedId ?? "")}`,
+    options: { enabled: selectedId !== null },
+  });
 
-  // Propagate the live position/velocity from the TLE on a timer.
+  // Propagate the live position/velocity from the TLE on a timer. (Reset is by
+  // re-render gating below — no synchronous setState in the effect body.)
   React.useEffect(() => {
     const line1 = detail?.tle_line1;
     const line2 = detail?.tle_line2;
-    if (!line1 || !line2) {
-      setLive(null);
-      return;
-    }
+    if (!line1 || !line2) return;
     const tick = () => setLive(runSgp4State(line1, line2, new Date()));
     tick();
     const handle = window.setInterval(tick, LIVE_UPDATE_MS);
@@ -128,12 +105,10 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
         </div>
       </div>
 
-      {status === "loading" && <p style={styles.muted}>Loading object detail…</p>}
-      {status === "error" && (
-        <p style={styles.error}>Couldn’t load object detail.</p>
-      )}
+      {isLoading && <p style={styles.muted}>Loading object detail…</p>}
+      {isError && <p style={styles.error}>Couldn’t load object detail.</p>}
 
-      {status === "ready" && detail && (
+      {detail && (
         <>
           <Group title="Identity">
             <Row label="NORAD ID" value={detail.norad_cat_id?.toString() ?? "—"} />

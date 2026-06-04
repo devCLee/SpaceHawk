@@ -9,6 +9,8 @@ import { useCatalogView } from "../context/CatalogViewContext";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 import { countryName } from "../data/countries";
 import { CONSTELLATIONS } from "../data/constellations";
+import { useApiQuery } from "@/lib/api/useApiQuery";
+import { queryKeys } from "@/lib/api/queryKeys";
 import type { CatalogObject } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
 
@@ -23,37 +25,29 @@ function selectableRow(active: boolean): React.CSSProperties {
 
 export const CountriesPanel: React.FunctionComponent = () => {
   const { countryFilter, setCountryFilter } = useCatalogView();
-  const [counts, setCounts] = React.useState<Array<[string, number]>>([]);
-  const [status, setStatus] = React.useState<"loading" | "error" | "ready">(
-    "loading"
-  );
+  const {
+    data: rows = [],
+    isLoading,
+    isError,
+  } = useApiQuery<CatalogObject[]>({
+    queryKey: queryKeys.catalog({ limit: AGG_LIMIT }),
+    url: "/api/catalog",
+    options: { params: { limit: AGG_LIMIT } },
+  });
 
-  React.useEffect(() => {
-    const controller = new AbortController();
-    fetch(`/api/catalog?limit=${AGG_LIMIT}`, { signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error(`catalog fetch failed: ${res.status}`);
-        return res.json() as Promise<CatalogObject[]>;
-      })
-      .then((rows) => {
-        const tally = new Map<string, number>();
-        for (const r of rows) {
-          const code = r.country_code ?? "—";
-          tally.set(code, (tally.get(code) ?? 0) + 1);
-        }
-        setCounts([...tally.entries()].sort((a, b) => b[1] - a[1]));
-        setStatus("ready");
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") setStatus("error");
-      });
-    return () => controller.abort();
-  }, []);
+  const counts = React.useMemo<Array<[string, number]>>(() => {
+    const tally = new Map<string, number>();
+    for (const r of rows) {
+      const code = r.country_code ?? "—";
+      tally.set(code, (tally.get(code) ?? 0) + 1);
+    }
+    return [...tally.entries()].sort((a, b) => b[1] - a[1]);
+  }, [rows]);
 
   return (
     <CollapsiblePanel title="Countries">
-      {status === "loading" && <p style={s.muted}>Loading…</p>}
-      {status === "error" && <p style={s.error}>Catalog unavailable.</p>}
+      {isLoading && <p style={s.muted}>Loading…</p>}
+      {isError && <p style={s.error}>Catalog unavailable.</p>}
       {countryFilter && (
         <button
           type="button"
