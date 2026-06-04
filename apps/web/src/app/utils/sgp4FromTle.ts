@@ -14,6 +14,8 @@ export interface TleObject {
   /** Canonical catalog id (USOID) — stable handle for click-selection. */
   OBJECT_ID?: string;
   NORAD_CAT_ID?: number | null;
+  /** Owner/operator code (#9d colour-by-nation). */
+  COUNTRY_CODE?: string | null;
 }
 
 /**

@@ -14,6 +14,7 @@
 
 import React from "react";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
+import { useCatalogView } from "../context/CatalogViewContext";
 import { runSgp4State, type Sgp4State } from "../utils/sgp4FromTle";
 import type { ObjectDetail } from "@/lib/orbital-engine";
 
@@ -44,6 +45,7 @@ const Group: React.FC<{ title: string; children: React.ReactNode }> = ({
 
 export const SatelliteInfoPanel: React.FunctionComponent = () => {
   const { selectedId, setSelectedId } = useSelectedSatellite();
+  const { isWatched, toggleWatch } = useCatalogView();
   const [detail, setDetail] = React.useState<ObjectDetail | null>(null);
   const [status, setStatus] = React.useState<
     "idle" | "loading" | "error" | "ready"
@@ -101,14 +103,29 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
         <span style={styles.headerTitle}>
           {detail?.object_name ?? "Loading…"}
         </span>
-        <button
-          type="button"
-          aria-label="Close info panel"
-          onClick={() => setSelectedId(null)}
-          style={styles.closeButton}
-        >
-          ✕
-        </button>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            type="button"
+            aria-label={
+              isWatched(selectedId) ? "Remove from watchlist" : "Add to watchlist"
+            }
+            onClick={() => toggleWatch(selectedId)}
+            style={{
+              ...styles.closeButton,
+              color: isWatched(selectedId) ? "#ffa94d" : "#9aa7b4",
+            }}
+          >
+            {isWatched(selectedId) ? "★" : "☆"}
+          </button>
+          <button
+            type="button"
+            aria-label="Close info panel"
+            onClick={() => setSelectedId(null)}
+            style={styles.closeButton}
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {status === "loading" && <p style={styles.muted}>Loading object detail…</p>}

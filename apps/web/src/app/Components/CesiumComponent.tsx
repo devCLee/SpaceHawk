@@ -22,6 +22,8 @@ import {
 import type { Position } from "../types/position";
 import type { TleObject } from "../utils/sgp4FromTle";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
+import { useCatalogView } from "../context/CatalogViewContext";
+import { classifyConstellation } from "../data/constellations";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
@@ -41,6 +43,8 @@ const POSITION_UPDATE_SEC = 1;
 
 const POINT_SIZE = 3;
 const SELECTED_POINT_SIZE = 10;
+const WATCHED_POINT_SIZE = 6;
+const MATCH_POINT_SIZE = 4;
 
 /**
  * Globe data source:
@@ -58,6 +62,8 @@ interface RenderedSat {
   name: string;
   satrec: SatRec;
   primitive: PointPrimitive;
+  countryCode: string | null;
+  constellation: string | null;
 }
 
 /** Default Cesium widgets to hide — keep timeline/animation (time control) and
@@ -98,10 +104,10 @@ export const CesiumComponent: React.FunctionComponent<{
   const satsByIdRef = React.useRef<Map<string, RenderedSat>>(new Map());
   const pickHandlerRef = React.useRef<ScreenSpaceEventHandler | null>(null);
   const selectedOrbitRef = React.useRef<Entity | null>(null);
-  const highlightedRef = React.useRef<PointPrimitive | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
   const [mode, setMode] = React.useState<GlobeMode>("offline");
   const { selectedId, setSelectedId } = useSelectedSatellite();
+  const { countryFilter, constellationFilter, watchlist } = useCatalogView();
 
   // (Re)create the Cesium viewer whenever the globe mode changes. The imagery /
   // terrain providers are chosen at construction time, so switching mode rebuilds
@@ -118,7 +124,6 @@ export const CesiumComponent: React.FunctionComponent<{
     pointsRef.current = null;
     satsByIdRef.current = new Map();
     selectedOrbitRef.current = null;
-    highlightedRef.current = null;
     setIsLoaded(false);
 
     let cancelled = false;
@@ -200,7 +205,6 @@ export const CesiumComponent: React.FunctionComponent<{
 
     const satsById = new Map<string, RenderedSat>();
     satsByIdRef.current = satsById;
-    highlightedRef.current = null;
 
     const now = new Date();
 
@@ -222,11 +226,14 @@ export const CesiumComponent: React.FunctionComponent<{
         outlineWidth: 1,
       });
 
+      const name = entry.OBJECT_NAME ?? id;
       satsById.set(id, {
         id,
-        name: entry.OBJECT_NAME ?? id,
+        name,
         satrec,
         primitive,
+        countryCode: entry.COUNTRY_CODE ?? null,
+        constellation: classifyConstellation(name),
       });
     });
 
@@ -283,26 +290,67 @@ export const CesiumComponent: React.FunctionComponent<{
       if (!viewer.isDestroyed()) viewer.scene.primitives.remove(points);
       pointsRef.current = null;
       satsByIdRef.current = new Map();
-      highlightedRef.current = null;
     };
   }, [isLoaded, CesiumJs, tleEntries, mode, setSelectedId]);
 
-  // Highlight the selected point and draw its orbit/ground track as a single
-  // time-dynamic Entity (dev-plan §4.3 — Entity reserved for the selected
-  // handful only).
+  // Style every point from the current view state: selection (yellow) >
+  // watchlist (orange) > country/constellation filter match (cyan) > dimmed
+  // (filter active, no match) > default (white). One O(N) pass, only on a
+  // selection/filter/watchlist change — not per frame.
+  React.useEffect(() => {
+    if (!isLoaded || !cesiumViewer.current || cesiumViewer.current.isDestroyed())
+      return;
+
+    const Cesium = CesiumJs;
+    const watchSet = new Set(watchlist);
+    const filterActive = Boolean(countryFilter || constellationFilter);
+
+    satsByIdRef.current.forEach((sat) => {
+      const countryOk = !countryFilter || sat.countryCode === countryFilter;
+      const constOk =
+        !constellationFilter || sat.constellation === constellationFilter;
+      const matches = countryOk && constOk;
+
+      let color = Cesium.Color.WHITE;
+      let size = POINT_SIZE;
+      if (filterActive && matches) {
+        color = Cesium.Color.CYAN;
+        size = MATCH_POINT_SIZE;
+      } else if (filterActive) {
+        color = Cesium.Color.GRAY.withAlpha(0.25);
+        size = 2;
+      }
+      if (watchSet.has(sat.id)) {
+        color = Cesium.Color.ORANGE;
+        size = WATCHED_POINT_SIZE;
+      }
+      if (sat.id === selectedId) {
+        color = Cesium.Color.YELLOW;
+        size = SELECTED_POINT_SIZE;
+      }
+      sat.primitive.color = color;
+      sat.primitive.pixelSize = size;
+    });
+  }, [
+    selectedId,
+    countryFilter,
+    constellationFilter,
+    watchlist,
+    isLoaded,
+    CesiumJs,
+    tleEntries,
+    mode,
+  ]);
+
+  // Draw the selected object's orbit/ground track as the single time-dynamic
+  // Entity reserved for the selected handful (dev-plan §4.3). Colour of the
+  // point itself is handled by the styling effect above.
   React.useEffect(() => {
     if (!isLoaded || !cesiumViewer.current) return;
 
     const viewer = cesiumViewer.current;
     const Cesium = CesiumJs;
 
-    // Reset the previously-highlighted point.
-    if (highlightedRef.current && !viewer.isDestroyed()) {
-      highlightedRef.current.color = Cesium.Color.WHITE;
-      highlightedRef.current.pixelSize = POINT_SIZE;
-      highlightedRef.current = null;
-    }
-    // Remove the previous orbit.
     if (selectedOrbitRef.current && !viewer.isDestroyed()) {
       viewer.entities.remove(selectedOrbitRef.current);
       selectedOrbitRef.current = null;
@@ -311,11 +359,6 @@ export const CesiumComponent: React.FunctionComponent<{
     if (selectedId === null) return;
     const sat = satsByIdRef.current.get(selectedId);
     if (!sat) return;
-
-    // Highlight the point.
-    sat.primitive.color = Cesium.Color.YELLOW;
-    sat.primitive.pixelSize = SELECTED_POINT_SIZE;
-    highlightedRef.current = sat.primitive;
 
     // Sample one orbit around "now" for the path line.
     const property = new Cesium.SampledPositionProperty(
@@ -349,11 +392,6 @@ export const CesiumComponent: React.FunctionComponent<{
     });
 
     return () => {
-      if (highlightedRef.current && !viewer.isDestroyed()) {
-        highlightedRef.current.color = Cesium.Color.WHITE;
-        highlightedRef.current.pixelSize = POINT_SIZE;
-        highlightedRef.current = null;
-      }
       if (selectedOrbitRef.current && !viewer.isDestroyed()) {
         viewer.entities.remove(selectedOrbitRef.current);
         selectedOrbitRef.current = null;

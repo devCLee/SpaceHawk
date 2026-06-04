@@ -16,6 +16,7 @@ function toTleEntries(rows: CatalogObject[]): TleObject[] {
       OBJECT_NAME: r.object_name,
       OBJECT_ID: r.object_id,
       NORAD_CAT_ID: r.norad_cat_id,
+      COUNTRY_CODE: r.country_code,
     }));
 }
 
