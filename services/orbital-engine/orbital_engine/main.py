@@ -19,6 +19,7 @@ from orbital_engine.state import close as close_redis
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    settings.assert_secure_for_environment()
     configure_logging(level=settings.log_level, json_logs=settings.log_json)
     log = get_logger("orbital_engine")
 

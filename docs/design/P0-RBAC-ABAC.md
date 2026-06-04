@@ -48,5 +48,17 @@ zero-trust resource. Audit completeness is a pen-test / red-team check (Stage 5)
 
 - Ratify the clearance × service × need-to-know matrix with the tri-service governance
   body (depends on the signed MOU — see `P0-ARB-GATE.md`).
-- Confirm the policy engine approach (embedded policy vs external PDP) for the enclave.
-- Approve the default-deny posture and the export-grant + audit requirement.
+- ~~Confirm the policy engine approach (embedded policy vs external PDP) for the enclave.~~
+  **Resolved (Stage 5): embedded in-code PDP** (`orbital_engine/security/policy.py`).
+- ~~Approve the default-deny posture and the export-grant + audit requirement.~~
+  **Implemented (Stage 5).**
+
+## 7. Stage 5 implementation
+
+This model is now built. The **auth mechanism** (left implicit here) was decided
+as a **session cookie + engine-signed JWT + `/auth/me` + guard components** (no
+external IdP). See [`STAGE-5-SECURITY-MEMO.md`](./STAGE-5-SECURITY-MEMO.md) for
+the full enforcement map, test evidence, and residual items. Enforcement is at
+both seams (web `proxy.ts`/guards + the authoritative engine `requires(...)`),
+every decision is written to the append-only `audit_log`, and the access-control
+pen-test battery lives in `services/orbital-engine/tests/test_pentest.py`.
