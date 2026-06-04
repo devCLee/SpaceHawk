@@ -29,6 +29,33 @@ export async function fetchCatalog(): Promise<CatalogObject[]> {
   return res.json() as Promise<CatalogObject[]>;
 }
 
+export interface CatalogQuery {
+  q?: string;
+  object_type?: string;
+  country_code?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Query the catalog with filters (name/NORAD substring, type, country). */
+export async function queryCatalog(
+  query: CatalogQuery
+): Promise<CatalogObject[]> {
+  const params = new URLSearchParams();
+  if (query.q) params.set("q", query.q);
+  if (query.object_type) params.set("object_type", query.object_type);
+  if (query.country_code) params.set("country_code", query.country_code);
+  if (query.limit != null) params.set("limit", String(query.limit));
+  if (query.offset != null) params.set("offset", String(query.offset));
+  const res = await fetch(`${ENGINE_URL}/catalog?${params.toString()}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`orbital-engine /catalog query failed: ${res.status}`);
+  }
+  return res.json() as Promise<CatalogObject[]>;
+}
+
 /** Full catalog record for the per-satellite info sidebar (#9h). Mirrors the
  * engine's `ObjectDetail` response model — the subset the sidebar renders. */
 export interface ObjectDetail {

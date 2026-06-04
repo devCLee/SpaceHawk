@@ -78,6 +78,41 @@ export function runOneSgp4ToLatLonAlt(
   return { lat, lng, height };
 }
 
+export type OrbitRegime = "LEO" | "MEO" | "GEO" | "HEO";
+
+export interface OrbitParams {
+  inclinationDeg: number;
+  periodMin: number;
+  eccentricity: number;
+  regime: OrbitRegime;
+}
+
+/** Classify an orbit regime from period + eccentricity (coarse, for find-sat). */
+function classifyRegime(periodMin: number, eccentricity: number): OrbitRegime {
+  if (eccentricity > 0.25) return "HEO";
+  if (periodMin < 128) return "LEO";
+  if (periodMin >= 1410 && periodMin <= 1450) return "GEO";
+  return "MEO";
+}
+
+/** Derive inclination / period / eccentricity / regime from a TLE (#9b). */
+export function deriveOrbitParams(
+  line1: string,
+  line2: string
+): OrbitParams | null {
+  const satrec = twoline2satrec(line1, line2);
+  if (!satrec.no || satrec.no <= 0) return null;
+  const periodMin = (2 * Math.PI) / satrec.no; // satrec.no is rad/min
+  const inclinationDeg = (satrec.inclo * 180) / Math.PI;
+  const eccentricity = satrec.ecco;
+  return {
+    inclinationDeg,
+    periodMin,
+    eccentricity,
+    regime: classifyRegime(periodMin, eccentricity),
+  };
+}
+
 export interface Sgp4State {
   /** Geodetic position (WGS-84). */
   lat: number;
