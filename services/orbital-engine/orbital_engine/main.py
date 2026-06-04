@@ -17,6 +17,7 @@ from orbital_engine.pipeline import (
     ingest_if_empty,
     run_maneuver_loop,
     run_propagation_loop,
+    run_rpo_loop,
     run_screening_loop,
 )
 from orbital_engine.state import close as close_redis
@@ -42,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             asyncio.create_task(run_propagation_loop(settings, stop)),
             asyncio.create_task(run_screening_loop(settings, stop)),
             asyncio.create_task(run_maneuver_loop(settings, stop)),
+            asyncio.create_task(run_rpo_loop(settings, stop)),
         ]
         try:
             yield

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-from orbital_engine.alerts import ConjunctionAlerter, RegionMonitor
+from orbital_engine.alerts import ConjunctionAlerter, RegionMonitor, RpoMonitor
 from orbital_engine.config import Settings
 from orbital_engine.ingestion.cdm import fetch_cdms
 from orbital_engine.ingestion.celestrak import fetch_celestrak
@@ -21,12 +21,14 @@ from orbital_engine.repository import (
     append_history,
     count_objects,
     fetch_catalog,
+    fetch_catalog_elements,
     fetch_history,
     record_alert,
     upsert_conjunctions,
     upsert_maneuvers,
     upsert_objects,
 )
+from orbital_engine.rpo import screen_rpo
 from orbital_engine.screening import screen_objects
 from orbital_engine.state import publish_alert, write_latest_state, write_object_states
 
@@ -134,3 +136,38 @@ async def run_maneuver_loop(settings: Settings, stop: asyncio.Event) -> None:
         except TimeoutError:
             pass
     log.info("maneuver.loop.stop")
+
+
+async def run_rpo_loop(settings: Settings, stop: asyncio.Event) -> None:
+    """Screen the catalog for co-planar approachers of protected assets; alert.
+
+    Stage 6 / roadmap P2a feature #12. Each cycle splits the catalog into the
+    protected watch-list (``protected_norad_ids``) and everything else, runs the
+    co-planar/co-altitude geometry screen, and records + publishes RPO alerts for
+    new/escalated events into the Stage-4 alert center. A no-op while the
+    watch-list is empty (the air-gap default until protected assets are loaded).
+    """
+    if not settings.protected_norad_ids:
+        log.info("rpo.loop.skip", reason="no protected assets configured")
+        return
+    monitor = RpoMonitor(settings)
+    protected_ids = {int(n) for n in settings.protected_norad_ids}
+    log.info("rpo.loop.start", interval=settings.rpo_screen_interval_sec, protected=len(protected_ids))
+    while not stop.is_set():
+        try:
+            rows = await fetch_catalog_elements(settings.ingest_limit)
+            protected = [r for r in rows if r.get("norad_cat_id") in protected_ids]
+            others = [r for r in rows if r.get("norad_cat_id") not in protected_ids]
+            events = screen_rpo(protected, others, settings)
+            for alert in monitor.evaluate(events):
+                await record_alert(alert)
+                await publish_alert(alert)
+                log.info("rpo.alert", id=alert["id"], severity=alert["severity"])
+            log.info("rpo.cycle", protected=len(protected), events=len(events))
+        except Exception as exc:  # noqa: BLE001 - one bad cycle must not kill the loop
+            log.warning("rpo.loop.error", error=str(exc))
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=settings.rpo_screen_interval_sec)
+        except TimeoutError:
+            pass
+    log.info("rpo.loop.stop")

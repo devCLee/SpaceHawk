@@ -138,6 +138,17 @@ class Settings(BaseSettings):
     maneuver_station_keeping_dv_m_s: float = 1.0
     maneuver_orbit_change_min_dsma_km: float = 2.0
 
+    # --- Co-planar RPO monitoring (Stage 6 / roadmap P2a feature #12) ---
+    # A threat is co-planar/co-altitude with a protected asset (the RPO geometry)
+    # when its inclination, node and semi-major axis all sit within these gates.
+    # The protected-asset watch-list is `protected_norad_ids` (shared with Stage-4
+    # screening); RPO screening is a no-op when it is empty.
+    rpo_inclination_gate_deg: float = 1.0
+    rpo_raan_gate_deg: float = 5.0
+    rpo_sma_gate_km: float = 50.0
+    # How often the RPO screen re-runs over the catalog (seconds).
+    rpo_screen_interval_sec: int = 600
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.
