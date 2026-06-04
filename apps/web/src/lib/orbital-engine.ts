@@ -81,6 +81,44 @@ export interface ObjectDetail {
   tle_line2: string | null;
 }
 
+export type ConjunctionSeverity = "LOW" | "MOD" | "HIGH";
+
+/** One screened conjunction (#9g). The Stage-4 screening service will populate
+ * the engine `/conjunctions` endpoint; this is the contract the UI renders. */
+export interface Conjunction {
+  id: string;
+  primary_object_id: string;
+  primary_name: string;
+  secondary_object_id: string;
+  secondary_name: string;
+  /** Time of closest approach (ISO). */
+  tca: string;
+  miss_distance_km: number;
+  probability: number | null;
+  severity: ConjunctionSeverity;
+}
+
+export interface ConjunctionsResult {
+  /** False until the Stage-4 screening service is online. */
+  available: boolean;
+  conjunctions: Conjunction[];
+}
+
+/** Fetch screened conjunctions. Returns `available: false` until the engine's
+ * Stage-4 `/conjunctions` endpoint exists (graceful, never throws). */
+export async function fetchConjunctions(): Promise<ConjunctionsResult> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/conjunctions`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return { available: false, conjunctions: [] };
+    const data = (await res.json()) as Conjunction[];
+    return { available: true, conjunctions: data };
+  } catch {
+    return { available: false, conjunctions: [] };
+  }
+}
+
 /** Fetch one object's full detail. Returns null on 404, throws on other errors. */
 export async function fetchObjectDetail(
   objectId: string
