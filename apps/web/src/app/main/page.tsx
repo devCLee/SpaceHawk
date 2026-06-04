@@ -1,4 +1,4 @@
-import CesiumWrapper from "../Components/CesiumWrapper";
+import DashboardShell from "../Components/DashboardShell";
 import AlertToast from "../Components/AlertToast";
 import mainData from "@/data/main.json";
 import type { TleObject } from "../utils/sgp4FromTle";
@@ -38,7 +38,7 @@ export default async function MainPage() {
 
   return (
     <>
-      <CesiumWrapper positions={[]} tleEntries={tleEntries} />
+      <DashboardShell tleEntries={tleEntries} />
       <AlertToast />
     </>
   );

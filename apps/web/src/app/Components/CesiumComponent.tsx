@@ -21,6 +21,7 @@ import {
 } from "satellite.js";
 import type { Position } from "../types/position";
 import type { TleObject } from "../utils/sgp4FromTle";
+import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
@@ -100,7 +101,7 @@ export const CesiumComponent: React.FunctionComponent<{
   const highlightedRef = React.useRef<PointPrimitive | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
   const [mode, setMode] = React.useState<GlobeMode>("offline");
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const { selectedId, setSelectedId } = useSelectedSatellite();
 
   // (Re)create the Cesium viewer whenever the globe mode changes. The imagery /
   // terrain providers are chosen at construction time, so switching mode rebuilds
@@ -284,7 +285,7 @@ export const CesiumComponent: React.FunctionComponent<{
       satsByIdRef.current = new Map();
       highlightedRef.current = null;
     };
-  }, [isLoaded, CesiumJs, tleEntries, mode]);
+  }, [isLoaded, CesiumJs, tleEntries, mode, setSelectedId]);
 
   // Highlight the selected point and draw its orbit/ground track as a single
   // time-dynamic Entity (dev-plan §4.3 — Entity reserved for the selected
