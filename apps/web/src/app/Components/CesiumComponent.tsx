@@ -153,7 +153,18 @@ export const CesiumComponent: React.FunctionComponent<{
       if (process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
         CesiumJs.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
       }
+      // Ion world imagery loads via the Ion REST endpoint (api.cesium.com). That
+      // request can fail for reasons navigator.onLine cannot see: an unset/bad
+      // token, or a CSP `connect-src 'self'` block in a hardened/enclave build.
+      // Key the offline fallback on the imagery load actually failing, so the
+      // globe degrades to the bundled Natural Earth II imagery instead of
+      // rendering blank.
+      const worldImagery = CesiumJs.createWorldImageryAsync();
+      worldImagery.catch(() => {
+        if (!cancelled) setMode("offline");
+      });
       const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
+        baseLayer: CesiumJs.ImageryLayer.fromProviderAsync(worldImagery, {}),
         terrain: CesiumJs.Terrain.fromWorldTerrain(),
         ...HIDDEN_WIDGETS,
       });
