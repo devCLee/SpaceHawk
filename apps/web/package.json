@@ -8,7 +8,8 @@
     "build": "npm run copy-cesium && next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "load-test": "node scripts/load-test.mjs"
   },
   "dependencies": {
     "cesium": "^1.137.0",
