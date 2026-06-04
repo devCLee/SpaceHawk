@@ -47,6 +47,19 @@ export const http = {
     }
     return res.json() as Promise<T>;
   },
+  post: async <T>(url: string, body?: unknown, init?: RequestInit): Promise<T> => {
+    const res = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      ...init,
+    });
+    if (!res.ok) {
+      throw new ApiError(res.status, `POST ${url} failed: ${res.status}`);
+    }
+    return res.json() as Promise<T>;
+  },
 };
 
 /** Parse an error into a user-facing message (house convention). */

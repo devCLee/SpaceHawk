@@ -87,15 +87,22 @@ export type ConjunctionSeverity = "LOW" | "MOD" | "HIGH";
  * the engine `/conjunctions` endpoint; this is the contract the UI renders. */
 export interface Conjunction {
   id: string;
+  /** "CDM" (official message) or "SCREENING" (engine-computed). */
+  source?: "CDM" | "SCREENING";
+  cdm_id?: string | null;
   primary_object_id: string;
+  primary_norad_cat_id?: number | null;
   primary_name: string;
   secondary_object_id: string;
+  secondary_norad_cat_id?: number | null;
   secondary_name: string;
   /** Time of closest approach (ISO). */
   tca: string;
   miss_distance_km: number;
+  relative_speed_km_s?: number | null;
   probability: number | null;
   severity: ConjunctionSeverity;
+  screened_at?: string | null;
 }
 
 export interface ConjunctionsResult {
@@ -117,6 +124,57 @@ export async function fetchConjunctions(): Promise<ConjunctionsResult> {
   } catch {
     return { available: false, conjunctions: [] };
   }
+}
+
+export type AlertStatus = "NEW" | "ACK" | "DISMISSED";
+
+/** One durable alert in the triage log (alert center). */
+export interface Alert {
+  id: string;
+  type: string;
+  severity: ConjunctionSeverity | null;
+  object_id: string | null;
+  conjunction_id: string | null;
+  message: string;
+  payload: Record<string, unknown>;
+  status: AlertStatus;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  created_at: string | null;
+}
+
+/** Fetch the durable alert log, optionally filtered by triage status. */
+export async function fetchAlerts(status?: string): Promise<Alert[]> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  const res = await fetch(`${ENGINE_URL}/alerts?${params.toString()}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`orbital-engine /alerts failed: ${res.status}`);
+  }
+  return res.json() as Promise<Alert[]>;
+}
+
+/** Acknowledge or dismiss an alert. Returns null on 404, throws on other errors. */
+export async function acknowledgeAlert(
+  id: string,
+  body: { status: "ACK" | "DISMISSED"; acknowledged_by?: string }
+): Promise<Alert | null> {
+  const res = await fetch(
+    `${ENGINE_URL}/alerts/${encodeURIComponent(id)}/ack`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    }
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`orbital-engine /alerts/${id}/ack failed: ${res.status}`);
+  }
+  return res.json() as Promise<Alert>;
 }
 
 /** Fetch one object's full detail. Returns null on 404, throws on other errors. */

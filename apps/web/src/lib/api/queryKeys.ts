@@ -12,4 +12,6 @@ export const queryKeys = {
     ["catalog", "detail", objectId] as const,
   // GET /api/conjunctions
   conjunctions: () => ["conjunctions", "list"] as const,
+  // GET /api/alerts/log
+  alerts: (status?: string) => ["alerts", "list", status ?? "all"] as const,
 };

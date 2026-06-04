@@ -84,15 +84,24 @@ export const CollisionsPanel: React.FunctionComponent = () => {
               {sorted.map((c) => (
                 <li
                   key={c.id}
-                  style={s.listItem}
+                  style={{ ...s.listItem, flexDirection: "column", alignItems: "stretch", gap: 2 }}
                   onClick={() => setSelectedId(c.primary_object_id)}
                 >
-                  <span>
-                    {c.primary_name} ↔ {c.secondary_name}
-                  </span>
-                  <span style={{ color: SEVERITY_COLOR[c.severity] }}>
-                    {c.miss_distance_km.toFixed(1)} km
-                  </span>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span>
+                      {c.primary_name} ↔ {c.secondary_name}
+                    </span>
+                    <span style={{ color: SEVERITY_COLOR[c.severity], fontWeight: 600 }}>
+                      {c.severity}
+                    </span>
+                  </div>
+                  <div style={{ ...s.muted, fontSize: 11, display: "flex", gap: 10 }}>
+                    <span>{c.miss_distance_km.toFixed(2)} km</span>
+                    <span>
+                      Pc {c.probability != null ? c.probability.toExponential(1) : "n/a"}
+                    </span>
+                    <span>{new Date(c.tca).toLocaleString()}</span>
+                  </div>
                 </li>
               ))}
             </ul>
