@@ -13,7 +13,12 @@ from orbital_engine.api import audit, auth, catalog, conjunctions, health
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.db import dispose
 from orbital_engine.logging import configure_logging, get_logger
-from orbital_engine.pipeline import ingest_if_empty, run_propagation_loop, run_screening_loop
+from orbital_engine.pipeline import (
+    ingest_if_empty,
+    run_maneuver_loop,
+    run_propagation_loop,
+    run_screening_loop,
+)
 from orbital_engine.state import close as close_redis
 
 
@@ -36,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tasks = [
             asyncio.create_task(run_propagation_loop(settings, stop)),
             asyncio.create_task(run_screening_loop(settings, stop)),
+            asyncio.create_task(run_maneuver_loop(settings, stop)),
         ]
         try:
             yield
