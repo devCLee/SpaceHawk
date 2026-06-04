@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, Request, status
 
+from orbital_engine.security import audit
 from orbital_engine.security.attributes import (
     Action,
     Context,
@@ -55,6 +56,9 @@ def requires(
             cross_service_allowed=settings.cross_service_allowed,
         )
         decision = decide(subject, resource, action, context)
+        await audit.record_decision(
+            subject=subject, request=request, domain=domain, action=action, decision=decision
+        )
         if not decision:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
