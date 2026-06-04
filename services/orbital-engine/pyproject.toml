@@ -50,6 +50,13 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+# FastAPI's `Depends(...)` in parameter defaults is the framework idiom, not the
+# B008 mutable-default trap; allow it (Query/Path/etc. are already exempt), along
+# with our own `requires(...)` authorization-dependency factory used the same way.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "orbital_engine.security.enforce.requires"]
+
 # Migrations are framework-shaped; allow their conventional unused imports.
 [tool.ruff.lint.per-file-ignores]
 "migrations/*" = ["F401"]
