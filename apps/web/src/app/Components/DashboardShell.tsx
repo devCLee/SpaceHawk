@@ -10,6 +10,7 @@ import SatelliteInfoPanel from "./SatelliteInfoPanel";
 import ControlRail from "./ControlRail";
 import { SelectedSatelliteProvider } from "../context/SelectedSatelliteContext";
 import { CatalogViewProvider } from "../context/CatalogViewContext";
+import { SensorProvider } from "../context/SensorContext";
 import type { TleObject } from "../utils/sgp4FromTle";
 
 export const DashboardShell: React.FunctionComponent<{
@@ -18,9 +19,11 @@ export const DashboardShell: React.FunctionComponent<{
   return (
     <SelectedSatelliteProvider>
       <CatalogViewProvider>
-        <CesiumWrapper positions={[]} tleEntries={tleEntries} />
-        <ControlRail />
-        <SatelliteInfoPanel />
+        <SensorProvider>
+          <CesiumWrapper positions={[]} tleEntries={tleEntries} />
+          <ControlRail />
+          <SatelliteInfoPanel />
+        </SensorProvider>
       </CatalogViewProvider>
     </SelectedSatelliteProvider>
   );
