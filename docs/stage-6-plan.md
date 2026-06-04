@@ -74,3 +74,26 @@ first-differences:
 
 KPIs (validated in later sub-features / Stage 8): ≥95% detection of meaningful
 maneuvers; Δv estimate within ~20%; detect-to-alert < 1 collection cycle.
+
+## Delivered (on `develop`)
+
+All five sub-features merged via Git flow (`feature/stage-6-*` → `develop`, no-ff):
+
+1. **maneuver-detection** — `domain/maneuver.py`, `maneuver.py`, migration `0006`,
+   `run_maneuver_loop`, settings, tests.
+2. **maneuver-classification** — `maneuver_analysis.py` (Δv/RIC + purpose),
+   migration `0007`, detection now classifies, tests.
+3. **rpo-monitoring** — `rpo.py`, `alerts.RpoMonitor`, `run_rpo_loop`,
+   `fetch_catalog_elements`, tests.
+4. **fingerprinting** — `fingerprint.py`, `ManeuverBaseline`, migration `0008`,
+   `alerts.AnomalyMonitor`, `run_fingerprint_loop`, tests.
+5. **explainability-ui** — `api/maneuvers.py` (`/maneuvers`, `/maneuvers/baselines`,
+   ABAC `MANEUVER_INTEL`), web BFF routes, `lib/orbital-engine` client,
+   `ManeuverPanel.tsx` (Δv/RIC + V-pattern evidence + behavioral-baseline view).
+
+Backend: 45 pure-function tests + maneuver-API contract tests pass; ruff clean.
+Web: `tsc --noEmit` and `eslint` clean. Migrations `0006`–`0008` apply over `0005`.
+
+Deferred (consistent with the roadmap): ROK truth-data re-validation (CAS500-1 /
+KOMPSAT-5) and the KPI harness land in Stage 8 system testing; ML augmentation is
+Stage 7 (P2b). High-fidelity Orekit Δv is gated to later (dev-plan §3 #21).

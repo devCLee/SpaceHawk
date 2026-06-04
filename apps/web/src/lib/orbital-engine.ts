@@ -199,3 +199,97 @@ export async function fetchObjectDetail(
   }
   return res.json() as Promise<ObjectDetail>;
 }
+
+export type ManeuverType =
+  | "STATION_KEEPING"
+  | "ORBIT_RAISE"
+  | "ORBIT_LOWER"
+  | "PHASING"
+  | "RPO"
+  | "UNKNOWN";
+
+/** One detected maneuver (Stage 6 #10/#11). Mirrors the engine's
+ * `ManeuverResponse`: the element deltas + Δv/RIC + rule-based purpose, plus the
+ * V-pattern evidence (`detection_statistic`) that the explainability UI renders. */
+export interface Maneuver {
+  id: string;
+  object_id: string;
+  norad_cat_id: number | null;
+  object_name: string;
+  epoch_before: string;
+  epoch_after: string;
+  detected_epoch: string;
+  delta_sma_km: number;
+  delta_ecc: number;
+  delta_inc_deg: number;
+  delta_raan_deg: number;
+  detection_statistic: number;
+  confidence: number;
+  sma_before_km: number | null;
+  inclination_deg: number | null;
+  delta_v_m_s: number | null;
+  ric_radial_m_s: number | null;
+  ric_in_track_m_s: number | null;
+  ric_cross_track_m_s: number | null;
+  maneuver_type: ManeuverType;
+  detected_at: string | null;
+}
+
+/** One object's behavioral fingerprint (Stage 6 #14). Mirrors `BaselineResponse`. */
+export interface ManeuverBaseline {
+  object_id: string;
+  object_name: string;
+  sample_count: number;
+  mean_interval_days: number | null;
+  interval_mad_days: number | null;
+  mean_delta_v_m_s: number;
+  delta_v_mad_m_s: number;
+  type_distribution: Record<string, number>;
+  last_epoch: string;
+  updated_at: string | null;
+}
+
+export interface ManeuversResult {
+  /** False until the Stage-6 maneuver service is online (or access is denied). */
+  available: boolean;
+  maneuvers: Maneuver[];
+}
+
+export interface BaselinesResult {
+  available: boolean;
+  baselines: ManeuverBaseline[];
+}
+
+/** Fetch detected maneuvers, optionally for one object. Graceful: returns
+ * `available: false` (never throws) when the engine endpoint is offline or the
+ * caller lacks the MANEUVER_INTEL grant. */
+export async function fetchManeuvers(
+  objectId?: string
+): Promise<ManeuversResult> {
+  try {
+    const params = new URLSearchParams();
+    if (objectId) params.set("object_id", objectId);
+    const res = await fetch(`${ENGINE_URL}/maneuvers?${params.toString()}`, {
+      cache: "no-store",
+      headers: await engineAuthHeaders(),
+    });
+    if (!res.ok) return { available: false, maneuvers: [] };
+    return { available: true, maneuvers: (await res.json()) as Maneuver[] };
+  } catch {
+    return { available: false, maneuvers: [] };
+  }
+}
+
+/** Fetch the per-object behavioral baselines. Graceful (see `fetchManeuvers`). */
+export async function fetchBaselines(): Promise<BaselinesResult> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/maneuvers/baselines`, {
+      cache: "no-store",
+      headers: await engineAuthHeaders(),
+    });
+    if (!res.ok) return { available: false, baselines: [] };
+    return { available: true, baselines: (await res.json()) as ManeuverBaseline[] };
+  } catch {
+    return { available: false, baselines: [] };
+  }
+}
