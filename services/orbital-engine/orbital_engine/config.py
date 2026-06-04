@@ -78,6 +78,24 @@ class Settings(BaseSettings):
     conjunction_miss_high_km: float = 1.0
     conjunction_miss_mod_km: float = 5.0
 
+    # --- Engine conjunction screening (Stage 4) ---
+    # How often the screening loop re-screens (seconds); window/step bound the
+    # closest-approach search; gate pad widens the apogee/perigee pre-filter.
+    conjunction_screen_interval_sec: int = 300
+    conjunction_screen_window_hours: float = 24.0
+    conjunction_screen_step_sec: int = 180
+    conjunction_gate_pad_km: float = 10.0
+    # Report a screened conjunction only when the closest approach is within this.
+    conjunction_miss_threshold_km: float = 10.0
+    # Cap candidate pairs per screen so a full-catalog all-vs-all stays bounded.
+    conjunction_max_pairs: int = 2000
+    # Pc proxy inputs (display-grade; see domain.conjunction.estimate_pc).
+    conjunction_pc_sigma_km: float = 1.0
+    conjunction_hard_body_radius_km: float = 0.05
+    # NORAD ids of protected assets screened continuously vs the whole catalog
+    # (the RPO watch-list precursor; empty => bounded all-vs-all screening).
+    protected_norad_ids: list[int] = []
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.

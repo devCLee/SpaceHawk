@@ -12,6 +12,7 @@ analyst-tunable thresholds — deliberately not a black box.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -62,6 +63,27 @@ def severity_for(
     if pc >= thresholds.pc_mod or miss_distance_km <= thresholds.miss_mod_km:
         return ConjunctionSeverity.MOD
     return ConjunctionSeverity.LOW
+
+
+def estimate_pc(miss_distance_km: float, sigma_km: float, hard_body_radius_km: float) -> float:
+    """Simplified, explainable probability-of-collision proxy for self-screening.
+
+    A real Pc needs both objects' covariances (which CDMs carry but a bare TLE
+    does not). For engine-screened events we use the standard small-hard-body
+    approximation of a 2-D circular Gaussian miss distribution with combined
+    1-sigma ``sigma_km``::
+
+        Pc ~= (HBR^2 / (2 sigma^2)) * exp(-miss^2 / (2 sigma^2))
+
+    Clamped to [0, 1]. It is monotonic (closer => higher Pc) and analyst-tunable
+    via ``sigma_km`` / ``hard_body_radius_km`` — deliberately not a black box.
+    """
+    if sigma_km <= 0.0:
+        return 0.0
+    pc = (hard_body_radius_km**2 / (2.0 * sigma_km**2)) * math.exp(
+        -(miss_distance_km**2) / (2.0 * sigma_km**2)
+    )
+    return max(0.0, min(1.0, pc))
 
 
 def make_conjunction_id(
