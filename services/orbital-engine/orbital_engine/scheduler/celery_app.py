@@ -47,4 +47,8 @@ celery_app.conf.beat_schedule = {
         "schedule": float(settings.celestrak_ingest_interval_sec),
         "args": (DataSource.CELESTRAK.value,),
     },
+    "ingest-cdms": {
+        "task": "orbital_engine.scheduler.tasks.ingest_cdms",
+        "schedule": float(settings.cdm_ingest_interval_sec),
+    },
 }
