@@ -97,3 +97,26 @@ class Maneuver(BaseModel):
     ric_cross_track_m_s: float | None = None
     maneuver_type: ManeuverType = ManeuverType.UNKNOWN
     detected_at: datetime | None = None
+
+
+class ManeuverBaseline(BaseModel):
+    """A per-object behavioral fingerprint built from its maneuver history.
+
+    Stage 6 / roadmap P2a feature #14 (the "innovation spine", O4): an
+    interpretable summary of how an object *normally* maneuvers — its cadence
+    (inter-maneuver interval) and Δv distribution, plus the mix of purpose
+    classes — against which a new maneuver is scored for deviation. Built from
+    existing TLE-derived history only (no new data dependency, O4); robust
+    statistics (median/MAD) so one outlier burn does not redefine "normal".
+    """
+
+    object_id: str
+    object_name: str
+    sample_count: int
+    mean_interval_days: float | None = None
+    interval_mad_days: float | None = None
+    mean_delta_v_m_s: float
+    delta_v_mad_m_s: float
+    type_distribution: dict[str, int]
+    last_epoch: datetime
+    updated_at: datetime | None = None

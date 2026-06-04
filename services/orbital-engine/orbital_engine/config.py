@@ -149,6 +149,14 @@ class Settings(BaseSettings):
     # How often the RPO screen re-runs over the catalog (seconds).
     rpo_screen_interval_sec: int = 600
 
+    # --- Behavioral fingerprinting (Stage 6 / roadmap P2a feature #14) ---
+    # Minimum maneuvers before an object's baseline is meaningful; a new maneuver
+    # is anomalous when its Δv sits this many MADs from the object's norm (or is a
+    # purpose class never seen for it). How often baselines are rebuilt (seconds).
+    fingerprint_min_maneuvers: int = 3
+    fingerprint_deviation_sigma: float = 3.0
+    fingerprint_interval_sec: int = 3600
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.

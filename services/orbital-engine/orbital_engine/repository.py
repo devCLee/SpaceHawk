@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from orbital_engine.db import get_engine
 from orbital_engine.domain.conjunction import Conjunction
-from orbital_engine.domain.maneuver import Maneuver
+from orbital_engine.domain.maneuver import Maneuver, ManeuverBaseline
 from orbital_engine.domain.space_object import SpaceObject
 
 # Columns written on ingest. ``ingested_at`` is omitted so the DB default (now())
@@ -484,3 +484,90 @@ async def upsert_maneuvers(maneuvers: list[Maneuver]) -> int:
     async with get_engine().begin() as conn:
         await conn.execute(_MANEUVER_UPSERT_SQL, rows)
     return len(rows)
+
+
+# Selection projection over the maneuver table — column names match Maneuver so a
+# row maps straight into the model (``Maneuver(**row)``). Enum rendered as text.
+_MANEUVER_SELECT = (
+    "id, object_id, norad_cat_id, object_name, epoch_before, epoch_after, "
+    "detected_epoch, delta_sma_km, delta_ecc, delta_inc_deg, delta_raan_deg, "
+    "detection_statistic, confidence, sma_before_km, inclination_deg, delta_v_m_s, "
+    "ric_radial_m_s, ric_in_track_m_s, ric_cross_track_m_s, "
+    "maneuver_type::text AS maneuver_type, detected_at"
+)
+
+
+async def query_maneuvers(
+    *,
+    object_id: str | None = None,
+    maneuver_type: str | None = None,
+    min_confidence: float | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Return detected maneuvers, most recent first. All filters are optional."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if object_id:
+        clauses.append("object_id = :oid")
+        params["oid"] = object_id
+    if maneuver_type:
+        clauses.append("maneuver_type::text = :mtype")
+        params["mtype"] = maneuver_type
+    if min_confidence is not None:
+        clauses.append("confidence >= :minconf")
+        params["minconf"] = float(min_confidence)
+    where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+    sql = (
+        f"SELECT {_MANEUVER_SELECT} FROM maneuver {where}"
+        "ORDER BY detected_epoch DESC LIMIT :lim"
+    )
+    params["lim"] = max(1, min(int(limit), 5000))
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql), params)
+        return [dict(row) for row in result.mappings()]
+
+
+# ---------------------------------------------------------------------------
+# maneuver_baseline — one behavioral fingerprint per object (Stage 6 feature #14).
+# Upsert keyed on object_id; rebuilt in place as new maneuvers accrue.
+# ---------------------------------------------------------------------------
+_BASELINE_UPSERT_SQL = text(
+    """
+    INSERT INTO maneuver_baseline (
+        object_id, object_name, sample_count, mean_interval_days, interval_mad_days,
+        mean_delta_v_m_s, delta_v_mad_m_s, type_distribution, last_epoch)
+    VALUES (:object_id, :object_name, :sample_count, :mean_interval_days,
+            :interval_mad_days, :mean_delta_v_m_s, :delta_v_mad_m_s,
+            CAST(:type_distribution AS jsonb), :last_epoch)
+    ON CONFLICT (object_id) DO UPDATE SET
+        object_name = EXCLUDED.object_name,
+        sample_count = EXCLUDED.sample_count,
+        mean_interval_days = EXCLUDED.mean_interval_days,
+        interval_mad_days = EXCLUDED.interval_mad_days,
+        mean_delta_v_m_s = EXCLUDED.mean_delta_v_m_s,
+        delta_v_mad_m_s = EXCLUDED.delta_v_mad_m_s,
+        type_distribution = EXCLUDED.type_distribution,
+        last_epoch = EXCLUDED.last_epoch,
+        updated_at = now()
+    """
+)
+
+
+async def upsert_baseline(baseline: ManeuverBaseline) -> None:
+    """Persist (or refresh) one object's behavioral baseline."""
+    params = baseline.model_dump(mode="python", exclude={"updated_at"})
+    params["type_distribution"] = json.dumps(baseline.type_distribution)
+    async with get_engine().begin() as conn:
+        await conn.execute(_BASELINE_UPSERT_SQL, params)
+
+
+async def query_baselines(*, limit: int = 200) -> list[dict[str, Any]]:
+    """Return behavioral baselines, most recently active first."""
+    sql = text(
+        "SELECT object_id, object_name, sample_count, mean_interval_days, "
+        "interval_mad_days, mean_delta_v_m_s, delta_v_mad_m_s, type_distribution, "
+        "last_epoch, updated_at FROM maneuver_baseline ORDER BY last_epoch DESC LIMIT :lim"
+    )
+    async with get_engine().connect() as conn:
+        result = await conn.execute(sql, {"lim": max(1, min(int(limit), 1000))})
+        return [dict(row) for row in result.mappings()]

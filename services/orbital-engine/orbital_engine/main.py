@@ -15,6 +15,7 @@ from orbital_engine.db import dispose
 from orbital_engine.logging import configure_logging, get_logger
 from orbital_engine.pipeline import (
     ingest_if_empty,
+    run_fingerprint_loop,
     run_maneuver_loop,
     run_propagation_loop,
     run_rpo_loop,
@@ -44,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             asyncio.create_task(run_screening_loop(settings, stop)),
             asyncio.create_task(run_maneuver_loop(settings, stop)),
             asyncio.create_task(run_rpo_loop(settings, stop)),
+            asyncio.create_task(run_fingerprint_loop(settings, stop)),
         ]
         try:
             yield

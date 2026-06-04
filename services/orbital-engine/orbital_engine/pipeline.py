@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-from orbital_engine.alerts import ConjunctionAlerter, RegionMonitor, RpoMonitor
+from orbital_engine.alerts import AnomalyMonitor, ConjunctionAlerter, RegionMonitor, RpoMonitor
 from orbital_engine.config import Settings
+from orbital_engine.domain.maneuver import Maneuver
+from orbital_engine.fingerprint import build_baseline, score_deviation
 from orbital_engine.ingestion.cdm import fetch_cdms
 from orbital_engine.ingestion.celestrak import fetch_celestrak
 from orbital_engine.logging import get_logger
@@ -23,7 +25,9 @@ from orbital_engine.repository import (
     fetch_catalog,
     fetch_catalog_elements,
     fetch_history,
+    query_maneuvers,
     record_alert,
+    upsert_baseline,
     upsert_conjunctions,
     upsert_maneuvers,
     upsert_objects,
@@ -171,3 +175,46 @@ async def run_rpo_loop(settings: Settings, stop: asyncio.Event) -> None:
         except TimeoutError:
             pass
     log.info("rpo.loop.stop")
+
+
+async def run_fingerprint_loop(settings: Settings, stop: asyncio.Event) -> None:
+    """Rebuild per-object behavioral baselines; flag deviating maneuvers as alerts.
+
+    Stage 6 / roadmap P2a feature #14 (the innovation spine). Each cycle, per
+    catalogued object with enough maneuver history: build + persist its baseline
+    (cadence + Δv fingerprint), then test its most-recent maneuver against the
+    baseline of the *prior* maneuvers — so a new burn is judged against history,
+    not against itself — and emit a maneuver-anomaly alert when it deviates.
+    """
+    monitor = AnomalyMonitor(settings)
+    log.info("fingerprint.loop.start", interval=settings.fingerprint_interval_sec)
+    while not stop.is_set():
+        try:
+            objects = await fetch_catalog(settings.ingest_limit)
+            baselines, anomalies = 0, []
+            for obj in objects:
+                rows = await query_maneuvers(
+                    object_id=obj["object_id"], limit=settings.maneuver_history_lookback
+                )
+                maneuvers = [Maneuver(**r) for r in rows]  # newest-first
+                baseline = build_baseline(maneuvers, settings)
+                if baseline is None:
+                    continue
+                await upsert_baseline(baseline)
+                baselines += 1
+                prior_baseline = build_baseline(maneuvers[1:], settings)
+                if prior_baseline is not None:
+                    dev = score_deviation(prior_baseline, maneuvers[0], settings)
+                    anomalies.append((dev, maneuvers[0]))
+            for alert in monitor.evaluate(anomalies):
+                await record_alert(alert)
+                await publish_alert(alert)
+                log.info("fingerprint.anomaly", id=alert["id"], severity=alert["severity"])
+            log.info("fingerprint.cycle", baselines=baselines)
+        except Exception as exc:  # noqa: BLE001 - one bad cycle must not kill the loop
+            log.warning("fingerprint.loop.error", error=str(exc))
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=settings.fingerprint_interval_sec)
+        except TimeoutError:
+            pass
+    log.info("fingerprint.loop.stop")
