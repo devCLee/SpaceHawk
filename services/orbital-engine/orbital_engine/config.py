@@ -36,6 +36,24 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://spacehawk:spacehawk@localhost:5432/spacehawk"
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- Access control / sessions (Stage 5) ---
+    # HS256 secret for the engine-issued session token. The engine is the
+    # authoritative authz tier (P0-RBAC-ABAC §4): it signs the session at login
+    # and verifies that signature on every request, so a compromised BFF cannot
+    # forge subject attributes. MUST be overridden in any shared/enclave env;
+    # the dev default is deliberately not a secret.
+    auth_jwt_secret: str = "dev-insecure-change-me"
+    auth_session_ttl_sec: int = 28800  # 8h operator shift
+    auth_cookie_name: str = "sh_session"
+    # Hosts permitted to perform ADMINISTER actions (the AdminGuard IP pattern).
+    # Empty => the IP gate is not enforced (the ADMIN role is still required).
+    admin_ip_allowlist: list[str] = []
+    # Tri-service MOU governance grant: when true, the PDP allows cross-service
+    # reads (otherwise subjects are scoped to their own service / JOINT).
+    cross_service_allowed: bool = False
+    # Seed password for the demo tri-service users (security/seed.py). Dev only.
+    seed_password: str = "changeme"
+
     # --- Source credentials (Stage 2) ---
     # Presence of these gates SourceAdapter.available(): unset => the scheduler
     # skips the source. None in dev/air-gap until each feed's agreement lands.
