@@ -209,6 +209,10 @@ export const CesiumComponent: React.FunctionComponent<{
 
     const satsById = new Map<string, RenderedSat>();
     satsByIdRef.current = satsById;
+    // Index-aligned arrays for the Web Worker: it returns positions in this
+    // same order so the main thread can update primitives by index.
+    const ordered: PointPrimitive[] = [];
+    const workerInputs: { line1: string; line2: string }[] = [];
 
     const now = new Date();
 
@@ -239,6 +243,8 @@ export const CesiumComponent: React.FunctionComponent<{
         countryCode: entry.COUNTRY_CODE ?? null,
         constellation: classifyConstellation(name),
       });
+      ordered.push(primitive);
+      workerInputs.push({ line1, line2 });
     });
 
     // Drive the clock by real time: 1 second UTC = 1 second in the scene.
@@ -247,9 +253,41 @@ export const CesiumComponent: React.FunctionComponent<{
     viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
     viewer.clock.shouldAnimate = true;
 
-    // Re-propagate every point on a throttled cadence (POSITION_UPDATE_SEC of
-    // sim time). The Web Worker offload (Stage 3, later branch) moves this off
-    // the main thread for catalog-scale counts.
+    // Offload re-propagation to a Web Worker so the main thread stays
+    // responsive at catalog scale (dev-plan Stage 3, keeptrack pattern). The
+    // worker returns positions in `ordered` index order; the main thread only
+    // writes them to the GPU points. Falls back to main-thread propagation if
+    // Workers are unavailable.
+    let worker: Worker | null = null;
+    try {
+      worker = new Worker(
+        new URL("../workers/propagation.worker.ts", import.meta.url)
+      );
+      worker.postMessage({ type: "init", sats: workerInputs });
+      worker.onmessage = (e: MessageEvent) => {
+        const data = e.data as {
+          type: string;
+          lon: Float64Array;
+          lat: Float64Array;
+          alt: Float64Array;
+        };
+        if (data.type !== "positions" || viewer.isDestroyed()) return;
+        const { lon, lat, alt } = data;
+        for (let i = 0; i < ordered.length; i++) {
+          if (Number.isNaN(lon[i])) continue;
+          ordered[i].position = Cesium.Cartesian3.fromDegrees(
+            lon[i],
+            lat[i],
+            alt[i]
+          );
+        }
+      };
+    } catch {
+      worker = null;
+    }
+
+    // Throttled cadence (POSITION_UPDATE_SEC of sim time): ask the worker for
+    // fresh positions, or compute on the main thread if there's no worker.
     let lastUpdate = now;
     const onTick = viewer.clock.onTick.addEventListener((clock) => {
       const date = Cesium.JulianDate.toDate(clock.currentTime);
@@ -257,6 +295,10 @@ export const CesiumComponent: React.FunctionComponent<{
         return;
       }
       lastUpdate = date;
+      if (worker) {
+        worker.postMessage({ type: "propagate", timeMs: date.getTime() });
+        return;
+      }
       satsById.forEach((sat) => {
         const geo = geodeticAt(sat.satrec, date);
         if (geo === null) return;
@@ -289,6 +331,10 @@ export const CesiumComponent: React.FunctionComponent<{
 
     return () => {
       onTick();
+      if (worker) {
+        worker.onmessage = null;
+        worker.terminate();
+      }
       if (!handler.isDestroyed()) handler.destroy();
       pickHandlerRef.current = null;
       if (!viewer.isDestroyed()) viewer.scene.primitives.remove(points);
@@ -451,6 +497,48 @@ export const CesiumComponent: React.FunctionComponent<{
       }
     };
   }, [activeSensor, isLoaded, CesiumJs, mode]);
+
+  // Subscribe to the engine's authoritative latest-state stream (SSE via the
+  // BFF). Each server snapshot snaps the matching points to the engine's
+  // propagated position (dev-plan §4.2 — engine is authoritative); the worker
+  // interpolates between snapshots. EventSource auto-reconnects.
+  React.useEffect(() => {
+    if (!isLoaded || !cesiumViewer.current) return;
+    if (typeof window === "undefined" || typeof EventSource === "undefined")
+      return;
+
+    const viewer = cesiumViewer.current;
+    const Cesium = CesiumJs;
+    const es = new EventSource("/api/state/stream");
+
+    es.addEventListener("state", (ev) => {
+      if (viewer.isDestroyed()) return;
+      try {
+        const state = JSON.parse((ev as MessageEvent).data) as {
+          objects?: Array<{
+            object_id?: string;
+            lat_deg: number;
+            lon_deg: number;
+            alt_km: number;
+          }>;
+        };
+        for (const o of state.objects ?? []) {
+          if (!o.object_id) continue;
+          const sat = satsByIdRef.current.get(o.object_id);
+          if (!sat) continue;
+          sat.primitive.position = Cesium.Cartesian3.fromDegrees(
+            o.lon_deg,
+            o.lat_deg,
+            o.alt_km * 1000
+          );
+        }
+      } catch {
+        /* ignore malformed snapshot */
+      }
+    });
+
+    return () => es.close();
+  }, [isLoaded, mode, tleEntries, CesiumJs]);
 
   return (
     <div style={{ position: "relative" }}>
