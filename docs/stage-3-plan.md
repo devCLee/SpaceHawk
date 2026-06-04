@@ -40,8 +40,8 @@ object-inspection toolset, consuming the Stage-2 Orbital-Engine API.
 | # | Branch | Scope | Depends on |
 |---|---|---|---|
 | 1 | `feature/stage-3-render-migration` | `PointPrimitiveCollection` batch render; click-pick selection + highlight; selected-object orbit/ground-track via `Entity`; hide superfluous Cesium widgets | — |
-| 2 | `feature/stage-3-bff-catalog` | Extend `lib/orbital-engine.ts` (query/detail/state) via generated client; selected-satellite React Context; replace `main.json` data path | 1 |
-| 3 | `feature/stage-3-info-sidebar` | Per-satellite info sidebar (#9h) on `/catalog/{id}` — Current Position / Orbital Velocity / Orbital Parameters / Detailed Elements (project-lynx2 MIT) | 2 |
+| 2 | `feature/stage-3-bff-catalog` | Selected-satellite React Context + dashboard shell — lift selection out of the globe so sibling panels can read/set it. BFF client/route extensions land with their consumers (branches 3–4), where they aren't speculative | 1 |
+| 3 | `feature/stage-3-info-sidebar` | Per-satellite info sidebar (#9h) on `/catalog/{id}` — Current Position / Orbital Velocity / Orbital Parameters / Detailed Elements (project-lynx2 MIT); adds BFF `/api/catalog/[id]` proxy + `fetchObjectDetail` | 2 |
 | 4 | `feature/stage-3-catalog-search` | Catalog search (#9a) + parametric find-sat (#9b) over `/catalog` | 2 |
 | 5 | `feature/stage-3-filters` | Countries (#9d) + constellations (#9e) listing/selection; watchlist (#9f) | 2 |
 | 6 | `feature/stage-3-sensors-passes` | Sensor list & selection (#9c) + pass-time / look-angle tool (#9i); needs sensor-site dataset | 2 |
@@ -58,8 +58,9 @@ incrementally across branches 1–3 where the surrounding code is already touche
   selects an object and highlights it; selected object shows an animated orbit;
   default home/help/fullscreen/geocoder widgets hidden. `typecheck` + `build`
   green.
-- **2:** BFF exposes typed catalog query / detail / latest-state; selection state
-  shared via context; page renders from the engine (main.json = fallback only).
+- **2:** Selection state shared via context; clicking the globe updates context
+  selection (consumed by the sidebar in branch 3); page renders from the engine
+  (main.json = fallback only). `typecheck` + `build` green.
 - **3:** Clicking an object opens a sidebar with the four field groups from live
   `/catalog/{id}`.
 - **4:** Text/ID search and parametric (regime/inclination/period) search filter
