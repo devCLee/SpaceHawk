@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from orbital_engine.domain.conjunction import TierThresholds
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -61,6 +63,21 @@ class Settings(BaseSettings):
     spacetrack_ingest_interval_sec: int = 3600
     celestrak_ingest_interval_sec: int = 1800
 
+    # --- Conjunction CDM ingest (Stage 4) ---
+    # CDMs are published less often than GP; hourly is ample. Cap per-query rows
+    # in dev; None (no limit) for the full feed in the enclave.
+    cdm_ingest_interval_sec: int = 3600
+    cdm_query_limit: int | None = 500
+
+    # --- Trust-calibrated severity tiers (Stage 4 / roadmap O4) ---
+    # Analyst-tunable cut points: a conjunction is HIGH/MOD if it breaches the
+    # matching probability-of-collision or miss-distance gate. Explainable by
+    # design (not a black box); deliberately attacks the ~98% false-positive drain.
+    conjunction_pc_high: float = 1e-4
+    conjunction_pc_mod: float = 1e-6
+    conjunction_miss_high_km: float = 1.0
+    conjunction_miss_mod_km: float = 5.0
+
     # --- Stage 1 thin-slice knobs ---
     # Single Celestrak GP group is the slice's one source (see P0-THIN-SLICE-PLAN).
     # In the air-gapped enclave this is pointed at the offline mirror instead.
@@ -79,6 +96,15 @@ class Settings(BaseSettings):
     roi_lat_max: float = 43.0
     roi_lon_min: float = 124.0
     roi_lon_max: float = 132.0
+
+    def tier_thresholds(self) -> TierThresholds:
+        """Build the severity-tier cut points from the configured knobs."""
+        return TierThresholds(
+            pc_high=self.conjunction_pc_high,
+            pc_mod=self.conjunction_pc_mod,
+            miss_high_km=self.conjunction_miss_high_km,
+            miss_mod_km=self.conjunction_miss_mod_km,
+        )
 
 
 def get_settings() -> Settings:

@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import text
 
 from orbital_engine.db import get_engine
+from orbital_engine.domain.conjunction import Conjunction
 from orbital_engine.domain.space_object import SpaceObject
 
 # Columns written on ingest. ``ingested_at`` is omitted so the DB default (now())
@@ -242,6 +243,92 @@ async def fetch_history(object_id: str, limit: int | None = None) -> list[dict[s
     if limit is not None:
         sql += " LIMIT :lim"
         params["lim"] = int(limit)
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql), params)
+        return [dict(row) for row in result.mappings()]
+
+
+# ---------------------------------------------------------------------------
+# conjunction — screened / CDM-sourced close approaches (Stage 4, dev-plan §5).
+# Upsert keyed on the stable conjunction id so a re-screen / re-ingest of the
+# same approach refreshes the row in place (screened_at re-stamped by the DB).
+# ---------------------------------------------------------------------------
+_CONJUNCTION_COLUMNS: tuple[str, ...] = (
+    "id",
+    "source",
+    "cdm_id",
+    "primary_object_id",
+    "primary_norad_cat_id",
+    "primary_name",
+    "secondary_object_id",
+    "secondary_norad_cat_id",
+    "secondary_name",
+    "tca",
+    "miss_distance_km",
+    "relative_speed_km_s",
+    "probability",
+    "severity",
+)
+
+_CONJUNCTION_UPDATE_COLS = tuple(c for c in _CONJUNCTION_COLUMNS if c != "id")
+
+_CONJUNCTION_UPSERT_SQL = text(
+    "INSERT INTO conjunction ({cols}) VALUES ({binds}) "
+    "ON CONFLICT (id) DO UPDATE SET {updates}, screened_at = now()".format(
+        cols=", ".join(_CONJUNCTION_COLUMNS),
+        binds=", ".join(f":{c}" for c in _CONJUNCTION_COLUMNS),
+        updates=", ".join(f"{c} = EXCLUDED.{c}" for c in _CONJUNCTION_UPDATE_COLS),
+    )
+)
+
+# Selection projection matches the web BFF's `Conjunction` contract.
+_CONJUNCTION_SELECT = (
+    "id, source::text AS source, cdm_id, primary_object_id, primary_norad_cat_id, "
+    "primary_name, secondary_object_id, secondary_norad_cat_id, secondary_name, "
+    "tca, miss_distance_km, relative_speed_km_s, probability, "
+    "severity::text AS severity, screened_at"
+)
+
+
+def _to_conjunction_row(c: Conjunction) -> dict[str, Any]:
+    data = c.model_dump(mode="python")
+    return {col: data.get(col) for col in _CONJUNCTION_COLUMNS}
+
+
+async def upsert_conjunctions(conjunctions: list[Conjunction]) -> int:
+    """Upsert a batch of conjunctions. Returns the number written."""
+    if not conjunctions:
+        return 0
+    rows = [_to_conjunction_row(c) for c in conjunctions]
+    async with get_engine().begin() as conn:
+        await conn.execute(_CONJUNCTION_UPSERT_SQL, rows)
+    return len(rows)
+
+
+async def query_conjunctions(
+    *,
+    severity: str | None = None,
+    min_probability: float | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Return screened conjunctions, soonest time-of-closest-approach first.
+
+    Optional filters narrow to an exact severity tier or a minimum Pc.
+    """
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if severity:
+        clauses.append("severity::text = :sev")
+        params["sev"] = severity
+    if min_probability is not None:
+        clauses.append("probability >= :minpc")
+        params["minpc"] = float(min_probability)
+    where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+    sql = (
+        f"SELECT {_CONJUNCTION_SELECT} FROM conjunction {where}"
+        "ORDER BY tca ASC LIMIT :lim"
+    )
+    params["lim"] = max(1, min(int(limit), 5000))
     async with get_engine().connect() as conn:
         result = await conn.execute(text(sql), params)
         return [dict(row) for row in result.mappings()]

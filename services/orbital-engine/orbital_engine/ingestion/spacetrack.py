@@ -158,6 +158,12 @@ class SpaceTrackClient:
     ) -> list[dict[str, Any]]:
         return await self.query(build_gp_query(since, limit=limit))
 
+    async def query_cdm(
+        self, since: datetime | None = None, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Fetch public Conjunction Data Messages (incremental by CREATION_DATE)."""
+        return await self.query(build_cdm_query(since, limit=limit))
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
