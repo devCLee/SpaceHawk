@@ -51,7 +51,7 @@ yarn-error.log*
 .agents
 
 # graphify
-/graphify-out/cache
+/graphify-out/*
 .graphify*
 .graphify_python
 .graphifyignore
