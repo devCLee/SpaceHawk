@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "copy-cesium": "node scripts/copy-cesium.mjs",
-    "dev": "npm run copy-cesium && next dev",
-    "build": "npm run copy-cesium && next build",
+    "dev": "npm run copy-cesium && next dev --webpack",
+    "build": "npm run copy-cesium && next build --webpack",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
