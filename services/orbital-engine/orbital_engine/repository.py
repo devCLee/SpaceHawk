@@ -432,6 +432,13 @@ _MANEUVER_COLUMNS: tuple[str, ...] = (
     "delta_raan_deg",
     "detection_statistic",
     "confidence",
+    "sma_before_km",
+    "inclination_deg",
+    "delta_v_m_s",
+    "ric_radial_m_s",
+    "ric_in_track_m_s",
+    "ric_cross_track_m_s",
+    "maneuver_type",
 )
 
 _MANEUVER_UPDATE_COLS = tuple(c for c in _MANEUVER_COLUMNS if c != "id")
