@@ -4,19 +4,41 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.join(__dirname, "../../");
 
-// Baseline security headers (Stage 5 hardening). The CSP is scoped to what the
-// offline globe needs: Cesium uses WASM/eval and blob: workers, and Next emits
-// inline bootstrap scripts/styles. `connect-src 'self'` keeps all data fetches
-// and SSE same-origin (through the BFF). ONLINE Cesium-Ion mode would need the
-// Ion + imagery origins added to connect-src/img-src.
+// Baseline security headers (Stage 5 hardening). Cesium uses WASM/eval and blob:
+// workers, and Next emits inline bootstrap scripts/styles. App data fetches + SSE
+// stay same-origin (through the BFF).
+//
+// ONLINE Cesium-Ion globe origins (the "Switch to Online" toggle). Without these,
+// `connect-src 'self'` blocks the api.cesium.com asset-endpoint request at the
+// browser level — emitting unsuppressable CSP-violation logs + Cesium
+// RequestErrorEvents — so online mode can never load:
+//   - api.cesium.com          Ion REST asset endpoints (token + tile templates)
+//   - assets.ion.cesium.com   world terrain + OSM Buildings 3D tiles
+//   - *.virtualearth.net      Bing world imagery tiles + metadata
+// Bing imagery loads via fetch()+createImageBitmap (connect-src) on modern
+// browsers and falls back to <img> (img-src), so it's listed in both.
+//
+// Bing tiles inherit the PAGE scheme: the dev server is http://localhost, so
+// Cesium requests them over http (http://ecn.t{0-3}.tiles.virtualearth.net/...).
+// A https-only source blocks those, so allow both schemes for the Bing host.
+// (Ion endpoints are https-only — no http source needed.)
+//
+// PROD: on an https deployment the http source is unused — the page is https,
+// so Cesium requests Bing tiles over https (covered by the https source). Once
+// dev is also served over https, drop both http://*.virtualearth.net sources to
+// keep the policy https-only.
+const ionConnectSrc =
+  "https://api.cesium.com https://assets.ion.cesium.com https://*.virtualearth.net http://*.virtualearth.net";
+const ionImgSrc =
+  "https://*.virtualearth.net http://*.virtualearth.net https://assets.ion.cesium.com";
 const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
   "worker-src 'self' blob:",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${ionImgSrc}`,
   "font-src 'self' data:",
-  "connect-src 'self'",
+  `connect-src 'self' ${ionConnectSrc}`,
   "object-src 'none'",
   "base-uri 'self'",
   "frame-ancestors 'none'",
