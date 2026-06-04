@@ -7,6 +7,8 @@
 // Types are kept local for the thin slice; Stage 2 swaps in the generated client
 // from `@spacehawk/shared-types` once the contract stabilises.
 
+import { engineAuthHeaders } from "@/lib/engineSession";
+
 const ENGINE_URL = process.env.ORBITAL_ENGINE_URL ?? "http://localhost:8000";
 
 export interface CatalogObject {
@@ -22,7 +24,10 @@ export interface CatalogObject {
 
 /** Fetch the current catalog from the engine. Throws on a non-2xx response. */
 export async function fetchCatalog(): Promise<CatalogObject[]> {
-  const res = await fetch(`${ENGINE_URL}/catalog`, { cache: "no-store" });
+  const res = await fetch(`${ENGINE_URL}/catalog`, {
+    cache: "no-store",
+    headers: await engineAuthHeaders(),
+  });
   if (!res.ok) {
     throw new Error(`orbital-engine /catalog failed: ${res.status}`);
   }
@@ -49,6 +54,7 @@ export async function queryCatalog(
   if (query.offset != null) params.set("offset", String(query.offset));
   const res = await fetch(`${ENGINE_URL}/catalog?${params.toString()}`, {
     cache: "no-store",
+    headers: await engineAuthHeaders(),
   });
   if (!res.ok) {
     throw new Error(`orbital-engine /catalog query failed: ${res.status}`);
@@ -117,6 +123,7 @@ export async function fetchConjunctions(): Promise<ConjunctionsResult> {
   try {
     const res = await fetch(`${ENGINE_URL}/conjunctions`, {
       cache: "no-store",
+      headers: await engineAuthHeaders(),
     });
     if (!res.ok) return { available: false, conjunctions: [] };
     const data = (await res.json()) as Conjunction[];
@@ -149,6 +156,7 @@ export async function fetchAlerts(status?: string): Promise<Alert[]> {
   if (status) params.set("status", status);
   const res = await fetch(`${ENGINE_URL}/alerts?${params.toString()}`, {
     cache: "no-store",
+    headers: await engineAuthHeaders(),
   });
   if (!res.ok) {
     throw new Error(`orbital-engine /alerts failed: ${res.status}`);
@@ -165,7 +173,7 @@ export async function acknowledgeAlert(
     `${ENGINE_URL}/alerts/${encodeURIComponent(id)}/ack`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await engineAuthHeaders()) },
       body: JSON.stringify(body),
       cache: "no-store",
     }
@@ -183,7 +191,7 @@ export async function fetchObjectDetail(
 ): Promise<ObjectDetail | null> {
   const res = await fetch(
     `${ENGINE_URL}/catalog/${encodeURIComponent(objectId)}`,
-    { cache: "no-store" }
+    { cache: "no-store", headers: await engineAuthHeaders() }
   );
   if (res.status === 404) return null;
   if (!res.ok) {

@@ -5,6 +5,8 @@
 // `/state/stream` straight through. One-way push of authoritative propagated
 // state (§4.2/§4.5); the client interpolates between snapshots.
 
+import { engineAuthHeaders } from "@/lib/engineSession";
+
 const ENGINE_URL = process.env.ORBITAL_ENGINE_URL ?? "http://localhost:8000";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +16,7 @@ export async function GET(): Promise<Response> {
   let upstream: Response;
   try {
     upstream = await fetch(`${ENGINE_URL}/state/stream`, {
-      headers: { Accept: "text/event-stream" },
+      headers: { Accept: "text/event-stream", ...(await engineAuthHeaders()) },
       cache: "no-store",
     });
   } catch {

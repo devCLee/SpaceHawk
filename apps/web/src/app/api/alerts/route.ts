@@ -5,6 +5,8 @@
 // `/alerts/stream` through to the client, passing the raw event stream straight
 // through. One-way push only (dev-plan §4.5).
 
+import { engineAuthHeaders } from "@/lib/engineSession";
+
 const ENGINE_URL = process.env.ORBITAL_ENGINE_URL ?? "http://localhost:8000";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +16,7 @@ export async function GET(): Promise<Response> {
   let upstream: Response;
   try {
     upstream = await fetch(`${ENGINE_URL}/alerts/stream`, {
-      headers: { Accept: "text/event-stream" },
+      headers: { Accept: "text/event-stream", ...(await engineAuthHeaders()) },
       cache: "no-store",
     });
   } catch {
