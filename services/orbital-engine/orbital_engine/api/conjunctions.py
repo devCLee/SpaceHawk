@@ -12,10 +12,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from orbital_engine.repository import query_alerts, query_conjunctions, set_alert_status
+from orbital_engine.security.attributes import Action, DataDomain, Subject
+from orbital_engine.security.enforce import requires
 
 router = APIRouter(tags=["conjunctions"])
 
@@ -67,6 +69,7 @@ async def get_conjunctions(
     severity: str | None = Query(default=None, description="Exact tier: LOW / MOD / HIGH"),
     min_probability: float | None = Query(default=None, ge=0.0, le=1.0),
     limit: int = Query(default=200, ge=1, le=5000),
+    _subject: Subject = Depends(requires(DataDomain.SCREENING, Action.QUERY)),
 ) -> list[dict[str, Any]]:
     return await query_conjunctions(severity=severity, min_probability=min_probability, limit=limit)
 
@@ -75,14 +78,21 @@ async def get_conjunctions(
 async def get_alerts(
     status: str | None = Query(default=None, description="NEW / ACK / DISMISSED"),
     limit: int = Query(default=100, ge=1, le=1000),
+    _subject: Subject = Depends(requires(DataDomain.SCREENING, Action.READ)),
 ) -> list[dict[str, Any]]:
     return await query_alerts(status=status, limit=limit)
 
 
 @router.post("/alerts/{alert_id}/ack", response_model=AlertResponse, summary="Acknowledge/dismiss an alert")
-async def acknowledge_alert(alert_id: str, body: AckRequest) -> dict[str, Any]:
+async def acknowledge_alert(
+    alert_id: str,
+    body: AckRequest,
+    subject: Subject = Depends(requires(DataDomain.SCREENING, Action.ACKNOWLEDGE)),
+) -> dict[str, Any]:
+    # The actor is the authenticated subject, not a client-supplied field — a
+    # caller cannot attribute a triage action to someone else (Stage 5 hardening).
     updated = await set_alert_status(
-        alert_id, status=body.status, acknowledged_by=body.acknowledged_by
+        alert_id, status=body.status, acknowledged_by=subject.username
     )
     if updated is None:
         raise HTTPException(status_code=404, detail="alert not found")

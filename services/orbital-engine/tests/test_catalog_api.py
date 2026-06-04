@@ -6,9 +6,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orbital_engine.api import catalog as catalog_api
+from orbital_engine.config import get_settings
 from orbital_engine.main import create_app
+from orbital_engine.security.tokens import mint_token
 
-client = TestClient(create_app())
+
+def _admin_headers() -> dict[str, str]:
+    """A valid ADMIN session so these contract tests reach the handlers (Stage 5)."""
+    settings = get_settings()
+    token = mint_token(
+        {"sub": "operator1", "role": "ADMIN", "service": "JOINT", "clr": "S", "scope": [], "grants": []},
+        secret=settings.auth_jwt_secret,
+        ttl_sec=300,
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+# Authenticate every request from this client; authz is exercised in test_authz.
+client = TestClient(create_app(), headers=_admin_headers())
 
 ROW = {
     "object_id": "SH:CAT:000025544",

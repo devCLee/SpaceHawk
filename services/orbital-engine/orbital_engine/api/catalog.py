@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -26,6 +26,8 @@ from orbital_engine.repository import (
     query_catalog,
     upsert_objects,
 )
+from orbital_engine.security.attributes import Action, DataDomain, Subject
+from orbital_engine.security.enforce import requires
 from orbital_engine.state import ALERT_CHANNEL, get_client, read_latest_state, read_object_state
 
 router = APIRouter(tags=["catalog"])
@@ -125,6 +127,7 @@ async def get_catalog(
     country_code: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
+    _subject: Subject = Depends(requires(DataDomain.CATALOG, Action.QUERY)),
 ) -> list[dict[str, Any]]:
     return await query_catalog(
         q=q,
@@ -136,7 +139,10 @@ async def get_catalog(
 
 
 @router.get("/catalog/{object_id}", response_model=ObjectDetail, summary="Object detail")
-async def get_object_detail(object_id: str) -> dict[str, Any]:
+async def get_object_detail(
+    object_id: str,
+    _subject: Subject = Depends(requires(DataDomain.CATALOG, Action.READ)),
+) -> dict[str, Any]:
     row = await get_object(object_id)
     if row is None:
         raise HTTPException(status_code=404, detail="object not found")
@@ -151,12 +157,16 @@ async def get_object_detail(object_id: str) -> dict[str, Any]:
 async def get_object_history(
     object_id: str,
     limit: int = Query(default=500, ge=1, le=10000),
+    _subject: Subject = Depends(requires(DataDomain.CATALOG, Action.READ)),
 ) -> list[dict[str, Any]]:
     return await fetch_history(object_id, limit=limit)
 
 
 @router.get("/catalog/{object_id}/state", response_model=StateObject, summary="Object latest state")
-async def get_object_latest_state(object_id: str) -> dict[str, Any]:
+async def get_object_latest_state(
+    object_id: str,
+    _subject: Subject = Depends(requires(DataDomain.CATALOG, Action.READ)),
+) -> dict[str, Any]:
     state = await read_object_state(object_id)
     if state is None:
         raise HTTPException(status_code=404, detail="no current state for object")
@@ -164,7 +174,9 @@ async def get_object_latest_state(object_id: str) -> dict[str, Any]:
 
 
 @router.post("/ingest/run", response_model=IngestResult, summary="Trigger Celestrak ingest")
-async def run_ingest() -> IngestResult:
+async def run_ingest(
+    _subject: Subject = Depends(requires(DataDomain.ADMIN, Action.ADMINISTER)),
+) -> IngestResult:
     objects = await fetch_celestrak(get_settings())
     written = await upsert_objects(objects)
     await append_history(objects)
@@ -172,13 +184,17 @@ async def run_ingest() -> IngestResult:
 
 
 @router.get("/state/latest", response_model=LatestState, summary="Latest propagated state")
-async def get_latest_state() -> LatestState:
+async def get_latest_state(
+    _subject: Subject = Depends(requires(DataDomain.CATALOG, Action.READ)),
+) -> LatestState:
     state = await read_latest_state()
     return LatestState.model_validate(state) if state else LatestState()
 
 
 @router.get("/state/stream", summary="Live latest-state stream (SSE)")
-async def state_stream() -> StreamingResponse:
+async def state_stream(
+    _subject: Subject = Depends(requires(DataDomain.CATALOG, Action.READ)),
+) -> StreamingResponse:
     """Push the latest propagated snapshot on each propagation cycle (one-way SSE).
 
     Lets the dashboard receive live-state deltas without polling; the browser
@@ -206,7 +222,9 @@ async def state_stream() -> StreamingResponse:
 
 
 @router.get("/alerts/stream", summary="Alert stream (SSE)")
-async def alerts_stream() -> StreamingResponse:
+async def alerts_stream(
+    _subject: Subject = Depends(requires(DataDomain.SCREENING, Action.READ)),
+) -> StreamingResponse:
     async def event_source() -> AsyncIterator[bytes]:
         pubsub = get_client().pubsub()
         await pubsub.subscribe(ALERT_CHANNEL)
