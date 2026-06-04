@@ -14,4 +14,9 @@ export const queryKeys = {
   conjunctions: () => ["conjunctions", "list"] as const,
   // GET /api/alerts/log
   alerts: (status?: string) => ["alerts", "list", status ?? "all"] as const,
+  // GET /api/maneuvers (optionally scoped to one object)
+  maneuvers: (objectId?: string) =>
+    ["maneuvers", "list", objectId ?? "all"] as const,
+  // GET /api/maneuvers/baselines
+  baselines: () => ["maneuvers", "baselines"] as const,
 };
