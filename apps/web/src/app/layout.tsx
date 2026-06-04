@@ -18,7 +18,7 @@ export default function RootLayout({
       <body
         style={{
           fontFamily:
-            '"TT Lakes Neue", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         }}
       >
         <Header />
