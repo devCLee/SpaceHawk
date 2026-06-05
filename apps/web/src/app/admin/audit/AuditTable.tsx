@@ -328,7 +328,7 @@ export default function AuditTable() {
   const pageCount = table.getPageCount();
 
   return (
-    <main className="min-h-screen bg-black px-8 pt-20 pb-8 text-slate-200">
+    <main className="min-h-screen bg-black px-8 pt-16 pb-8 text-slate-200">
       <div className="flex items-center gap-3 mb-4">
         <h1 className="text-2xl font-semibold">Audit Log</h1>
         {isFetching && (
