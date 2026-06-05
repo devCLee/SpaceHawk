@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import GuestGuard from "@/app/Components/guards/GuestGuard";
 import { useAuth } from "@/app/context/AuthContext";
 import { ApiError, http } from "@/lib/api/apiClient";
+import { t } from "@/lib/i18n/t";
 
 function SignInForm() {
   const [username, setUsername] = useState("");
@@ -28,8 +29,8 @@ function SignInForm() {
     } catch (err) {
       const msg =
         err instanceof ApiError && err.status === 401
-          ? "Invalid username or password."
-          : "Sign-in failed. Try again.";
+          ? t("signin.errInvalid")
+          : t("signin.errFailed");
       toast.error(msg);
     } finally {
       setBusy(false);
@@ -44,10 +45,10 @@ function SignInForm() {
       >
         <div className="space-y-1">
           <h1 className="text-lg font-semibold tracking-wide text-slate-100">SpaceHawk</h1>
-          <p className="text-xs text-slate-400">Operational dashboard — sign in to continue.</p>
+          <p className="text-xs text-slate-400">{t("signin.subtitle")}</p>
         </div>
         <label className="block space-y-1">
-          <span className="text-xs text-slate-400">Username</span>
+          <span className="text-xs text-slate-400">{t("signin.username")}</span>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -57,7 +58,7 @@ function SignInForm() {
           />
         </label>
         <label className="block space-y-1">
-          <span className="text-xs text-slate-400">Password</span>
+          <span className="text-xs text-slate-400">{t("signin.password")}</span>
           <input
             type="password"
             value={password}
@@ -72,7 +73,7 @@ function SignInForm() {
           disabled={busy}
           className="w-full rounded-md bg-slate-200 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-white disabled:opacity-50"
         >
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? t("signin.signingIn") : t("signin.signIn")}
         </button>
       </form>
     </main>

@@ -8,6 +8,7 @@
 import { useAuth } from "@/app/context/AuthContext";
 import Spinner from "@/app/Components/ui/Spinner";
 import EmptyState from "@/app/Components/ui/EmptyState";
+import { t } from "@/lib/i18n/t";
 
 export default function AdminGuard({ children }: { children: React.ReactNode }) {
   const { isAdmin, isLoading } = useAuth();
@@ -16,8 +17,8 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
   if (!isAdmin) {
     return (
       <EmptyState
-        title="404 — Not Found"
-        message="You don't have access to this page. Ask an administrator if you need it."
+        title={t("guard.notFoundTitle")}
+        message={t("guard.notFoundMsg")}
       />
     );
   }
