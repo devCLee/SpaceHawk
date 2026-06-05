@@ -84,7 +84,9 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
           <button
             type="button"
             aria-label={
-              isWatched(selectedId) ? "Remove from watchlist" : "Add to watchlist"
+              isWatched(selectedId)
+                ? "Remove from watchlist"
+                : "Add to watchlist"
             }
             onClick={() => toggleWatch(selectedId)}
             style={{
@@ -111,8 +113,14 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
       {detail && (
         <>
           <Group title="Identity">
-            <Row label="NORAD ID" value={detail.norad_cat_id?.toString() ?? "—"} />
-            <Row label="Int'l designator" value={detail.intl_designator ?? "—"} />
+            <Row
+              label="NORAD ID"
+              value={detail.norad_cat_id?.toString() ?? "—"}
+            />
+            <Row
+              label="Int'l designator"
+              value={detail.intl_designator ?? "—"}
+            />
             <Row label="Type" value={detail.object_type ?? "—"} />
             <Row label="Country" value={detail.country_code ?? "—"} />
           </Group>
@@ -140,10 +148,22 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
 
           <Group title="Detailed Orbital Elements">
             <Row label="RAAN" value={fmt(detail.ra_of_asc_node, 3, "°")} />
-            <Row label="Arg of perigee" value={fmt(detail.arg_of_pericenter, 3, "°")} />
-            <Row label="Mean anomaly" value={fmt(detail.mean_anomaly, 3, "°")} />
-            <Row label="Mean motion" value={fmt(detail.mean_motion, 6, "rev/day")} />
-            <Row label="Semi-major axis" value={fmt(detail.semimajor_axis_km, 1, "km")} />
+            <Row
+              label="Arg of perigee"
+              value={fmt(detail.arg_of_pericenter, 3, "°")}
+            />
+            <Row
+              label="Mean anomaly"
+              value={fmt(detail.mean_anomaly, 3, "°")}
+            />
+            <Row
+              label="Mean motion"
+              value={fmt(detail.mean_motion, 6, "rev/day")}
+            />
+            <Row
+              label="Semi-major axis"
+              value={fmt(detail.semimajor_axis_km, 1, "km")}
+            />
             <Row
               label="Epoch"
               value={detail.epoch ? new Date(detail.epoch).toISOString() : "—"}
@@ -160,11 +180,14 @@ export default SatelliteInfoPanel;
 const styles: Record<string, React.CSSProperties> = {
   panel: {
     position: "absolute",
-    top: 0,
-    right: 0,
+    // Anchored below the globe online/offline switch button
+    // (CesiumComponent: top 64, ~30px tall → bottom ~94px) so the two
+    // top-right controls stack instead of overlapping.
+    top: 160,
+    right: 12,
     zIndex: 20,
     width: 320,
-    maxHeight: "calc(100vh - 56px)",
+    maxHeight: "calc(100vh - 116px)",
     overflowY: "auto",
     padding: "12px 16px",
     background: "rgba(8, 12, 20, 0.92)",
