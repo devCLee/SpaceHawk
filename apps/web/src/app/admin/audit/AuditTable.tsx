@@ -63,7 +63,8 @@ const COLUMNS: ColumnDef<AuditEntry>[] = [
   {
     accessorKey: "ts",
     header: "Time",
-    cell: ({ getValue }) => new Date(getValue<string>()).toLocaleString(),
+    cell: ({ getValue }) =>
+      new Date(getValue<string>()).toLocaleString("en-US"),
   },
   {
     accessorKey: "subject",
@@ -202,8 +203,8 @@ function DateRangeFilter({ column }: { column: Column<AuditEntry, unknown> }) {
 
   const label =
     selected?.from || selected?.to
-      ? `${selected?.from ? selected.from.toLocaleDateString() : "…"} – ${
-          selected?.to ? selected.to.toLocaleDateString() : "…"
+      ? `${selected?.from ? selected.from.toLocaleDateString("en-US") : "…"} – ${
+          selected?.to ? selected.to.toLocaleDateString("en-US") : "…"
         }`
       : "All dates";
 
@@ -327,7 +328,7 @@ export default function AuditTable() {
   const pageCount = table.getPageCount();
 
   return (
-    <main className="min-h-screen bg-black px-8 pt-20 pb-8 text-slate-200">
+    <main className="min-h-screen bg-black px-8 pt-16 pb-8 text-slate-200">
       <div className="flex items-center gap-3 mb-4">
         <h1 className="text-2xl font-semibold">Audit Log</h1>
         {isFetching && (
