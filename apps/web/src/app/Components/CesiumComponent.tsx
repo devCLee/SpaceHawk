@@ -7,6 +7,7 @@ import {
   type Entity,
   type PointPrimitive,
   type PointPrimitiveCollection,
+  type ProviderViewModel,
   type ScreenSpaceEventHandler,
   type Viewer,
 } from "cesium";
@@ -122,7 +123,9 @@ export const CesiumComponent: React.FunctionComponent<{
   // offline globe. Fires once — manual switches afterward are intentional.
   React.useEffect(() => {
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      toast.warning("No network connection detected — loading the offline globe.");
+      toast.warning(
+        "No network connection detected — loading the offline globe."
+      );
     }
   }, []);
   const { selectedId, setSelectedId } = useSelectedSatellite();
@@ -149,24 +152,81 @@ export const CesiumComponent: React.FunctionComponent<{
 
     let cancelled = false;
 
+    // Cesium defaults to 6 concurrent requests per host. Single-host imagery
+    // providers (ArcGIS/ESRI, OpenStreetMap, Stadia — the BaseLayerPicker grid)
+    // then stream tiles in slow 6-at-a-time waves, so the globe visibly fills in
+    // patches. Raise the per-host + global caps so a globe view's tiles fetch in
+    // one sweep. Idempotent — safe to set on every viewer (re)build. (Bing hides
+    // this with 4 subdomains; the others have one host, so they felt much slower.)
+    CesiumJs.RequestScheduler.maximumRequestsPerServer = 18;
+    CesiumJs.RequestScheduler.maximumRequests = 100;
+
     if (mode === "online") {
       // Configure the Ion token only if provided; an "undefined" token 401s.
       if (process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
         CesiumJs.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
       }
-      // Ion world imagery loads via the Ion REST endpoint (api.cesium.com). That
-      // request can fail for reasons navigator.onLine cannot see: an unset/bad
-      // token, or a CSP `connect-src 'self'` block in a hardened/enclave build.
-      // Key the offline fallback on the imagery load actually failing, so the
-      // globe degrades to the bundled Natural Earth II imagery instead of
-      // rendering blank.
-      const worldImagery = CesiumJs.createWorldImageryAsync();
-      worldImagery.catch(() => {
+      // Ion reachability probe: if Ion world imagery can't load (no network,
+      // blocked, or bad token), fall back to the offline globe instead of a
+      // half-loaded picker. navigator.onLine can't see token/CSP failures, so we
+      // key the fallback on the imagery request actually failing.
+      CesiumJs.createWorldImageryAsync().catch(() => {
         if (!cancelled) setMode("offline");
       });
+
+      // Curated BaseLayerPicker. We replace Cesium's default provider grid with
+      // ONLY the imagery/terrain this Ion token owns AND that loads through hosts
+      // already in the strict CSP — Ion (`assets.ion.cesium.com`), Bing
+      // (`*.virtualearth.net`), or same-origin. This keeps the imagery-selection
+      // UX with NO Stage 5 CSP regression: the default grid's ArcGIS/ESRI/OSM/
+      // Stadia options hit third-party CDNs (CSP-blocked + Stadia needs a key),
+      // and several Ion defaults (Sentinel-2, Blue Marble, Earth at Night, Azure)
+      // 404 on this token's account. Google tiles here are Ion-proxied via
+      // assets.ion.cesium.com (verified), so no third-party origins are needed.
+      // Filtering Cesium's own view models (not hand-building them) reuses their
+      // correct icons, tooltips, and asset-id creation functions.
+      // Cesium's default view-model names contain formatting characters (e.g.
+      // "Natural Earth II" uses a non-breaking space; "Open­Street­Map"
+      // uses soft hyphens), so match on a normalized form, not the raw string.
+      const normalize = (s: string) =>
+        s.replace(/­/g, "").replace(/\s+/g, " ").trim();
+      const ownedImagery = new Set([
+        "Bing Maps Aerial",
+        "Bing Maps Aerial with Labels",
+        "Bing Maps Roads",
+        "Google Maps Satellite",
+        "Google Maps Satellite with Labels",
+        "Google Maps Roadmap",
+        "Google Maps Contour",
+        "Natural Earth II",
+      ]);
+      // createDefault*ProviderViewModels back Cesium's default BaseLayerPicker
+      // and exist at runtime, but the umbrella "cesium" type defs only mention
+      // them in JSDoc — so reach them through a narrow cast.
+      const {
+        createDefaultImageryProviderViewModels,
+        createDefaultTerrainProviderViewModels,
+      } = CesiumJs as unknown as {
+        createDefaultImageryProviderViewModels: () => ProviderViewModel[];
+        createDefaultTerrainProviderViewModels: () => ProviderViewModel[];
+      };
+      const imageryProviderViewModels = createDefaultImageryProviderViewModels().filter(
+        (vm) => ownedImagery.has(normalize(vm.name))
+      );
+      const ownedTerrain = new Set(["WGS84 Ellipsoid", "Cesium World Terrain"]);
+      const terrainProviderViewModels = createDefaultTerrainProviderViewModels().filter(
+        (vm) => ownedTerrain.has(normalize(vm.name))
+      );
+
       const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
-        baseLayer: CesiumJs.ImageryLayer.fromProviderAsync(worldImagery, {}),
-        terrain: CesiumJs.Terrain.fromWorldTerrain(),
+        imageryProviderViewModels,
+        selectedImageryProviderViewModel: imageryProviderViewModels.find(
+          (vm) => normalize(vm.name) === "Bing Maps Aerial"
+        ),
+        terrainProviderViewModels,
+        selectedTerrainProviderViewModel: terrainProviderViewModels.find(
+          (vm) => normalize(vm.name) === "Cesium World Terrain"
+        ),
         ...HIDDEN_WIDGETS,
       });
       cesiumViewer.current = viewer;
@@ -319,7 +379,10 @@ export const CesiumComponent: React.FunctionComponent<{
     let lastUpdate = now;
     const onTick = viewer.clock.onTick.addEventListener((clock) => {
       const date = Cesium.JulianDate.toDate(clock.currentTime);
-      if (Math.abs(date.getTime() - lastUpdate.getTime()) < POSITION_UPDATE_SEC * 1000) {
+      if (
+        Math.abs(date.getTime() - lastUpdate.getTime()) <
+        POSITION_UPDATE_SEC * 1000
+      ) {
         return;
       }
       lastUpdate = date;
@@ -376,7 +439,11 @@ export const CesiumComponent: React.FunctionComponent<{
   // (filter active, no match) > default (white). One O(N) pass, only on a
   // selection/filter/watchlist change — not per frame.
   React.useEffect(() => {
-    if (!isLoaded || !cesiumViewer.current || cesiumViewer.current.isDestroyed())
+    if (
+      !isLoaded ||
+      !cesiumViewer.current ||
+      cesiumViewer.current.isDestroyed()
+    )
       return;
 
     const Cesium = CesiumJs;
@@ -572,9 +639,7 @@ export const CesiumComponent: React.FunctionComponent<{
     <div style={{ position: "relative" }}>
       <button
         type="button"
-        onClick={() =>
-          setMode((m) => (m === "offline" ? "online" : "offline"))
-        }
+        onClick={() => setMode((m) => (m === "offline" ? "online" : "offline"))}
         style={{
           // Top-right, below the 56px fixed header. The left edge is owned by
           // the control rail (search/filters), so anchoring here keeps the

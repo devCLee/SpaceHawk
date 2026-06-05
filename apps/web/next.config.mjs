@@ -31,6 +31,12 @@ const ionConnectSrc =
   "https://api.cesium.com https://assets.ion.cesium.com https://*.virtualearth.net http://*.virtualearth.net";
 const ionImgSrc =
   "https://*.virtualearth.net http://*.virtualearth.net https://assets.ion.cesium.com";
+
+// The online globe's imagery picker is curated to ONLY Ion/Bing-hosted basemaps
+// (see CesiumComponent.tsx online branch) — Bing tiles come from *.virtualearth.net
+// and Google/Sentinel/terrain are Ion-proxied via assets.ion.cesium.com, all
+// already allowed below. No third-party imagery CDNs (ArcGIS/OSM/Stadia) are
+// reachable, so connect-src/img-src stay locked to Ion/Bing/self (Stage 5 intact).
 const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",

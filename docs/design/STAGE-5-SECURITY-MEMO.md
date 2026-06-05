@@ -59,5 +59,17 @@ forks, and the residual items.
 - **CSP tightening.** The CSP allows `'unsafe-eval'`/`'unsafe-inline'` for Cesium
   + Next bootstrap; nonce-based tightening is a follow-up. ONLINE Cesium-Ion mode
   must add the Ion origins to `connect-src`/`img-src`.
+- **CSP regression — third-party imagery CDNs — RESOLVED.** An earlier iteration
+  re-enabled Cesium's full default `BaseLayerPicker` (which pulls from ArcGIS /
+  OpenStreetMap / Stadia CDNs) and temporarily widened `connect-src`/`img-src` to
+  allow those hosts. **Closed:** the online picker is now curated to only the
+  Ion/Bing imagery + terrain this token owns — Bing Aerial / Aerial+Labels / Roads,
+  Google Satellite / +Labels / Roadmap / Contour (Ion-proxied via
+  `assets.ion.cesium.com`, verified), Natural Earth II, Cesium World Terrain, WGS84
+  Ellipsoid. All load through `assets.ion.cesium.com` / `*.virtualearth.net` /
+  same-origin, so `next.config.mjs` is back to Ion/Bing/`self` only — no
+  third-party imagery origins, Stage 5 lockdown intact, no extra client-IP egress.
+  Adding any non-Ion provider (street maps, hillshade, artistic styles) in future
+  would re-introduce this regression and must re-widen the CSP + re-flag here.
 - **Credential provisioning.** `security/seed.py` is dev-only; enclave user
   provisioning + rotation is an operational task.
