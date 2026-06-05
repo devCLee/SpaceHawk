@@ -15,6 +15,8 @@ import { queryKeys } from "@/lib/api/queryKeys";
 import { http } from "@/lib/api/apiClient";
 import type { Alert, AlertStatus, ConjunctionSeverity } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
+import { t } from "@/lib/i18n/t";
+import { alertStatusLabel } from "@/lib/i18n/enums";
 
 const SEVERITY_COLOR: Record<ConjunctionSeverity, string> = {
   LOW: "#7dd87d",
@@ -55,7 +57,7 @@ export const AlertCenter: React.FunctionComponent = () => {
   });
 
   return (
-    <CollapsiblePanel title="Alert Center" defaultOpen>
+    <CollapsiblePanel title={t("alertCenter.title")} defaultOpen>
       <select
         style={s.input}
         value={status}
@@ -63,15 +65,17 @@ export const AlertCenter: React.FunctionComponent = () => {
       >
         {STATUS_FILTERS.map((f) => (
           <option key={f} value={f}>
-            {f}
+            {alertStatusLabel(f)}
           </option>
         ))}
       </select>
 
-      {isLoading && <p style={s.muted}>Loading…</p>}
-      {isError && <p style={s.error}>Alert log unavailable.</p>}
+      {isLoading && <p style={s.muted}>{t("common.loading")}</p>}
+      {isError && <p style={s.error}>{t("alertCenter.unavailable")}</p>}
       {!isLoading && !isError && alerts.length === 0 && (
-        <p style={s.muted}>No {status.toLowerCase()} alerts.</p>
+        <p style={s.muted}>
+          {t("alertCenter.none", { status: alertStatusLabel(status) })}
+        </p>
       )}
 
       {alerts.length > 0 && (
@@ -99,14 +103,14 @@ export const AlertCenter: React.FunctionComponent = () => {
                     disabled={triage.isPending}
                     onClick={() => triage.mutate({ id: a.id, next: "ACK" })}
                   >
-                    Acknowledge
+                    {t("alertCenter.acknowledge")}
                   </button>
                   <button
                     style={triageButton}
                     disabled={triage.isPending}
                     onClick={() => triage.mutate({ id: a.id, next: "DISMISSED" })}
                   >
-                    Dismiss
+                    {t("alertCenter.dismiss")}
                   </button>
                 </div>
               )}

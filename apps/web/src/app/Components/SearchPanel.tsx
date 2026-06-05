@@ -14,6 +14,8 @@ import { useApiQuery } from "@/lib/api/useApiQuery";
 import { queryKeys } from "@/lib/api/queryKeys";
 import type { CatalogObject, CatalogQuery } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
+import { t } from "@/lib/i18n/t";
+import { objectTypeLabel } from "@/lib/i18n/enums";
 
 const RESULT_LIMIT = 1000;
 const DEBOUNCE_MS = 300;
@@ -111,13 +113,13 @@ export const SearchPanel: React.FunctionComponent = () => {
   return (
     <div style={s.panel}>
       <div style={s.panelHeader}>
-        <span style={s.panelTitle}>Catalog Search</span>
+        <span style={s.panelTitle}>{t("search.title")}</span>
         <span style={s.muted}>{isLoading ? "…" : filtered.length}</span>
       </div>
       <div style={s.panelBody}>
         <input
           style={s.input}
-          placeholder="Name / NORAD / int'l designator"
+          placeholder={t("search.placeholder.query")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -127,15 +129,15 @@ export const SearchPanel: React.FunctionComponent = () => {
             value={objectType}
             onChange={(e) => setObjectType(e.target.value)}
           >
-            {TYPES.map((t) => (
-              <option key={t || "any"} value={t}>
-                {t || "Any type"}
+            {TYPES.map((type) => (
+              <option key={type || "any"} value={type}>
+                {objectTypeLabel(type)}
               </option>
             ))}
           </select>
           <input
             style={s.input}
-            placeholder="Country"
+            placeholder={t("search.placeholder.country")}
             value={country}
             onChange={(e) => setCountry(e.target.value)}
           />
@@ -143,7 +145,7 @@ export const SearchPanel: React.FunctionComponent = () => {
 
         <details>
           <summary style={{ ...s.muted, cursor: "pointer" }}>
-            Find-sat (parametric)
+            {t("search.findSat")}
           </summary>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
             <select
@@ -153,26 +155,26 @@ export const SearchPanel: React.FunctionComponent = () => {
             >
               {REGIMES.map((r) => (
                 <option key={r || "any"} value={r}>
-                  {r || "Any regime"}
+                  {r || t("search.regime.any")}
                 </option>
               ))}
             </select>
             <div style={{ display: "flex", gap: 6 }}>
-              <input style={s.input} placeholder="incl min°" value={inclMin} onChange={(e) => setInclMin(e.target.value)} />
-              <input style={s.input} placeholder="incl max°" value={inclMax} onChange={(e) => setInclMax(e.target.value)} />
+              <input style={s.input} placeholder={t("search.placeholder.inclMin")} value={inclMin} onChange={(e) => setInclMin(e.target.value)} />
+              <input style={s.input} placeholder={t("search.placeholder.inclMax")} value={inclMax} onChange={(e) => setInclMax(e.target.value)} />
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <input style={s.input} placeholder="period min" value={periodMin} onChange={(e) => setPeriodMin(e.target.value)} />
-              <input style={s.input} placeholder="period max" value={periodMax} onChange={(e) => setPeriodMax(e.target.value)} />
+              <input style={s.input} placeholder={t("search.placeholder.periodMin")} value={periodMin} onChange={(e) => setPeriodMin(e.target.value)} />
+              <input style={s.input} placeholder={t("search.placeholder.periodMax")} value={periodMax} onChange={(e) => setPeriodMax(e.target.value)} />
             </div>
-            <input style={s.input} placeholder="ecc max" value={eccMax} onChange={(e) => setEccMax(e.target.value)} />
+            <input style={s.input} placeholder={t("search.placeholder.eccMax")} value={eccMax} onChange={(e) => setEccMax(e.target.value)} />
           </div>
         </details>
 
-        {isLoading && <p style={s.muted}>Searching…</p>}
-        {isError && <p style={s.error}>Search unavailable.</p>}
+        {isLoading && <p style={s.muted}>{t("search.searching")}</p>}
+        {isError && <p style={s.error}>{t("search.unavailable")}</p>}
         {!isLoading && !isError && filtered.length === 0 && (
-          <p style={s.muted}>No matches.</p>
+          <p style={s.muted}>{t("search.noMatches")}</p>
         )}
 
         <ul style={s.list}>

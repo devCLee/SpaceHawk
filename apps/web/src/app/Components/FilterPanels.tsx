@@ -13,6 +13,7 @@ import { useApiQuery } from "@/lib/api/useApiQuery";
 import { queryKeys } from "@/lib/api/queryKeys";
 import type { CatalogObject } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
+import { t } from "@/lib/i18n/t";
 
 const AGG_LIMIT = 5000;
 
@@ -45,16 +46,16 @@ export const CountriesPanel: React.FunctionComponent = () => {
   }, [rows]);
 
   return (
-    <CollapsiblePanel title="Countries">
-      {isLoading && <p style={s.muted}>Loading…</p>}
-      {isError && <p style={s.error}>Catalog unavailable.</p>}
+    <CollapsiblePanel title={t("countries.title")}>
+      {isLoading && <p style={s.muted}>{t("common.loading")}</p>}
+      {isError && <p style={s.error}>{t("countries.unavailable")}</p>}
       {countryFilter && (
         <button
           type="button"
           style={s.input}
           onClick={() => setCountryFilter(null)}
         >
-          Clear filter
+          {t("common.clearFilter")}
         </button>
       )}
       <ul style={s.list}>
@@ -78,14 +79,14 @@ export const CountriesPanel: React.FunctionComponent = () => {
 export const ConstellationsPanel: React.FunctionComponent = () => {
   const { constellationFilter, setConstellationFilter } = useCatalogView();
   return (
-    <CollapsiblePanel title="Constellations">
+    <CollapsiblePanel title={t("constellations.title")}>
       {constellationFilter && (
         <button
           type="button"
           style={s.input}
           onClick={() => setConstellationFilter(null)}
         >
-          Clear filter
+          {t("common.clearFilter")}
         </button>
       )}
       <ul style={s.list}>
@@ -111,11 +112,9 @@ export const WatchlistPanel: React.FunctionComponent = () => {
   const { watchlist, toggleWatch } = useCatalogView();
   const { setSelectedId } = useSelectedSatellite();
   return (
-    <CollapsiblePanel title={`Watchlist (${watchlist.length})`}>
+    <CollapsiblePanel title={t("watchlist.title", { n: watchlist.length })}>
       {watchlist.length === 0 && (
-        <p style={s.muted}>
-          No watched objects. Open an object and tap ☆ to watch it.
-        </p>
+        <p style={s.muted}>{t("watchlist.empty")}</p>
       )}
       <ul style={s.list}>
         {watchlist.map((id) => (

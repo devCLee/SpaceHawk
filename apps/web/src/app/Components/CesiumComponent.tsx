@@ -23,6 +23,7 @@ import {
 import type { Position } from "../types/position";
 import type { TleObject } from "../utils/sgp4FromTle";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
+import { t } from "@/lib/i18n/t";
 import { useCatalogView } from "../context/CatalogViewContext";
 import { useSensor } from "../context/SensorContext";
 import { classifyConstellation } from "../data/constellations";
@@ -124,9 +125,7 @@ export const CesiumComponent: React.FunctionComponent<{
   // offline globe. Fires once — manual switches afterward are intentional.
   React.useEffect(() => {
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      toast.warning(
-        "No network connection detected — loading the offline globe."
-      );
+      toast.warning(t("globe.offlineToast"));
     }
   }, []);
   const { selectedId, setSelectedId } = useSelectedSatellite();
@@ -663,15 +662,15 @@ export const CesiumComponent: React.FunctionComponent<{
         }}
         title={
           mode === "offline"
-            ? "Currently offline (no Ion). Switch to Ion world imagery + terrain (needs token + internet)."
-            : "Currently online (Cesium Ion). Switch to bundled offline imagery."
+            ? t("globe.tooltip.offline")
+            : t("globe.tooltip.online")
         }
       >
-        <span>Globe: {mode === "offline" ? "Offline" : "Online (Ion)"}</span>
+        <span>{mode === "offline" ? t("globe.modeOffline") : t("globe.modeOnline")}</span>
         <Switch
           checked={mode === "online"}
           onCheckedChange={(v) => setMode(v ? "online" : "offline")}
-          aria-label="Toggle online globe imagery"
+          aria-label={t("globe.toggleAria")}
           className="data-[state=checked]:bg-sky-500 data-[state=unchecked]:bg-white/30"
         />
       </label>

@@ -20,6 +20,7 @@ import { useApiQuery } from "@/lib/api/useApiQuery";
 import { queryKeys } from "@/lib/api/queryKeys";
 import type { ObjectDetail } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
+import { t } from "@/lib/i18n/t";
 
 const LIVE_MS = 1000;
 
@@ -81,7 +82,7 @@ export const SensorPanel: React.FunctionComponent = () => {
   }, [activeSensor, line1, line2]);
 
   return (
-    <CollapsiblePanel title="Sensors & Passes">
+    <CollapsiblePanel title={t("sensor.title")}>
       <ul style={s.list}>
         {SENSORS.map((sensor) => (
           <li
@@ -100,9 +101,9 @@ export const SensorPanel: React.FunctionComponent = () => {
       </ul>
 
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 8 }}>
-        {!activeSensor && <p style={s.muted}>Select a sensor for look angles.</p>}
+        {!activeSensor && <p style={s.muted}>{t("sensor.selectSensor")}</p>}
         {activeSensor && selectedId === null && (
-          <p style={s.muted}>Select a satellite to compute passes.</p>
+          <p style={s.muted}>{t("sensor.selectSat")}</p>
         )}
         {activeSensor && selectedId !== null && (
           <>
@@ -118,14 +119,14 @@ export const SensorPanel: React.FunctionComponent = () => {
               </span>
             </div>
             <div style={s.listItem}>
-              <span style={s.muted}>Range</span>
+              <span style={s.muted}>{t("sensor.range")}</span>
               <span>{live ? `${live.rangeKm.toFixed(0)} km` : "—"}</span>
             </div>
             <p style={{ ...s.muted, margin: "8px 0 2px" }}>
-              Next passes (24 h, ≥10°)
+              {t("sensor.nextPasses")}
             </p>
             {passes.length === 0 ? (
-              <p style={s.muted}>No passes in window.</p>
+              <p style={s.muted}>{t("sensor.noPasses")}</p>
             ) : (
               <ul style={s.list}>
                 {passes.map((p, i) => (
@@ -134,7 +135,7 @@ export const SensorPanel: React.FunctionComponent = () => {
                       {hhmm(p.riseTime)}–{hhmm(p.setTime)}
                     </span>
                     <span style={s.muted}>
-                      max {p.maxElevationDeg.toFixed(0)}°
+                      {t("sensor.max")} {p.maxElevationDeg.toFixed(0)}°
                     </span>
                   </li>
                 ))}

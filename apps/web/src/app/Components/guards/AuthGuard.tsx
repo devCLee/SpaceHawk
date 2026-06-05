@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/app/context/AuthContext";
 import Spinner from "@/app/Components/ui/Spinner";
+import { t } from "@/lib/i18n/t";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading, isError } = useAuth();
@@ -18,7 +19,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (denied) {
-      toast.warning("Sign-in required.");
+      toast.warning(t("guard.signInRequired"));
       router.replace("/signin");
     }
   }, [denied, router]);

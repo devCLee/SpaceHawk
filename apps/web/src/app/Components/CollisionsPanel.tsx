@@ -16,6 +16,7 @@ import type {
   ConjunctionsResult,
 } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
+import { t } from "@/lib/i18n/t";
 
 type SortKey = "tca" | "miss" | "pc";
 
@@ -57,14 +58,11 @@ export const CollisionsPanel: React.FunctionComponent = () => {
   );
 
   return (
-    <CollapsiblePanel title="Conjunctions">
-      {isLoading && <p style={s.muted}>Loading…</p>}
-      {isError && <p style={s.error}>Screening unavailable.</p>}
+    <CollapsiblePanel title={t("conjunctions.title")}>
+      {isLoading && <p style={s.muted}>{t("common.loading")}</p>}
+      {isError && <p style={s.error}>{t("conjunctions.unavailable")}</p>}
       {!isLoading && !isError && available === false && (
-        <p style={s.muted}>
-          Conjunction screening lands in Stage 4. This panel will list ranked
-          conjunctions once the screening service is online.
-        </p>
+        <p style={s.muted}>{t("conjunctions.pending")}</p>
       )}
       {!isLoading && !isError && available && (
         <>
@@ -73,12 +71,12 @@ export const CollisionsPanel: React.FunctionComponent = () => {
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
           >
-            <option value="tca">Sort: time of closest approach</option>
-            <option value="miss">Sort: miss distance</option>
-            <option value="pc">Sort: probability</option>
+            <option value="tca">{t("conjunctions.sort.tca")}</option>
+            <option value="miss">{t("conjunctions.sort.miss")}</option>
+            <option value="pc">{t("conjunctions.sort.pc")}</option>
           </select>
           {sorted.length === 0 ? (
-            <p style={s.muted}>No conjunctions.</p>
+            <p style={s.muted}>{t("conjunctions.none")}</p>
           ) : (
             <ul style={s.list}>
               {sorted.map((c) => (
@@ -100,7 +98,7 @@ export const CollisionsPanel: React.FunctionComponent = () => {
                     <span>
                       Pc {c.probability != null ? c.probability.toExponential(1) : "n/a"}
                     </span>
-                    <span>{new Date(c.tca).toLocaleString()}</span>
+                    <span>{new Date(c.tca).toLocaleString("ko-KR")}</span>
                   </div>
                 </li>
               ))}

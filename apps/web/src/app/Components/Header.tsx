@@ -6,6 +6,7 @@
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { http } from "@/lib/api/apiClient";
+import { t } from "@/lib/i18n/t";
 
 export default function Header() {
   const { user, isAdmin, refresh } = useAuth();
@@ -25,16 +26,16 @@ export default function Header() {
       <div className="text-sm font-semibold tracking-wide">SpaceHawk</div>
       <nav className="flex items-center gap-6 text-sm">
         <a href="#menu-item-1" className="hover:text-slate-200 transition-colors">
-          Live
+          {t("header.live")}
         </a>
         <a href="#menu-item-2" className="hover:text-slate-200 transition-colors">
-          Sandbox
+          {t("header.sandbox")}
         </a>
         {user && (
           <>
             {isAdmin && (
               <a href="/admin/audit" className="hover:text-slate-200 transition-colors">
-                Audit
+                {t("header.audit")}
               </a>
             )}
             <span className="text-slate-400">
@@ -44,7 +45,7 @@ export default function Header() {
               onClick={signOut}
               className="rounded-md border border-slate-700 px-3 py-1 text-xs text-slate-300 transition-colors hover:bg-slate-800"
             >
-              Sign out
+              {t("header.signOut")}
             </button>
           </>
         )}
