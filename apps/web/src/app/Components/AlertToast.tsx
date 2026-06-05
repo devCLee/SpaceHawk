@@ -46,7 +46,7 @@ const TIME_WINDOWS: { label: string; ms: number }[] = [
   { label: "30m", ms: 30 * 60_000 },
   { label: "1h", ms: 60 * 60_000 },
   { label: "12h", ms: 12 * 60 * 60_000 },
-  { label: "1d", ms: 24 * 60 * 60_000 },
+  { label: "24h", ms: 24 * 60 * 60_000 },
 ];
 
 function accentFor(alert: LiveAlert): string {
@@ -289,7 +289,9 @@ function Toast({
           alert.lat_deg != null &&
           alert.lon_deg != null &&
           alert.alt_km != null &&
-          `${alert.lat_deg.toFixed(2)}°, ${alert.lon_deg.toFixed(2)}° · ${alert.alt_km.toFixed(0)} km · `}
+          `${alert.lat_deg.toFixed(2)}°, ${alert.lon_deg.toFixed(
+            2
+          )}° · ${alert.alt_km.toFixed(0)} km · `}
         {new Date(alert.ts).toLocaleTimeString()}
       </div>
     </div>
@@ -298,7 +300,7 @@ function Toast({
 
 /**
  * Notification history dropdown — lists every alert received this session,
- * filtered to a selectable time window (1m / 30m / 1h / 12h / 1d).
+ * filtered to a selectable time window (1m / 30m / 1h / 12h / 24h).
  */
 function HistoryPanel({
   history,
@@ -336,7 +338,9 @@ function HistoryPanel({
                 style={{
                   padding: "2px 8px",
                   borderRadius: 4,
-                  border: `1px solid ${isActive ? "#3b82f6" : "rgba(255,255,255,0.18)"}`,
+                  border: `1px solid ${
+                    isActive ? "#3b82f6" : "rgba(255,255,255,0.18)"
+                  }`,
                   background: isActive
                     ? "rgba(59,130,246,0.25)"
                     : "rgba(255,255,255,0.06)",
