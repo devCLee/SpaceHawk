@@ -49,8 +49,51 @@ async def test_denied_access_is_audited(infra_up: bool) -> None:
 
     resp = client.get("/audit", params={"decision": "deny", "limit": 50}, headers=_auth("ADMIN"))
     assert resp.status_code == 200
-    rows = resp.json()
-    assert any(r["subject"] == "sneaky" and r["action"] == "ADMINISTER" for r in rows)
+    page = resp.json()
+    assert page["total"] >= 1
+    assert any(r["subject"] == "sneaky" and r["action"] == "ADMINISTER" for r in page["rows"])
+    await db.dispose()
+
+
+async def test_audit_server_side_filters_and_pagination(infra_up: bool) -> None:
+    # Seed a deny row, then exercise the server-side contract the UI relies on.
+    assert client.post("/ingest/run", headers=_auth("VIEWER", username="sneaky")).status_code == 403
+    admin = _auth("ADMIN")
+
+    # Substring (contains) match on subject, plus multi-select OR on decision.
+    resp = client.get(
+        "/audit",
+        params={"subject": "neak", "decision": ["deny", "permit"], "limit": 25},
+        headers=admin,
+    )
+    assert resp.status_code == 200
+    page = resp.json()
+    assert all("sneak" in (r["subject"] or "") for r in page["rows"])
+    assert all(r["decision"] in {"deny", "permit"} for r in page["rows"])
+
+    # Pagination: page size caps returned rows; total is independent of the page.
+    paged = client.get("/audit", params={"limit": 1, "offset": 0}, headers=admin).json()
+    assert len(paged["rows"]) <= 1
+    assert paged["total"] >= 1
+    await db.dispose()
+
+
+async def test_audit_source_ip_and_ts_range_filters(infra_up: bool) -> None:
+    # Seed a row (TestClient's source_ip is "testclient").
+    assert client.post("/ingest/run", headers=_auth("VIEWER", username="sneaky")).status_code == 403
+    admin = _auth("ADMIN")
+
+    # Substring match on source_ip.
+    page = client.get("/audit", params={"source_ip": "testcli", "limit": 25}, headers=admin).json()
+    assert page["total"] >= 1
+    assert all("testcli" in (r["source_ip"] or "") for r in page["rows"])
+
+    # ts range: an all-future lower bound matches nothing; a future upper bound matches all.
+    future = "2999-01-01T00:00:00Z"
+    none_page = client.get("/audit", params={"ts_from": future}, headers=admin).json()
+    assert none_page["total"] == 0
+    all_page = client.get("/audit", params={"ts_to": future, "limit": 1}, headers=admin).json()
+    assert all_page["total"] >= 1
     await db.dispose()
 
 

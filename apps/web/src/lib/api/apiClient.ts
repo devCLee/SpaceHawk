@@ -24,7 +24,14 @@ function withParams(url: string, params?: QueryParams): string {
   if (!params) return url;
   const sp = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== "") {
+    // Array values become repeated params (?k=a&k=b) — multi-select OR filters.
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== undefined && item !== null && item !== "") {
+          sp.append(key, String(item));
+        }
+      }
+    } else if (value !== undefined && value !== null && value !== "") {
       sp.set(key, String(value));
     }
   }
