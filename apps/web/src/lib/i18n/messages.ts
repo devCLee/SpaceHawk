@@ -171,7 +171,8 @@ export const messages = {
   "audit.total": "총 {total}개",
   "audit.loadError": "감사 로그를 불러오지 못했습니다.",
 
-  // Admin guard / empty state
+  // Auth / admin guard / empty state
+  "guard.signInRequired": "로그인이 필요합니다.",
   "guard.notFoundTitle": "404 — 페이지를 찾을 수 없음",
   "guard.notFoundMsg": "이 페이지에 접근할 수 없습니다. 필요하면 관리자에게 문의하세요.",
 
