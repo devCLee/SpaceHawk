@@ -69,16 +69,37 @@ def normalize(
     return objects
 
 
+def _is_throttled(resp: httpx.Response) -> bool:
+    """True if Celestrak refused a repeat same-group download (its rate-limit 403).
+
+    Celestrak tracks the last successful download per GROUP and answers a repeat
+    request with HTTP 403 + a body like "GP data has not updated since your last
+    successful download of GROUP=...". Because one ingest fetches the group twice
+    (OMM JSON then TLE export), the second request can trip this — and it means
+    "no new data", not a hard failure.
+    """
+    return resp.status_code == 403 and "not updated" in resp.text.lower()
+
+
 async def fetch_celestrak(settings: Settings | None = None) -> list[SpaceObject]:
-    """Fetch one Celestrak GP group (JSON + TLE) and normalize it."""
+    """Fetch one Celestrak GP group (JSON + TLE) and normalize it.
+
+    Returns ``[]`` (non-fatal) when Celestrak rate-limits the group (see
+    :func:`_is_throttled`): a 403 throttle is "nothing new this cycle", and must
+    not raise into a 500 or abort the multi-source ingest. Space-Track is the
+    authoritative populator; Celestrak is the redundant/low-latency source.
+    """
     settings = settings or get_settings()
     params_json = {"GROUP": settings.celestrak_group, "FORMAT": "json"}
     params_tle = {"GROUP": settings.celestrak_group, "FORMAT": "tle"}
     async with httpx.AsyncClient(timeout=30.0) as client:
         omm_resp = await client.get(settings.celestrak_gp_url, params=params_json)
-        omm_resp.raise_for_status()
         tle_resp = await client.get(settings.celestrak_gp_url, params=params_tle)
-        tle_resp.raise_for_status()
+    for resp in (omm_resp, tle_resp):
+        if _is_throttled(resp):
+            log.info("ingest.celestrak.throttled", group=settings.celestrak_group)
+            return []
+        resp.raise_for_status()
     objects = normalize(omm_resp.json(), tle_resp.text, limit=settings.ingest_limit)
     log.info("ingest.celestrak", group=settings.celestrak_group, count=len(objects))
     return objects

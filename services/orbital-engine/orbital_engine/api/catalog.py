@@ -18,13 +18,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from orbital_engine.config import get_settings
-from orbital_engine.ingestion.celestrak import fetch_celestrak
+from orbital_engine.ingestion.runner import ingest_available
 from orbital_engine.repository import (
-    append_history,
     fetch_history,
     get_object,
     query_catalog,
-    upsert_objects,
 )
 from orbital_engine.security.attributes import Action, DataDomain, Subject
 from orbital_engine.security.enforce import requires
@@ -173,14 +171,17 @@ async def get_object_latest_state(
     return state
 
 
-@router.post("/ingest/run", response_model=IngestResult, summary="Trigger Celestrak ingest")
+@router.post("/ingest/run", response_model=IngestResult, summary="Trigger a catalog ingest (all sources)")
 async def run_ingest(
     _subject: Subject = Depends(requires(DataDomain.ADMIN, Action.ADMINISTER)),
 ) -> IngestResult:
-    objects = await fetch_celestrak(get_settings())
-    written = await upsert_objects(objects)
-    await append_history(objects)
-    return IngestResult(written=written)
+    # Run every configured source through the resilient runner. Space-Track (the
+    # authoritative primary — OMM + TLE lines in one record) populates the
+    # catalog; a source that errors or is rate-limited (e.g. Celestrak's
+    # per-group 403 throttle) is logged and skipped rather than failing the whole
+    # ingest with a 500.
+    summary = await ingest_available()
+    return IngestResult(written=summary["written"])
 
 
 @router.get("/state/latest", response_model=LatestState, summary="Latest propagated state")

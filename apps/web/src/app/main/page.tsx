@@ -26,13 +26,24 @@ const fallbackEntries = (
   mainData as Array<{ TLE_LINE1?: string; TLE_LINE2?: string; OBJECT_NAME?: string }>
 ).filter((e) => e.TLE_LINE1 && e.TLE_LINE2) as TleObject[];
 
+// Minimum object count for the live engine catalog to be considered "real".
+// An unseeded / freshly-migrated engine DB can return a degenerate handful (e.g.
+// a single leftover ISS fixture row from a test run) — fewer objects than the
+// bundled snapshot and not worth rendering over it. Below this floor we prefer
+// the bundled snapshot so the globe always shows a full catalog (same intent as
+// the "engine unavailable" fallback). A successful ingest returns ~200.
+const MIN_LIVE_CATALOG = 50;
+
 export default async function MainPage() {
   let tleEntries: TleObject[];
   try {
-    tleEntries = toTleEntries(await fetchCatalog());
-    if (tleEntries.length === 0) {
-      throw new Error("engine returned an empty catalog");
+    const live = toTleEntries(await fetchCatalog());
+    if (live.length < MIN_LIVE_CATALOG) {
+      throw new Error(
+        `engine catalog too small (${live.length}); using bundled snapshot`
+      );
     }
+    tleEntries = live;
   } catch {
     tleEntries = fallbackEntries;
   }
