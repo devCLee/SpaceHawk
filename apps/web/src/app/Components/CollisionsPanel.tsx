@@ -98,7 +98,7 @@ export const CollisionsPanel: React.FunctionComponent = () => {
                     <span>
                       Pc {c.probability != null ? c.probability.toExponential(1) : "n/a"}
                     </span>
-                    <span>{new Date(c.tca).toLocaleString()}</span>
+                    <span>{new Date(c.tca).toLocaleString("ko-KR")}</span>
                   </div>
                 </li>
               ))}

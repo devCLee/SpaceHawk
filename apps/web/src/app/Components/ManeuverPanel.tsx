@@ -105,7 +105,7 @@ const ManeuverRow: React.FunctionComponent<{
         RIC {num(m.ric_radial_m_s)}/{num(m.ric_in_track_m_s)}/{num(m.ric_cross_track_m_s)}
       </span>
       <span title={t("maneuver.tooltip.sigma")}>σ {num(m.detection_statistic)}</span>
-      <span>{new Date(m.detected_epoch).toLocaleDateString()}</span>
+      <span>{new Date(m.detected_epoch).toLocaleDateString("ko-KR")}</span>
     </div>
   </li>
 );
