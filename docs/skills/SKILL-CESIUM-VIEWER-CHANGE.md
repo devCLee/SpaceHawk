@@ -69,6 +69,28 @@ Safely adjust Cesium viewer behavior, entities, camera, or map‑related UI whil
 
 ---
 
+### ⚠️ Imagery providers are coupled to the CSP
+
+The app ships a strict Content-Security-Policy (`next.config.mjs`, Stage 5
+hardening). Any imagery/terrain provider the viewer contacts must have its origin
+allowlisted in `connect-src` (metadata + `fetch()`/`createImageBitmap` tiles) and
+`img-src` (`<img>` tile fallback), or the browser blocks it and floods the console
+with CSP violations.
+
+- The online globe's `BaseLayerPicker` is **curated** to only Ion/Bing-hosted
+  basemaps this token owns (`assets.ion.cesium.com` / `*.virtualearth.net` /
+  same-origin) — built by filtering `createDefaultImageryProviderViewModels()` /
+  `createDefaultTerrainProviderViewModels()` by name in `CesiumComponent.tsx`.
+  Cesium's full default grid also offers ArcGIS / ESRI / OpenStreetMap / Stadia,
+  but those hit third-party CDNs the strict CSP blocks, so they are excluded. Do
+  NOT re-add them without widening the CSP and flagging the egress in
+  `docs/design/STAGE-5-SECURITY-MEMO.md`.
+- The **offline** globe keeps `baseLayerPicker: false` so an air-gapped enclave
+  never attempts any CDN fetch.
+
+Before adding a new imagery/terrain source: add its origin to the CSP in the same
+change, and if it is a non-Ion third party, flag the egress in the security memo.
+
 ### Related skills
 
 - `SKILL-DATA-FETCHING.md`
