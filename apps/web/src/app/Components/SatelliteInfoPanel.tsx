@@ -19,6 +19,7 @@ import { runSgp4State, type Sgp4State } from "../utils/sgp4FromTle";
 import { useApiQuery } from "@/lib/api/useApiQuery";
 import { queryKeys } from "@/lib/api/queryKeys";
 import type { ObjectDetail } from "@/lib/orbital-engine";
+import { t } from "@/lib/i18n/t";
 
 /** Live position/velocity refresh cadence. */
 const LIVE_UPDATE_MS = 1000;
@@ -78,15 +79,15 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
     <aside style={styles.panel}>
       <div style={styles.header}>
         <span style={styles.headerTitle}>
-          {detail?.object_name ?? "Loading…"}
+          {detail?.object_name ?? t("sat.nameLoading")}
         </span>
         <div style={{ display: "flex", gap: 4 }}>
           <button
             type="button"
             aria-label={
               isWatched(selectedId)
-                ? "Remove from watchlist"
-                : "Add to watchlist"
+                ? t("sat.removeWatch")
+                : t("sat.addWatch")
             }
             onClick={() => toggleWatch(selectedId)}
             style={{
@@ -98,7 +99,7 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
           </button>
           <button
             type="button"
-            aria-label="Close info panel"
+            aria-label={t("sat.closePanel")}
             onClick={() => setSelectedId(null)}
             style={styles.closeButton}
           >
@@ -107,65 +108,65 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
         </div>
       </div>
 
-      {isLoading && <p style={styles.muted}>Loading object detail…</p>}
-      {isError && <p style={styles.error}>Couldn’t load object detail.</p>}
+      {isLoading && <p style={styles.muted}>{t("sat.detailLoading")}</p>}
+      {isError && <p style={styles.error}>{t("sat.detailError")}</p>}
 
       {detail && (
         <>
-          <Group title="Identity">
+          <Group title={t("sat.group.identity")}>
             <Row
               label="NORAD ID"
               value={detail.norad_cat_id?.toString() ?? "—"}
             />
             <Row
-              label="Int'l designator"
+              label={t("sat.row.intlDesignator")}
               value={detail.intl_designator ?? "—"}
             />
-            <Row label="Type" value={detail.object_type ?? "—"} />
-            <Row label="Country" value={detail.country_code ?? "—"} />
+            <Row label={t("sat.row.type")} value={detail.object_type ?? "—"} />
+            <Row label={t("sat.row.country")} value={detail.country_code ?? "—"} />
           </Group>
 
-          <Group title="Current Position">
-            <Row label="Latitude" value={fmt(live?.lat, 3, "°")} />
-            <Row label="Longitude" value={fmt(live?.lng, 3, "°")} />
-            <Row label="Altitude" value={fmt(live?.altKm, 1, "km")} />
+          <Group title={t("sat.group.position")}>
+            <Row label={t("sat.row.latitude")} value={fmt(live?.lat, 3, "°")} />
+            <Row label={t("sat.row.longitude")} value={fmt(live?.lng, 3, "°")} />
+            <Row label={t("sat.row.altitude")} value={fmt(live?.altKm, 1, "km")} />
           </Group>
 
-          <Group title="Orbital Velocity">
-            <Row label="Speed" value={fmt(live?.speedKmS, 3, "km/s")} />
+          <Group title={t("sat.group.velocity")}>
+            <Row label={t("sat.row.speed")} value={fmt(live?.speedKmS, 3, "km/s")} />
             <Row label="Vx" value={fmt(live?.velocity.x, 3, "km/s")} />
             <Row label="Vy" value={fmt(live?.velocity.y, 3, "km/s")} />
             <Row label="Vz" value={fmt(live?.velocity.z, 3, "km/s")} />
           </Group>
 
-          <Group title="Orbital Parameters">
-            <Row label="Inclination" value={fmt(detail.inclination, 3, "°")} />
-            <Row label="Eccentricity" value={fmt(detail.eccentricity, 6)} />
-            <Row label="Period" value={fmt(detail.period_min, 2, "min")} />
-            <Row label="Apoapsis" value={fmt(detail.apoapsis_km, 1, "km")} />
-            <Row label="Periapsis" value={fmt(detail.periapsis_km, 1, "km")} />
+          <Group title={t("sat.group.params")}>
+            <Row label={t("sat.row.inclination")} value={fmt(detail.inclination, 3, "°")} />
+            <Row label={t("sat.row.eccentricity")} value={fmt(detail.eccentricity, 6)} />
+            <Row label={t("sat.row.period")} value={fmt(detail.period_min, 2, "min")} />
+            <Row label={t("sat.row.apoapsis")} value={fmt(detail.apoapsis_km, 1, "km")} />
+            <Row label={t("sat.row.periapsis")} value={fmt(detail.periapsis_km, 1, "km")} />
           </Group>
 
-          <Group title="Detailed Orbital Elements">
+          <Group title={t("sat.group.detailed")}>
             <Row label="RAAN" value={fmt(detail.ra_of_asc_node, 3, "°")} />
             <Row
-              label="Arg of perigee"
+              label={t("sat.row.argPerigee")}
               value={fmt(detail.arg_of_pericenter, 3, "°")}
             />
             <Row
-              label="Mean anomaly"
+              label={t("sat.row.meanAnomaly")}
               value={fmt(detail.mean_anomaly, 3, "°")}
             />
             <Row
-              label="Mean motion"
+              label={t("sat.row.meanMotion")}
               value={fmt(detail.mean_motion, 6, "rev/day")}
             />
             <Row
-              label="Semi-major axis"
+              label={t("sat.row.semiMajorAxis")}
               value={fmt(detail.semimajor_axis_km, 1, "km")}
             />
             <Row
-              label="Epoch"
+              label={t("sat.row.epoch")}
               value={detail.epoch ? new Date(detail.epoch).toISOString() : "—"}
             />
           </Group>

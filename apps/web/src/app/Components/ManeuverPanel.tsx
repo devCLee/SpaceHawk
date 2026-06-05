@@ -22,6 +22,7 @@ import type {
   ManeuverType,
 } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
+import { t } from "@/lib/i18n/t";
 
 const TYPE_COLOR: Record<ManeuverType, string> = {
   STATION_KEEPING: "#7dd87d",
@@ -33,12 +34,12 @@ const TYPE_COLOR: Record<ManeuverType, string> = {
 };
 
 const TYPE_LABEL: Record<ManeuverType, string> = {
-  STATION_KEEPING: "Station-keeping",
-  ORBIT_RAISE: "Orbit raise",
-  ORBIT_LOWER: "Orbit lower",
-  PHASING: "Phasing",
-  RPO: "RPO",
-  UNKNOWN: "Unclassified",
+  STATION_KEEPING: t("maneuver.type.stationKeeping"),
+  ORBIT_RAISE: t("maneuver.type.orbitRaise"),
+  ORBIT_LOWER: t("maneuver.type.orbitLower"),
+  PHASING: t("maneuver.type.phasing"),
+  RPO: t("maneuver.type.rpo"),
+  UNKNOWN: t("maneuver.type.unknown"),
 };
 
 function num(v: number | null | undefined, digits = 1): string {
@@ -58,11 +59,14 @@ const BaselineCard: React.FunctionComponent<{ baseline: ManeuverBaseline }> = ({
       gap: 3,
     }}
   >
-    <div style={{ ...s.panelTitle, fontSize: 11 }}>Behavioral baseline</div>
+    <div style={{ ...s.panelTitle, fontSize: 11 }}>{t("maneuver.baseline")}</div>
     <div style={{ ...s.muted, fontSize: 11, display: "flex", gap: 10, flexWrap: "wrap" }}>
-      <span>{baseline.sample_count} maneuvers</span>
+      <span>{t("maneuver.baseline.count", { n: baseline.sample_count })}</span>
       <span>
-        cadence {num(baseline.mean_interval_days)}±{num(baseline.interval_mad_days)} d
+        {t("maneuver.baseline.cadence", {
+          mean: num(baseline.mean_interval_days),
+          mad: num(baseline.interval_mad_days),
+        })}
       </span>
       <span>
         Δv {num(baseline.mean_delta_v_m_s)}±{num(baseline.delta_v_mad_m_s)} m/s
@@ -93,14 +97,14 @@ const ManeuverRow: React.FunctionComponent<{
     <div style={{ ...s.muted, fontSize: 11, display: "flex", gap: 10, flexWrap: "wrap" }}>
       <span>Δv {num(m.delta_v_m_s)} m/s</span>
       <span>ΔSMA {num(m.delta_sma_km, 2)} km</span>
-      <span>conf {(m.confidence * 100).toFixed(0)}%</span>
+      <span>{t("maneuver.conf")} {(m.confidence * 100).toFixed(0)}%</span>
     </div>
     {/* V-pattern + RIC evidence — the "why" behind the call (explainability). */}
     <div style={{ ...s.muted, fontSize: 11, display: "flex", gap: 10, flexWrap: "wrap" }}>
-      <span title="Radial / In-track / Cross-track Δv">
+      <span title={t("maneuver.tooltip.ric")}>
         RIC {num(m.ric_radial_m_s)}/{num(m.ric_in_track_m_s)}/{num(m.ric_cross_track_m_s)}
       </span>
-      <span title="Robust V-pattern detection statistic">σ {num(m.detection_statistic)}</span>
+      <span title={t("maneuver.tooltip.sigma")}>σ {num(m.detection_statistic)}</span>
       <span>{new Date(m.detected_epoch).toLocaleDateString()}</span>
     </div>
   </li>
@@ -130,14 +134,11 @@ export const ManeuverPanel: React.FunctionComponent = () => {
   }, [selectedId, baselineData]);
 
   return (
-    <CollapsiblePanel title="Maneuver Intel">
-      {isLoading && <p style={s.muted}>Loading…</p>}
-      {isError && <p style={s.error}>Maneuver intel unavailable.</p>}
+    <CollapsiblePanel title={t("maneuver.title")}>
+      {isLoading && <p style={s.muted}>{t("common.loading")}</p>}
+      {isError && <p style={s.error}>{t("maneuver.unavailable")}</p>}
       {!isLoading && !isError && available === false && (
-        <p style={s.muted}>
-          Maneuver intelligence is offline or outside your access. Detected
-          maneuvers and behavioral baselines appear here for analyst-tier users.
-        </p>
+        <p style={s.muted}>{t("maneuver.offline")}</p>
       )}
       {!isLoading && !isError && available && (
         <>
@@ -145,8 +146,8 @@ export const ManeuverPanel: React.FunctionComponent = () => {
           {maneuvers.length === 0 ? (
             <p style={s.muted}>
               {selectedId
-                ? "No maneuvers detected for this object."
-                : "No maneuvers detected yet."}
+                ? t("maneuver.noneForObject")
+                : t("maneuver.noneYet")}
             </p>
           ) : (
             <ul style={s.list}>
