@@ -20,11 +20,11 @@ export const ControlRail: React.FunctionComponent = () => {
     <div
       style={{
         position: "absolute",
-        top: 48,
+        top: 72,
         left: 8,
         zIndex: 15,
         width: 300,
-        maxHeight: "calc(100vh - 112px)",
+        maxHeight: "calc(100vh - 136px)",
         overflowY: "auto",
         display: "flex",
         flexDirection: "column",
