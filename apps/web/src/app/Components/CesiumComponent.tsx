@@ -27,6 +27,7 @@ import { useCatalogView } from "../context/CatalogViewContext";
 import { useSensor } from "../context/SensorContext";
 import { classifyConstellation } from "../data/constellations";
 import { toast } from "sonner";
+import { Switch } from "./ui/Switch";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
@@ -210,13 +211,15 @@ export const CesiumComponent: React.FunctionComponent<{
         createDefaultImageryProviderViewModels: () => ProviderViewModel[];
         createDefaultTerrainProviderViewModels: () => ProviderViewModel[];
       };
-      const imageryProviderViewModels = createDefaultImageryProviderViewModels().filter(
-        (vm) => ownedImagery.has(normalize(vm.name))
-      );
+      const imageryProviderViewModels =
+        createDefaultImageryProviderViewModels().filter((vm) =>
+          ownedImagery.has(normalize(vm.name))
+        );
       const ownedTerrain = new Set(["WGS84 Ellipsoid", "Cesium World Terrain"]);
-      const terrainProviderViewModels = createDefaultTerrainProviderViewModels().filter(
-        (vm) => ownedTerrain.has(normalize(vm.name))
-      );
+      const terrainProviderViewModels =
+        createDefaultTerrainProviderViewModels().filter((vm) =>
+          ownedTerrain.has(normalize(vm.name))
+        );
 
       const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
         imageryProviderViewModels,
@@ -637,24 +640,26 @@ export const CesiumComponent: React.FunctionComponent<{
 
   return (
     <div style={{ position: "relative" }}>
-      <button
-        type="button"
-        onClick={() => setMode((m) => (m === "offline" ? "online" : "offline"))}
+      <label
         style={{
-          // Top-right, below the 56px fixed header. The left edge is owned by
-          // the control rail (search/filters), so anchoring here keeps the
-          // toggle from being hidden under the catalog search panel.
+          // Floating top-right, stacked ON TOP of Cesium's toolbar (scene-mode
+          // 2D/3D picker + base-layer tile picker), which globals.css nudges
+          // down to top:48px so this control clears it.
           position: "absolute",
-          top: 64,
-          right: 12,
+          top: 8,
+          right: 8,
           zIndex: 30,
-          padding: "6px 12px",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 10px",
           borderRadius: 6,
           border: "1px solid rgba(255,255,255,0.4)",
           background: "rgba(0,0,0,0.6)",
           color: "#fff",
           fontSize: 13,
           cursor: "pointer",
+          userSelect: "none",
         }}
         title={
           mode === "offline"
@@ -662,9 +667,14 @@ export const CesiumComponent: React.FunctionComponent<{
             : "Currently online (Cesium Ion). Switch to bundled offline imagery."
         }
       >
-        Globe: {mode === "offline" ? "Offline" : "Online (Ion)"} — switch to{" "}
-        {mode === "offline" ? "Online" : "Offline"}
-      </button>
+        <span>Globe: {mode === "offline" ? "Offline" : "Online (Ion)"}</span>
+        <Switch
+          checked={mode === "online"}
+          onCheckedChange={(v) => setMode(v ? "online" : "offline")}
+          aria-label="Toggle online globe imagery"
+          className="data-[state=checked]:bg-sky-500 data-[state=unchecked]:bg-white/30"
+        />
+      </label>
       <div
         ref={cesiumContainerRef}
         id="cesium-container"
