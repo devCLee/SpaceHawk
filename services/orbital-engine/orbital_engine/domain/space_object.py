@@ -122,6 +122,25 @@ class SpaceObject(BaseModel):
     decay_date: date | None = Field(default=None, validation_alias=_alias("DECAY_DATE", "decay_date"))
     site: str | None = Field(default=None, validation_alias=_alias("SITE", "site"))
 
+    # --- Physical characteristics (DISCOS enrichment) ---
+    # Supplied by the ESA DISCOSweb metadata-enrichment pass, not by the element
+    # sources (DISCOS carries no orbital state). All optional; they gap-fill an
+    # existing catalog row keyed on NORAD/COSPAR. See ingestion/discos.py and
+    # repository.apply_enrichments.
+    object_class: str | None = Field(default=None, validation_alias=_alias("object_class"))
+    mass_kg: float | None = Field(default=None, validation_alias=_alias("mass_kg"))
+    shape: str | None = Field(default=None, validation_alias=_alias("shape"))
+    span_m: float | None = Field(default=None, validation_alias=_alias("span_m"))
+    cross_section_min_m2: float | None = Field(
+        default=None, validation_alias=_alias("cross_section_min_m2")
+    )
+    cross_section_avg_m2: float | None = Field(
+        default=None, validation_alias=_alias("cross_section_avg_m2")
+    )
+    cross_section_max_m2: float | None = Field(
+        default=None, validation_alias=_alias("cross_section_max_m2")
+    )
+
     # --- CCSDS OMM metadata ---
     center_name: str | None = Field(default="EARTH", validation_alias=_alias("CENTER_NAME", "center_name"))
     ref_frame: str = Field(default="TEME", validation_alias=_alias("REF_FRAME", "ref_frame"))

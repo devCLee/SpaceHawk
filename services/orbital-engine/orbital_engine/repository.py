@@ -130,6 +130,52 @@ async def count_objects() -> int:
         return int(result.scalar_one())
 
 
+# ---------------------------------------------------------------------------
+# DISCOS enrichment — physical characteristics patched onto existing rows.
+# These columns are NOT in `_COLUMNS` (the element upsert set) on purpose: a
+# re-ingest from Space-Track/Celestrak must never overwrite them with NULL.
+# Match on NORAD (satno) when present, else COSPAR (cosparId).
+# ---------------------------------------------------------------------------
+_ENRICHMENT_COLS: tuple[str, ...] = (
+    "object_class",
+    "mass_kg",
+    "shape",
+    "span_m",
+    "cross_section_min_m2",
+    "cross_section_avg_m2",
+    "cross_section_max_m2",
+)
+_ENRICH_SET = ", ".join(f"{c} = :{c}" for c in _ENRICHMENT_COLS)
+_ENRICH_BY_NORAD_SQL = text(
+    f"UPDATE space_object SET {_ENRICH_SET} WHERE norad_cat_id = :norad_cat_id"
+)
+_ENRICH_BY_COSPAR_SQL = text(
+    f"UPDATE space_object SET {_ENRICH_SET} WHERE intl_designator = :intl_designator"
+)
+
+
+async def apply_enrichments(rows: list[dict[str, Any]]) -> int:
+    """Patch physical characteristics onto existing catalog rows.
+
+    Each row carries the enrichment columns plus a join key. Rows with a NORAD id
+    update by ``norad_cat_id``; the rest update by ``intl_designator`` (COSPAR).
+    Rows whose key matches no catalogued object are simply no-ops. Returns the
+    number of patches applied (rows attempted).
+    """
+    by_norad = [r for r in rows if r.get("norad_cat_id") is not None]
+    by_cospar = [
+        r for r in rows if r.get("norad_cat_id") is None and r.get("intl_designator")
+    ]
+    if not by_norad and not by_cospar:
+        return 0
+    async with get_engine().begin() as conn:
+        if by_norad:
+            await conn.execute(_ENRICH_BY_NORAD_SQL, by_norad)
+        if by_cospar:
+            await conn.execute(_ENRICH_BY_COSPAR_SQL, by_cospar)
+    return len(by_norad) + len(by_cospar)
+
+
 # Columns returned to the catalog list/feed (matches the API CatalogObject).
 _LIST_COLUMNS = (
     "object_id, norad_cat_id, object_name, object_type, country_code, "
@@ -185,7 +231,9 @@ _DETAIL_COLUMNS = (
     "ra_of_asc_node, arg_of_pericenter, mean_anomaly, ephemeris_type, bstar, "
     "mean_motion_dot, mean_motion_ddot, semimajor_axis_km, period_min, "
     "apoapsis_km, periapsis_km, mean_element_theory, ref_frame, "
-    "tle_line0, tle_line1, tle_line2, ingested_at"
+    "tle_line0, tle_line1, tle_line2, ingested_at, "
+    "object_class, mass_kg, shape, span_m, "
+    "cross_section_min_m2, cross_section_avg_m2, cross_section_max_m2"
 )
 
 

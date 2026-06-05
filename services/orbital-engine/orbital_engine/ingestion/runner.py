@@ -14,10 +14,11 @@ import asyncio
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.domain.space_object import SpaceObject
 from orbital_engine.ingestion.base import SourceAdapter
+from orbital_engine.ingestion.discos import fetch_discos
 from orbital_engine.ingestion.merge import merge_objects
 from orbital_engine.ingestion.registry import available_adapters
 from orbital_engine.logging import get_logger
-from orbital_engine.repository import append_history, upsert_objects
+from orbital_engine.repository import append_history, apply_enrichments, upsert_objects
 
 log = get_logger("ingestion.runner")
 
@@ -50,3 +51,21 @@ async def ingest_one(source: str, settings: Settings | None = None) -> dict[str,
     settings = settings or get_settings()
     adapters = [a for a in available_adapters(settings) if a.source.value == source]
     return await ingest_sources(adapters)
+
+
+async def enrich_discos(settings: Settings | None = None) -> dict[str, int]:
+    """Fetch DISCOS physical characteristics and patch them onto catalog rows.
+
+    Distinct from ``ingest_*``: DISCOS carries no orbital state, so it creates no
+    rows — it only enriches existing ones (matched on NORAD/COSPAR). A no-op
+    (``available`` 0) without a DISCOS token, so the static schedule is safe.
+    """
+    settings = settings or get_settings()
+    if not settings.discos_api_token:
+        log.info("enrich.discos.skip", reason="no DISCOS token")
+        return {"available": 0, "fetched": 0, "applied": 0}
+    enrichments = await fetch_discos(settings)
+    rows = [e.model_dump(mode="python") for e in enrichments]
+    applied = await apply_enrichments(rows)
+    log.info("enrich.discos", fetched=len(rows), applied=applied)
+    return {"available": 1, "fetched": len(rows), "applied": applied}

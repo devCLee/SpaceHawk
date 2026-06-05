@@ -88,6 +88,16 @@ class Settings(BaseSettings):
     spacetrack_ingest_interval_sec: int = 3600
     celestrak_ingest_interval_sec: int = 1800
 
+    # --- DISCOS enrichment (ESA DISCOSweb metadata; Stage 2) ---
+    # DISCOS supplies physical characteristics (mass/size/shape/cross-section) but
+    # no orbital state, so it runs as a slow enrichment pass that patches existing
+    # rows (daily; this metadata changes rarely) rather than element ingestion.
+    # DISCOSweb pages at <=100/request and rate-limits per token (HTTP 429).
+    discos_max_requests_per_min: int = 20
+    discos_page_size: int = 100
+    discos_query_limit: int | None = None  # cap objects in dev; None = full catalog
+    discos_ingest_interval_sec: int = 86400
+
     # --- Conjunction CDM ingest (Stage 4) ---
     # CDMs are published less often than GP; hourly is ample. Cap per-query rows
     # in dev; None (no limit) for the full feed in the enclave.
