@@ -20,6 +20,36 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
+# External-source credentials forced empty for every test (see fixture below).
+_SOURCE_CRED_ENV = (
+    "ORBITAL_ENGINE_SPACETRACK_IDENTITY",
+    "ORBITAL_ENGINE_SPACETRACK_PASSWORD",
+    "ORBITAL_ENGINE_DISCOS_API_TOKEN",
+    "ORBITAL_ENGINE_LEOLABS_API_KEY",
+    "ORBITAL_ENGINE_LEOLABS_API_SECRET",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_source_creds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``Settings()`` deterministic w.r.t. external-source credentials.
+
+    Several tests assert behavior from an *unconfigured* baseline (e.g. "no
+    Space-Track creds => the adapter is unavailable"). A bare ``Settings()`` reads
+    the developer's local ``.env``, so a configured dev box (real Space-Track
+    creds) silently flips those assertions — and could even drive ``ingest_one``
+    into a live Space-Track login mid-suite.
+
+    Force just the source-credential env vars to empty. An OS env var outranks the
+    ``.env`` file in pydantic-settings' precedence, so this neutralizes the creds
+    *without* disabling ``.env`` — AUTH_JWT_SECRET / DATABASE_URL / REDIS_URL keep
+    their ``.env`` values, so the auth + infra-gated tests are untouched. Tests that
+    need creds pass them as explicit ``Settings`` kwargs (which outrank env).
+    """
+    for key in _SOURCE_CRED_ENV:
+        monkeypatch.setenv(key, "")
+
+
 @pytest.fixture(autouse=True)
 def _reset_connection_singletons() -> None:
     """Give every test a fresh DB engine / Redis client bound to its own loop.

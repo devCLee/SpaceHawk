@@ -56,13 +56,15 @@ async def test_slice_walks_end_to_end(infra_up: bool) -> None:
     written = await upsert_objects(objects)
     assert written == 1
 
-    # 2. read back the catalog projection used by propagation + the BFF.
-    rows = await fetch_catalog(limit=10)
+    # 2. read back the catalog projection used by propagation + the BFF. Pull the
+    # whole projection (not a LIMIT slice) so an already-populated catalog can't
+    # hide the just-upserted row — the slice owns its object, not the catalog size.
+    rows = await fetch_catalog()
     iss = next(r for r in rows if r["norad_cat_id"] == 25544)
     assert iss["tle_line1"] == ISS_L1
 
-    # 3. server SGP4 over the set, then publish the latest state to Redis.
-    states = propagate_objects(rows)
+    # 3. server SGP4 over the upserted object, then publish the latest state to Redis.
+    states = propagate_objects([iss])
     assert any(s["norad_cat_id"] == 25544 for s in states)
     await write_latest_state({"count": len(states), "objects": states})
     snapshot = await read_latest_state()

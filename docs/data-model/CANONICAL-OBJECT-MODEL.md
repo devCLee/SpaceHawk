@@ -108,3 +108,49 @@ Empty-string source values are normalized to `null`/`None` on ingestion.
 
 This model is **frozen at the ARB**. Changes require a new section here, a JSON
 Schema revision, matching Pydantic/DDL updates, and the drift test must stay green.
+
+Post-freeze changes are recorded as numbered amendments in §7 and must be ratified
+by the ARB (not merged silently) — the model is a tri-service contract.
+
+## 7. Amendments
+
+### A1 — DISCOS physical characteristics (enrichment source)
+
+**Date:** 2026-06-05 · **Type:** additive, backward-compatible · **Status:** pending ARB ratification.
+
+Adds physical-characteristic fields supplied by **ESA DISCOSweb** (dev-plan §3
+feature #4, multi-source redundancy). DISCOS carries **no orbital state** (no epoch,
+no mean elements), so it is **not** an element source: it cannot create a canonical
+record (the Keplerian fields are `NOT NULL`). It is wired as a **metadata
+enrichment pass** — fetched on a slow cadence and patched onto existing rows,
+matched on NORAD (`satno`) or, failing that, COSPAR (`cosparId`). See
+`services/orbital-engine/orbital_engine/ingestion/discos.py` and
+`repository.apply_enrichments`.
+
+**New fields** (all nullable; not in JSON Schema `required[]`):
+
+| DISCOSweb attribute | Canonical field | Type | Notes |
+|---|---|---|---|
+| `objectClass` | `object_class` | str? | DISCOS object class (free text), e.g. `Payload`, `Rocket Body` |
+| `mass` | `mass_kg` | float? | kilograms |
+| `shape` | `shape` | str? | shape descriptor, e.g. `Box`, `Cyl`, `Sphere + 2 Pan` |
+| max(`width`,`height`,`depth`,`diameter`,`length`,`span`) | `span_m` | float? | largest linear dimension, metres |
+| `xSectMin` | `cross_section_min_m2` | float? | minimum cross-section, m² |
+| `xSectAvg` | `cross_section_avg_m2` | float? | average cross-section, m² |
+| `xSectMax` | `cross_section_max_m2` | float? | maximum cross-section, m² |
+
+`satno`/`cosparId` are the join keys (the existing `norad_cat_id`/`intl_designator`
+identity fields), not new fields.
+
+**Why low-risk:** additive only — no existing field, type, or the `NOT NULL` element
+contract changed; old records still validate (new fields default `null`). The
+enrichment columns are **excluded from the element upsert set** in the repository,
+so a re-ingest from Space-Track/Celestrak never overwrites DISCOS data with `null`.
+
+**Artifacts updated** (the three-artifacts lockstep, §2):
+
+- **JSON Schema** — 7 properties added to `space-object.schema.json`.
+- **Pydantic** — fields added to `domain/space_object.py`.
+- **DDL** — Alembic migration `0009_discos_physical` adds the columns to
+  `space_object` (nullable, with non-negative `CHECK`s) + an `object_class` index.
+- **Drift test** — `test_space_object.py` stays green (schema ↔ model in lockstep).

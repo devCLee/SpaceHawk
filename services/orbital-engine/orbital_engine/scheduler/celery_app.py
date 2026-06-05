@@ -51,4 +51,10 @@ celery_app.conf.beat_schedule = {
         "task": "orbital_engine.scheduler.tasks.ingest_cdms",
         "schedule": float(settings.cdm_ingest_interval_sec),
     },
+    # DISCOS metadata enrichment — slow cadence (physical characteristics rarely
+    # change); a no-op inside the task until a DISCOS token is configured.
+    "enrich-discos": {
+        "task": "orbital_engine.scheduler.tasks.enrich_discos",
+        "schedule": float(settings.discos_ingest_interval_sec),
+    },
 }

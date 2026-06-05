@@ -209,6 +209,39 @@
     },
     "tle_line2": {
       "type": ["string", "null"]
+    },
+    "object_class": {
+      "type": ["string", "null"],
+      "description": "DISCOS object class (ESA DISCOSweb objectClass), e.g. 'Payload', 'Rocket Body'. Enrichment-only; null until the DISCOS pass runs."
+    },
+    "mass_kg": {
+      "type": ["number", "null"],
+      "description": "Object mass, kilograms (DISCOS). Enrichment-only.",
+      "minimum": 0
+    },
+    "shape": {
+      "type": ["string", "null"],
+      "description": "DISCOS shape descriptor, e.g. 'Box', 'Cyl', 'Sphere + 2 Pan'. Enrichment-only."
+    },
+    "span_m": {
+      "type": ["number", "null"],
+      "description": "Largest linear dimension, metres (max of DISCOS width/height/depth/diameter/length/span). Enrichment-only.",
+      "minimum": 0
+    },
+    "cross_section_min_m2": {
+      "type": ["number", "null"],
+      "description": "Minimum cross-sectional area, m^2 (DISCOS xSectMin). Enrichment-only.",
+      "minimum": 0
+    },
+    "cross_section_avg_m2": {
+      "type": ["number", "null"],
+      "description": "Average cross-sectional area, m^2 (DISCOS xSectAvg). Enrichment-only.",
+      "minimum": 0
+    },
+    "cross_section_max_m2": {
+      "type": ["number", "null"],
+      "description": "Maximum cross-sectional area, m^2 (DISCOS xSectMax). Enrichment-only.",
+      "minimum": 0
     }
   }
 }
