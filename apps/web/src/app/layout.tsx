@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
+import { IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import Header from "./Components/Header";
 import Providers from "./providers";
+
+const ibmPlexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "SpaceHawk",
@@ -21,13 +28,7 @@ export default function RootLayout({
     // warning one level deep on these elements — it does not mask real
     // mismatches in app components.
     <html lang="en" suppressHydrationWarning>
-      <body
-        suppressHydrationWarning
-        style={{
-          fontFamily:
-            'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-        }}
-      >
+      <body suppressHydrationWarning className={ibmPlexSans.className}>
         <Providers>
           <Header />
           {children}
