@@ -63,7 +63,8 @@ const COLUMNS: ColumnDef<AuditEntry>[] = [
   {
     accessorKey: "ts",
     header: "Time",
-    cell: ({ getValue }) => new Date(getValue<string>()).toLocaleString(),
+    cell: ({ getValue }) =>
+      new Date(getValue<string>()).toLocaleString("en-US"),
   },
   {
     accessorKey: "subject",
@@ -202,8 +203,8 @@ function DateRangeFilter({ column }: { column: Column<AuditEntry, unknown> }) {
 
   const label =
     selected?.from || selected?.to
-      ? `${selected?.from ? selected.from.toLocaleDateString() : "…"} – ${
-          selected?.to ? selected.to.toLocaleDateString() : "…"
+      ? `${selected?.from ? selected.from.toLocaleDateString("en-US") : "…"} – ${
+          selected?.to ? selected.to.toLocaleDateString("en-US") : "…"
         }`
       : "All dates";
 
