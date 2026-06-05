@@ -26,6 +26,7 @@ import {
   PopoverTrigger,
 } from "@/app/Components/ui/popover";
 import { Calendar } from "@/app/Components/ui/calendar";
+import { t } from "@/lib/i18n/t";
 
 // Which columns are filterable and how. Multi-select option sets mirror the
 // engine's enums (orbital_engine/security/attributes.py + the decision CHECK).
@@ -62,25 +63,25 @@ const dash = (v: string | null) => v ?? "—";
 const COLUMNS: ColumnDef<AuditEntry>[] = [
   {
     accessorKey: "ts",
-    header: "Time",
+    header: t("audit.col.time"),
     cell: ({ getValue }) =>
-      new Date(getValue<string>()).toLocaleString("en-US"),
+      new Date(getValue<string>()).toLocaleString("ko-KR"),
   },
   {
     accessorKey: "subject",
-    header: "Subject",
+    header: t("audit.col.subject"),
     cell: ({ getValue }) => dash(getValue<string | null>()),
   },
   {
     accessorKey: "role",
-    header: "Role",
+    header: t("audit.col.role"),
     cell: ({ getValue }) => dash(getValue<string | null>()),
   },
-  { accessorKey: "domain", header: "Domain" },
-  { accessorKey: "action", header: "Action" },
+  { accessorKey: "domain", header: t("audit.col.domain") },
+  { accessorKey: "action", header: t("audit.col.action") },
   {
     accessorKey: "decision",
-    header: "Decision",
+    header: t("audit.col.decision"),
     cell: ({ getValue }) => {
       const d = getValue<string>();
       return (
@@ -94,15 +95,15 @@ const COLUMNS: ColumnDef<AuditEntry>[] = [
       );
     },
   },
-  { accessorKey: "reason", header: "Reason" },
+  { accessorKey: "reason", header: t("audit.col.reason") },
   {
     accessorKey: "source_ip",
-    header: "Source IP",
+    header: t("audit.col.sourceIp"),
     cell: ({ getValue }) => dash(getValue<string | null>()),
   },
   {
     accessorKey: "path",
-    header: "Path",
+    header: t("audit.col.path"),
     cell: ({ getValue }) => dash(getValue<string | null>()),
   },
 ];
@@ -128,7 +129,7 @@ function TextFilter({ column }: { column: Column<AuditEntry, unknown> }) {
     <input
       value={value}
       onChange={(e) => setValue(e.target.value)}
-      placeholder="Search…"
+      placeholder={t("audit.search")}
       className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-xs font-normal text-slate-200 placeholder:text-slate-600 focus:border-slate-500 focus:outline-none"
     />
   );
@@ -152,7 +153,7 @@ function MultiSelectFilter({
   return (
     <details className="group relative mt-1 font-normal">
       <summary className="flex cursor-pointer list-none items-center justify-between rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-xs text-slate-200 marker:hidden">
-        <span>{selected.length ? `${selected.length} selected` : "All"}</span>
+        <span>{selected.length ? t("audit.selectedCount", { n: selected.length }) : t("common.all")}</span>
         <span className="text-slate-500 group-open:rotate-180">▾</span>
       </summary>
       <div className="absolute z-10 mt-1 max-h-56 w-40 overflow-auto rounded border border-slate-700 bg-slate-900 p-1 shadow-lg">
@@ -203,10 +204,10 @@ function DateRangeFilter({ column }: { column: Column<AuditEntry, unknown> }) {
 
   const label =
     selected?.from || selected?.to
-      ? `${selected?.from ? selected.from.toLocaleDateString("en-US") : "…"} – ${
-          selected?.to ? selected.to.toLocaleDateString("en-US") : "…"
+      ? `${selected?.from ? selected.from.toLocaleDateString("ko-KR") : "…"} – ${
+          selected?.to ? selected.to.toLocaleDateString("ko-KR") : "…"
         }`
-      : "All dates";
+      : t("audit.allDates");
 
   const onSelect = (range: DateRange | undefined) => {
     const from = range?.from ? startOfDay(range.from).toISOString() : undefined;
@@ -235,7 +236,7 @@ function DateRangeFilter({ column }: { column: Column<AuditEntry, unknown> }) {
             onClick={() => column.setFilterValue(undefined)}
             className="mt-2 w-full rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
           >
-            Clear
+            {t("audit.clear")}
           </button>
         )}
       </PopoverContent>
@@ -330,22 +331,22 @@ export default function AuditTable() {
   return (
     <main className="min-h-screen bg-black px-8 pt-16 pb-8 text-slate-200">
       <div className="flex items-center gap-3 mb-4">
-        <h1 className="text-2xl font-semibold">Audit Log</h1>
+        <h1 className="text-2xl font-semibold">{t("audit.title")}</h1>
         {isFetching && (
-          <span className="text-xs text-slate-500">Updating…</span>
+          <span className="text-xs text-slate-500">{t("audit.updating")}</span>
         )}
         {columnFilters.length > 0 && (
           <button
             onClick={clearFilters}
             className="ml-auto rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
           >
-            Clear filters
+            {t("audit.clearFilters")}
           </button>
         )}
       </div>
 
       {isError ? (
-        <p className="text-sm text-red-400">Failed to load the audit log.</p>
+        <p className="text-sm text-red-400">{t("audit.loadError")}</p>
       ) : (
         <>
           <div className="max-h-[calc(100vh-20rem)] overflow-auto rounded-lg border border-slate-800">
@@ -392,7 +393,7 @@ export default function AuditTable() {
                       colSpan={COLUMNS.length}
                       className="px-3 py-6 text-center text-slate-500"
                     >
-                      Loading audit log…
+                      {t("audit.loading")}
                     </td>
                   </tr>
                 ) : table.getRowModel().rows.length === 0 ? (
@@ -401,7 +402,7 @@ export default function AuditTable() {
                       colSpan={COLUMNS.length}
                       className="h-64 px-3 py-6 text-center align-middle text-slate-500"
                     >
-                      No matching audit entries.
+                      {t("audit.empty")}
                     </td>
                   </tr>
                 ) : (
@@ -432,36 +433,39 @@ export default function AuditTable() {
               disabled={!table.getCanPreviousPage()}
               className="rounded border border-slate-700 px-2 py-1 disabled:opacity-40"
             >
-              « First
+              {t("audit.first")}
             </button>
             <button
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
               className="rounded border border-slate-700 px-2 py-1 disabled:opacity-40"
             >
-              ‹ Prev
+              {t("audit.prev")}
             </button>
             <button
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
               className="rounded border border-slate-700 px-2 py-1 disabled:opacity-40"
             >
-              Next ›
+              {t("audit.next")}
             </button>
             <button
               onClick={() => table.lastPage()}
               disabled={!table.getCanNextPage()}
               className="rounded border border-slate-700 px-2 py-1 disabled:opacity-40"
             >
-              Last »
+              {t("audit.last")}
             </button>
 
             <span className="ml-2">
-              Page {pageCount === 0 ? 0 : pageIndex + 1} of {pageCount}
+              {t("audit.pageOf", {
+                page: pageCount === 0 ? 0 : pageIndex + 1,
+                count: pageCount,
+              })}
             </span>
 
             <span className="ml-2 flex items-center gap-1">
-              Jump to
+              {t("audit.jumpTo")}
               <input
                 type="number"
                 min={1}
@@ -486,12 +490,12 @@ export default function AuditTable() {
             >
               {[10, 25, 50, 100].map((n) => (
                 <option key={n} value={n}>
-                  {n} / page
+                  {t("audit.perPage", { n })}
                 </option>
               ))}
             </select>
 
-            <span className="ml-auto text-slate-500">{total} total</span>
+            <span className="ml-auto text-slate-500">{t("audit.total", { total })}</span>
           </div>
         </>
       )}
