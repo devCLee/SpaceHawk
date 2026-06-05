@@ -1,0 +1,179 @@
+// Korean UI copy — single source of truth. Keys are dot-namespaced by surface.
+// `{token}` placeholders are filled by t(key, params). Brand name "SpaceHawk",
+// units (km, °, m/s), symbols (Δv, RIC, σ, RAAN), orbit regimes (LEO/MEO/GEO/HEO)
+// and all backend data are intentionally NOT in here — they are not translated.
+
+export const messages = {
+  // Common
+  "common.loading": "불러오는 중…",
+  "common.clearFilter": "필터 해제",
+  "common.all": "전체",
+  "common.loadingAria": "로딩 중",
+
+  // Header
+  "header.live": "라이브",
+  "header.sandbox": "샌드박스",
+  "header.audit": "감사 로그",
+  "header.signOut": "로그아웃",
+
+  // Sign in
+  "signin.subtitle": "운영 대시보드 — 로그인하여 계속하세요.",
+  "signin.username": "사용자 이름",
+  "signin.password": "비밀번호",
+  "signin.signIn": "로그인",
+  "signin.signingIn": "로그인 중…",
+  "signin.errInvalid": "사용자 이름 또는 비밀번호가 올바르지 않습니다.",
+  "signin.errFailed": "로그인에 실패했습니다. 다시 시도하세요.",
+
+  // Dashboard (screen-reader heading)
+  "dashboard.srTitle": "SpaceHawk 운영 대시보드",
+
+  // Catalog search
+  "search.title": "카탈로그 검색",
+  "search.placeholder.query": "이름 / NORAD / 국제 식별자",
+  "search.placeholder.country": "국가",
+  "search.findSat": "위성 찾기 (파라메트릭)",
+  "search.regime.any": "모든 궤도",
+  "search.placeholder.inclMin": "경사각 최소°",
+  "search.placeholder.inclMax": "경사각 최대°",
+  "search.placeholder.periodMin": "주기 최소",
+  "search.placeholder.periodMax": "주기 최대",
+  "search.placeholder.eccMax": "이심률 최대",
+  "search.searching": "검색 중…",
+  "search.unavailable": "검색을 사용할 수 없습니다.",
+  "search.noMatches": "검색 결과 없음",
+
+  // Countries / Constellations / Watchlist
+  "countries.title": "국가",
+  "countries.unavailable": "카탈로그를 사용할 수 없습니다.",
+  "constellations.title": "위성군집",
+  "watchlist.title": "관심 목록 ({n})",
+  "watchlist.empty": "관심 등록된 객체가 없습니다. 객체를 열고 ☆를 눌러 등록하세요.",
+
+  // Alert Center
+  "alertCenter.title": "경보 센터",
+  "alertCenter.unavailable": "경보 로그를 사용할 수 없습니다.",
+  "alertCenter.none": "{status} 경보가 없습니다.",
+  "alertCenter.acknowledge": "확인",
+  "alertCenter.dismiss": "무시",
+
+  // Notifications (toast history)
+  "notifications.title": "알림",
+  "notifications.empty": "이 기간에 알림이 없습니다.",
+  "notifications.dismiss": "알림 닫기",
+
+  // Conjunctions
+  "conjunctions.title": "근접 분석",
+  "conjunctions.unavailable": "스크리닝을 사용할 수 없습니다.",
+  "conjunctions.pending":
+    "근접 스크리닝은 4단계에서 제공됩니다. 스크리닝 서비스가 온라인이 되면 순위가 매겨진 근접 이벤트가 여기에 표시됩니다.",
+  "conjunctions.sort.tca": "정렬: 최근접 시각",
+  "conjunctions.sort.miss": "정렬: 최근접 거리",
+  "conjunctions.sort.pc": "정렬: 충돌 확률",
+  "conjunctions.none": "근접 이벤트 없음",
+
+  // Maneuver Intel
+  "maneuver.title": "기동 정보",
+  "maneuver.unavailable": "기동 정보를 사용할 수 없습니다.",
+  "maneuver.offline":
+    "기동 정보가 오프라인이거나 접근 권한이 없습니다. 탐지된 기동과 행동 기준선은 분석가 등급 사용자에게 표시됩니다.",
+  "maneuver.baseline": "행동 기준선",
+  "maneuver.baseline.count": "{n}회 기동",
+  "maneuver.baseline.cadence": "주기 {mean}±{mad} 일",
+  "maneuver.conf": "신뢰도",
+  "maneuver.noneForObject": "이 객체에 대해 탐지된 기동이 없습니다.",
+  "maneuver.noneYet": "아직 탐지된 기동이 없습니다.",
+  "maneuver.tooltip.ric": "방사 / 진행 / 교차 방향 Δv",
+  "maneuver.tooltip.sigma": "강건한 V-패턴 탐지 통계량",
+  "maneuver.type.stationKeeping": "정지궤도 유지",
+  "maneuver.type.orbitRaise": "궤도 상승",
+  "maneuver.type.orbitLower": "궤도 하강",
+  "maneuver.type.phasing": "위상 조정",
+  "maneuver.type.rpo": "RPO",
+  "maneuver.type.unknown": "미분류",
+
+  // Sensors & Passes
+  "sensor.title": "센서 및 통과",
+  "sensor.selectSensor": "방위/고도를 보려면 센서를 선택하세요.",
+  "sensor.selectSat": "통과를 계산하려면 위성을 선택하세요.",
+  "sensor.range": "거리",
+  "sensor.nextPasses": "다음 통과 (24시간, ≥10°)",
+  "sensor.noPasses": "기간 내 통과 없음",
+  "sensor.max": "최대",
+
+  // Satellite info panel
+  "sat.nameLoading": "불러오는 중…",
+  "sat.detailLoading": "객체 정보를 불러오는 중…",
+  "sat.detailError": "객체 정보를 불러오지 못했습니다.",
+  "sat.addWatch": "관심 목록에 추가",
+  "sat.removeWatch": "관심 목록에서 제거",
+  "sat.closePanel": "정보 패널 닫기",
+  "sat.group.identity": "식별 정보",
+  "sat.group.position": "현재 위치",
+  "sat.group.velocity": "궤도 속도",
+  "sat.group.params": "궤도 요소",
+  "sat.group.detailed": "상세 궤도 요소",
+  "sat.row.intlDesignator": "국제 식별자",
+  "sat.row.type": "유형",
+  "sat.row.country": "국가",
+  "sat.row.latitude": "위도",
+  "sat.row.longitude": "경도",
+  "sat.row.altitude": "고도",
+  "sat.row.speed": "속도",
+  "sat.row.inclination": "경사각",
+  "sat.row.eccentricity": "이심률",
+  "sat.row.period": "주기",
+  "sat.row.apoapsis": "원지점",
+  "sat.row.periapsis": "근지점",
+  "sat.row.argPerigee": "근지점 인수",
+  "sat.row.meanAnomaly": "평균 근점 이각",
+  "sat.row.meanMotion": "평균 운동",
+  "sat.row.semiMajorAxis": "긴반지름",
+  "sat.row.epoch": "원기",
+
+  // Globe (Cesium)
+  "globe.offlineToast": "네트워크 연결이 감지되지 않았습니다 — 오프라인 지구본을 불러옵니다.",
+  "globe.modeOffline": "지구본: 오프라인",
+  "globe.modeOnline": "지구본: 온라인 (Ion)",
+  "globe.toggleAria": "온라인 지구본 영상 전환",
+  "globe.tooltip.offline":
+    "현재 오프라인 (Ion 없음). Ion 월드 영상 + 지형으로 전환 (토큰 + 인터넷 필요).",
+  "globe.tooltip.online": "현재 온라인 (Cesium Ion). 번들된 오프라인 영상으로 전환.",
+
+  // Audit log
+  "audit.title": "감사 로그",
+  "audit.updating": "갱신 중…",
+  "audit.clearFilters": "필터 모두 해제",
+  "audit.col.time": "시간",
+  "audit.col.subject": "주체",
+  "audit.col.role": "역할",
+  "audit.col.domain": "도메인",
+  "audit.col.action": "작업",
+  "audit.col.decision": "결정",
+  "audit.col.reason": "사유",
+  "audit.col.sourceIp": "출처 IP",
+  "audit.col.path": "경로",
+  "audit.search": "검색…",
+  "audit.selectedCount": "{n}개 선택",
+  "audit.allDates": "모든 날짜",
+  "audit.clear": "지우기",
+  "audit.loading": "감사 로그를 불러오는 중…",
+  "audit.empty": "일치하는 감사 항목이 없습니다.",
+  "audit.first": "« 처음",
+  "audit.prev": "‹ 이전",
+  "audit.next": "다음 ›",
+  "audit.last": "마지막 »",
+  "audit.pageOf": "{page} / {count} 페이지",
+  "audit.jumpTo": "이동",
+  "audit.perPage": "{n} / 페이지",
+  "audit.total": "총 {total}개",
+  "audit.loadError": "감사 로그를 불러오지 못했습니다.",
+
+  // Admin guard / empty state
+  "guard.notFoundTitle": "404 — 페이지를 찾을 수 없음",
+  "guard.notFoundMsg": "이 페이지에 접근할 수 없습니다. 필요하면 관리자에게 문의하세요.",
+
+  // Document metadata
+  "meta.description":
+    "통합 계층 작전을 위한 SpaceHawk 우주 환경 및 위협 정보 운영 대시보드",
+} as const;
