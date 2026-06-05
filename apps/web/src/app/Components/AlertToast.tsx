@@ -2,6 +2,7 @@
 
 import React from "react";
 import * as s from "./panelStyles";
+import { t } from "@/lib/i18n/t";
 
 // A live alert frame off the SSE channel. The channel now carries two shapes —
 // the thin-slice region-entry alert and Stage-4 conjunction alerts — so fields
@@ -57,8 +58,8 @@ function accentFor(alert: LiveAlert): string {
 
 function titleFor(alert: LiveAlert): string {
   return alert.type === "conjunction"
-    ? `Conjunction${alert.severity ? ` · ${alert.severity}` : ""}`
-    : "Region entry";
+    ? `${t("toast.conjunction")}${alert.severity ? ` · ${alert.severity}` : ""}`
+    : t("toast.regionEntry");
 }
 
 /**
@@ -120,7 +121,7 @@ export default function AlertToast() {
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          aria-label="Notifications"
+          aria-label={t("notifications.title")}
           aria-expanded={open}
           style={{
             position: "relative",
@@ -258,7 +259,7 @@ function Toast({
     >
       <button
         type="button"
-        aria-label="Dismiss notification"
+        aria-label={t("notifications.dismiss")}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={() => beginRemove(1)}
         style={{
@@ -324,7 +325,7 @@ function HistoryPanel({
   return (
     <div style={{ ...s.panel, width: "100%" }}>
       <div style={{ ...s.panelHeader, cursor: "default" }}>
-        <span style={s.panelTitle}>Notifications</span>
+        <span style={s.panelTitle}>{t("notifications.title")}</span>
       </div>
       <div style={s.panelBody}>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -356,7 +357,7 @@ function HistoryPanel({
         </div>
 
         {filtered.length === 0 ? (
-          <p style={s.muted}>No alerts in this window.</p>
+          <p style={s.muted}>{t("notifications.empty")}</p>
         ) : (
           <ul style={s.list}>
             {filtered.map((r) => (

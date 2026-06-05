@@ -61,6 +61,8 @@ export const messages = {
   "notifications.title": "알림",
   "notifications.empty": "이 기간에 알림이 없습니다.",
   "notifications.dismiss": "알림 닫기",
+  "toast.conjunction": "근접",
+  "toast.regionEntry": "지역 진입",
 
   // Conjunctions
   "conjunctions.title": "근접 분석",
