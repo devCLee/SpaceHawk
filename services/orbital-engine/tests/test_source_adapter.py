@@ -9,7 +9,9 @@ from orbital_engine.domain.space_object import DataSource
 from orbital_engine.ingestion.base import SourceAdapter
 from orbital_engine.ingestion.celestrak import CelestrakAdapter
 from orbital_engine.ingestion.discos import DiscosAdapter
-from orbital_engine.ingestion.leolabs import LeolabsAdapter
+
+# Leolabs disabled (no free API token); adapter commented out in ingestion/leolabs.py.
+# from orbital_engine.ingestion.leolabs import LeolabsAdapter
 from orbital_engine.ingestion.registry import all_adapters, available_adapters
 
 
@@ -17,7 +19,6 @@ def test_adapters_declare_their_source() -> None:
     s = Settings()
     assert CelestrakAdapter(s).source is DataSource.CELESTRAK
     assert DiscosAdapter(s).source is DataSource.DISCOS
-    assert LeolabsAdapter(s).source is DataSource.LEOLABS
 
 
 def test_celestrak_always_available() -> None:
@@ -26,27 +27,17 @@ def test_celestrak_always_available() -> None:
 
 
 def test_stubs_unavailable_without_credentials() -> None:
-    s = Settings(discos_api_token=None, leolabs_api_key=None, leolabs_api_secret=None)
+    s = Settings(discos_api_token=None)
     assert DiscosAdapter(s).available() is False
-    assert LeolabsAdapter(s).available() is False
 
 
 def test_stubs_available_once_configured() -> None:
     assert DiscosAdapter(Settings(discos_api_token="tok")).available() is True
-    leolabs = LeolabsAdapter(Settings(leolabs_api_key="k", leolabs_api_secret="sec"))
-    assert leolabs.available() is True
-
-
-def test_leolabs_needs_both_key_and_secret() -> None:
-    assert LeolabsAdapter(Settings(leolabs_api_key="k")).available() is False
-    assert LeolabsAdapter(Settings(leolabs_api_secret="sec")).available() is False
 
 
 async def test_stub_fetch_raises_not_implemented() -> None:
     with pytest.raises(NotImplementedError):
         await DiscosAdapter(Settings(discos_api_token="tok")).fetch()
-    with pytest.raises(NotImplementedError):
-        await LeolabsAdapter(Settings(leolabs_api_key="k", leolabs_api_secret="sec")).fetch()
 
 
 def test_registry_lists_all_known_sources() -> None:
@@ -55,7 +46,6 @@ def test_registry_lists_all_known_sources() -> None:
         DataSource.SPACE_TRACK,
         DataSource.CELESTRAK,
         DataSource.DISCOS,
-        DataSource.LEOLABS,
     }
 
 
