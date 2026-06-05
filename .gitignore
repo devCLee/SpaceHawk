@@ -54,6 +54,7 @@ yarn-error.log*
 
 # graphify
 /graphify-out/*
+**/graphify-out/
 .graphify*
 .graphify_python
 .graphifyignore
