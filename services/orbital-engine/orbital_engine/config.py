@@ -57,9 +57,16 @@ class Settings(BaseSettings):
     # --- Source credentials (Stage 2) ---
     # Presence of these gates SourceAdapter.available(): unset => the scheduler
     # skips the source. None in dev/air-gap until each feed's agreement lands.
+    # Base URLs default to the public endpoint; in the enclave they point at the
+    # cross-domain mirror (air-gap §4.6), same as spacetrack_base_url.
+    discos_base_url: str = "https://discosweb.esoc.esa.int"
     discos_api_token: str | None = None
-    leolabs_api_key: str | None = None
-    leolabs_api_secret: str | None = None
+    # Leolabs disabled: the commercial feed offers no free API token, so the
+    # connector cannot be exercised. Uncomment when a paid agreement lands (and
+    # restore the adapter in ingestion/leolabs.py + the registry entry).
+    # leolabs_base_url: str = "https://api.leolabs.space"
+    # leolabs_api_key: str | None = None
+    # leolabs_api_secret: str | None = None
 
     # --- Space-Track (authoritative primary source) ---
     # In the enclave the base URL points at the cross-domain mirror, not the

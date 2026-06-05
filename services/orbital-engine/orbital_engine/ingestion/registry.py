@@ -4,7 +4,7 @@ The single place that knows which ingestion sources exist. The scheduler and
 on-demand ingest call ``available_adapters`` to get the sources configured in
 this environment; ``all_adapters`` is for introspection/tests. Space-Track is
 the authoritative primary; Celestrak is the redundant/low-latency source;
-DISCOS and Leolabs are stubs until their feeds land.
+DISCOS is a stub until its feed lands; Leolabs is disabled (no free API token).
 """
 
 from __future__ import annotations
@@ -13,7 +13,9 @@ from orbital_engine.config import Settings, get_settings
 from orbital_engine.ingestion.base import SourceAdapter
 from orbital_engine.ingestion.celestrak import CelestrakAdapter
 from orbital_engine.ingestion.discos import DiscosAdapter
-from orbital_engine.ingestion.leolabs import LeolabsAdapter
+
+# Leolabs disabled (no free API token); adapter commented out in ingestion/leolabs.py.
+# from orbital_engine.ingestion.leolabs import LeolabsAdapter
 from orbital_engine.ingestion.spacetrack import SpaceTrackAdapter
 
 
@@ -28,7 +30,7 @@ def all_adapters(settings: Settings | None = None) -> list[SourceAdapter]:
         SpaceTrackAdapter(settings),
         CelestrakAdapter(settings),
         DiscosAdapter(settings),
-        LeolabsAdapter(settings),
+        # LeolabsAdapter(settings),  # disabled: no free API token
     ]
 
 
