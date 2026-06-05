@@ -106,10 +106,13 @@
   }
 }
 
+/* NOTE: do not add an unlayered `margin: 0` here. Tailwind v4 ships its
+ * utilities inside `@layer utilities`, and an unlayered rule beats any layered
+ * one regardless of specificity — so `* { margin: 0 }` would silently kill every
+ * `mb-*`/`mt-*` utility app-wide. Preflight already zeroes element margins in
+ * `@layer base` (utilities still win), so this reset is unnecessary. */
 * {
   box-sizing: border-box;
-  /* padding: 0; */
-  margin: 0;
 }
 
 html,
@@ -150,4 +153,24 @@ a {
  * the client component and would otherwise win the cascade by load order. */
 #cesium-container .cesium-viewer-toolbar {
   top: 48px;
+}
+
+/* Dark theme for the react-day-picker calendar (ui/calendar.tsx). `.rdp-root`
+ * is added by the doubled selector so these win over the library defaults
+ * regardless of stylesheet order. Accent drives selected days + range ends;
+ * accent-background drives the range middle. */
+.rdp-root.rdp-dark {
+  --rdp-accent-color: #10b981; /* emerald-500 */
+  --rdp-accent-background-color: #052e23; /* deep emerald: range middle */
+  --rdp-today-color: #34d399; /* emerald-400 */
+  color: #e2e8f0; /* slate-200 */
+}
+.rdp-dark .rdp-day_button:hover:not([disabled]) {
+  background-color: #1e293b; /* slate-800 */
+}
+.rdp-dark .rdp-chevron {
+  fill: #94a3b8; /* slate-400 */
+}
+.rdp-dark .rdp-disabled {
+  opacity: 0.4;
 }

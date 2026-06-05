@@ -1,6 +1,8 @@
-// Same-origin proxy for the engine's ADMIN-only audit log. Forwards the session
-// and the subject/decision filters; the engine enforces ADMIN access (and audits
-// the read). Returns the engine's status verbatim (401/403 surface to the UI).
+// Same-origin proxy for the engine's ADMIN-only audit log. Forwards the session,
+// the pagination window (limit/offset), the substring filters (subject/path) and
+// the multi-select OR filters (decision/role/domain/action) — the latter as
+// repeated query params. The engine enforces ADMIN access (and audits the read).
+// Returns the engine's status verbatim (401/403 surface to the UI).
 
 import { engineAuthHeaders } from "@/lib/engineSession";
 
@@ -12,9 +14,14 @@ export const runtime = "nodejs";
 export async function GET(req: Request): Promise<Response> {
   const incoming = new URL(req.url);
   const params = new URLSearchParams();
-  for (const key of ["subject", "decision", "limit"]) {
+  for (const key of ["subject", "path", "source_ip", "ts_from", "ts_to", "limit", "offset"]) {
     const v = incoming.searchParams.get(key);
     if (v) params.set(key, v);
+  }
+  for (const key of ["decision", "role", "domain", "action"]) {
+    for (const v of incoming.searchParams.getAll(key)) {
+      if (v) params.append(key, v);
+    }
   }
   try {
     const res = await fetch(`${ENGINE_URL}/audit?${params.toString()}`, {
