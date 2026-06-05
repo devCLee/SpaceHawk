@@ -1,19 +1,24 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Sans } from "next/font/google";
+import { IBM_Plex_Sans_KR } from "next/font/google";
 import "./globals.css";
 import Header from "./Components/Header";
 import Providers from "./providers";
+import { t } from "@/lib/i18n/t";
 
-const ibmPlexSans = IBM_Plex_Sans({
+// Korean-capable display/body font. IBM Plex Sans (Latin-only) has no Hangul, so
+// Korean copy would fall back to a mismatched system font; the KR cut covers both
+// scripts. preload:false — the Korean glyph range is large and should not block
+// first paint.
+const ibmPlexSansKR = IBM_Plex_Sans_KR({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
   title: "SpaceHawk",
-  description:
-    "SpaceHawk Space Environment & Threat Intelligence Operational Dashboard for Integrated Layered Operations",
+  description: t("meta.description"),
 };
 
 export default function RootLayout({
@@ -27,8 +32,8 @@ export default function RootLayout({
     // otherwise log a hydration-mismatch warning. This only suppresses the
     // warning one level deep on these elements — it does not mask real
     // mismatches in app components.
-    <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning className={ibmPlexSans.className}>
+    <html lang="ko" suppressHydrationWarning>
+      <body suppressHydrationWarning className={ibmPlexSansKR.className}>
         <Providers>
           <Header />
           {children}
