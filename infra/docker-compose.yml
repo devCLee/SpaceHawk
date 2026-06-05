@@ -38,11 +38,21 @@ services:
     build:
       context: ../services/orbital-engine
       dockerfile: ../../infra/orbital-engine.Dockerfile
+    # Source credentials (Space-Track identity/password, DISCOS token, ...) live
+    # in the gitignored engine .env; load them so the in-container ingest can
+    # actually reach the feeds and populate the catalog. The container-specific
+    # overrides in `environment` below win over any same-named keys in the .env
+    # (e.g. the localhost DB/Redis URLs become the compose service hostnames).
+    env_file:
+      - ../services/orbital-engine/.env
     environment:
       ORBITAL_ENGINE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-spacehawk}:${POSTGRES_PASSWORD:-spacehawk}@db:5432/${POSTGRES_DB:-spacehawk}
       ORBITAL_ENGINE_REDIS_URL: redis://redis:6379/0
       ORBITAL_ENGINE_ENVIRONMENT: development
       ORBITAL_ENGINE_LOG_JSON: "true"
+      # Dev cap on the Space-Track pull — the full on-orbit set is ~28k objects;
+      # the web only reads 200. Raise/remove for a complete enclave catalog.
+      ORBITAL_ENGINE_SPACETRACK_QUERY_LIMIT: "1000"
     ports:
       - "8000:8000"
     depends_on:
@@ -58,10 +68,15 @@ services:
       context: ../services/orbital-engine
       dockerfile: ../../infra/orbital-engine.Dockerfile
     command: ["celery", "-A", "orbital_engine.scheduler.celery_app", "worker", "--loglevel=info"]
+    # Same source credentials as orbital-engine so scheduled ingests reach the
+    # feeds; container DB/Redis hostnames below override the .env's localhost.
+    env_file:
+      - ../services/orbital-engine/.env
     environment:
       ORBITAL_ENGINE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-spacehawk}:${POSTGRES_PASSWORD:-spacehawk}@db:5432/${POSTGRES_DB:-spacehawk}
       ORBITAL_ENGINE_REDIS_URL: redis://redis:6379/0
       ORBITAL_ENGINE_LOG_JSON: "true"
+      ORBITAL_ENGINE_SPACETRACK_QUERY_LIMIT: "1000"
     depends_on:
       db:
         condition: service_healthy
