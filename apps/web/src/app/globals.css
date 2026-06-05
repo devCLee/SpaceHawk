@@ -144,15 +144,29 @@ a {
   }
 }
 
-/* Push Cesium's top-right toolbar (SceneModePicker 2D/3D + BaseLayerPicker
- * tiles) down so the floating Globe Online/Offline switch can stack on top
- * of them. See CesiumComponent render.
+/* The unified Header (Header.tsx) now owns the globe-view controls. Hide
+ * Cesium's native SceneModePicker (driven by the header's 3-way scene picker via
+ * GlobeControls) and the BaseLayerPicker's toggle button (the header's "지도 /
+ * 지형" button toggles the dropdown), and float the curated BaseLayerPicker
+ * dropdown directly under the header so that button anchors it.
  *
- * Scoped under #cesium-container (id + class) so it outranks Cesium's own
- * widgets.css `.cesium-viewer-toolbar { top: 5px }`, which is imported from
- * the client component and would otherwise win the cascade by load order. */
+ * Scoped under #cesium-container (id + class) so these outrank Cesium's own
+ * widgets.css, which is imported from the client component and would otherwise
+ * win the cascade by load order. */
 #cesium-container .cesium-viewer-toolbar {
-  top: 48px;
+  top: 0;
+  right: 0;
+}
+#cesium-container .cesium-sceneModePicker-wrapper,
+#cesium-container .cesium-baseLayerPicker-selected {
+  display: none;
+}
+#cesium-container .cesium-baseLayerPicker-dropDown {
+  position: fixed;
+  top: 60px;
+  right: 120px;
+  margin: 0;
+  z-index: 130;
 }
 
 /* Dark theme for the react-day-picker calendar (ui/calendar.tsx). `.rdp-root`

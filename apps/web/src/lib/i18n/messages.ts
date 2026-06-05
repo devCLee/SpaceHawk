@@ -15,6 +15,8 @@ export const messages = {
   "header.sandbox": "샌드박스",
   "header.audit": "감사 로그",
   "header.signOut": "로그아웃",
+  "header.modesAria": "작업 공간 모드",
+  "header.accountMenu": "계정 메뉴",
 
   // Sign in
   "signin.subtitle": "운영 대시보드 — 로그인하여 계속하세요.",
@@ -59,6 +61,7 @@ export const messages = {
 
   // Notifications (toast history)
   "notifications.title": "알림",
+  "notifications.subtitle": "관심 지역 · 진입/이탈",
   "notifications.empty": "이 기간에 알림이 없습니다.",
   "notifications.dismiss": "알림 닫기",
   "toast.conjunction": "근접",
@@ -141,6 +144,16 @@ export const messages = {
   "globe.tooltip.offline":
     "현재 오프라인 (Ion 없음). Ion 월드 영상 + 지형으로 전환 (토큰 + 인터넷 필요).",
   "globe.tooltip.online": "현재 온라인 (Cesium Ion). 번들된 오프라인 영상으로 전환.",
+  // Unified toolbar globe-view group
+  "globe.label.prefix": "지구본",
+  "globe.state.online": "온라인",
+  "globe.state.offline": "오프라인",
+  "globe.scene.aria": "장면 모드",
+  "globe.scene.3d": "3D",
+  "globe.scene.2d": "2D",
+  "globe.scene.columbus": "콜럼버스 뷰",
+  "globe.imagery.title": "지도 / 지형",
+  "globe.imagery.unavailable": "지도/지형 선택은 온라인 모드에서 사용할 수 있습니다.",
 
   // Audit log
   "audit.title": "감사 로그",

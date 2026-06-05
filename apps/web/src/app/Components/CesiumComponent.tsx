@@ -26,9 +26,9 @@ import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 import { t } from "@/lib/i18n/t";
 import { useCatalogView } from "../context/CatalogViewContext";
 import { useSensor } from "../context/SensorContext";
+import { useGlobeControls } from "../context/GlobeControlsContext";
 import { classifyConstellation } from "../data/constellations";
 import { toast } from "sonner";
-import { Switch } from "./ui/Switch";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
@@ -50,16 +50,6 @@ const POINT_SIZE = 3;
 const SELECTED_POINT_SIZE = 10;
 const WATCHED_POINT_SIZE = 6;
 const MATCH_POINT_SIZE = 4;
-
-/**
- * Globe data source:
- * - "offline": Cesium's bundled Natural Earth II imagery (copied into
- *   /cesium/Assets) + the default ellipsoid. No Cesium Ion, no network — works
- *   in an air-gapped enclave and requires no token.
- * - "online": Cesium Ion world imagery + world terrain + OSM Buildings. Requires
- *   NEXT_PUBLIC_CESIUM_TOKEN and internet access.
- */
-type GlobeMode = "offline" | "online";
 
 /** A parsed catalog object: SGP4 record + its GPU point + identity. */
 interface RenderedSat {
@@ -111,15 +101,15 @@ export const CesiumComponent: React.FunctionComponent<{
   const selectedOrbitRef = React.useRef<Entity | null>(null);
   const sensorEntityRef = React.useRef<Entity | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
-  // Default to the bundled offline globe (Natural Earth II). The app ships a
-  // strict CSP (`connect-src 'self'`, Stage 5 hardening) that blocks Cesium Ion,
-  // so attempting Ion on load would emit browser CSP-violation errors plus
-  // Cesium RequestErrorEvents into the console — and those browser-level CSP
-  // logs cannot be suppressed from JS. Offline imagery is same-origin and needs
-  // no network. "Switch to Online" stays available for deployments that
-  // allowlist Ion; the online branch auto-falls-back to offline if Ion is
-  // unreachable (no network / blocked / bad token).
-  const [mode, setMode] = React.useState<GlobeMode>("offline");
+  // Globe mode lives in GlobeControls so the unified Header owns the
+  // online/offline switch. Default is the bundled offline globe (Natural Earth
+  // II): the app ships a strict CSP (`connect-src 'self'`, Stage 5 hardening)
+  // that blocks Cesium Ion, so booting Ion would emit browser CSP-violation
+  // errors plus Cesium RequestErrorEvents that can't be suppressed from JS.
+  // Offline imagery is same-origin and needs no network. The online branch
+  // auto-falls-back to offline if Ion is unreachable (no network / blocked /
+  // bad token).
+  const { mode, setMode, registerViewer } = useGlobeControls();
 
   // On first mount, if there is no network, tell the user why they're seeing the
   // offline globe. Fires once — manual switches afterward are intentional.
@@ -276,9 +266,14 @@ export const CesiumComponent: React.FunctionComponent<{
     });
 
     setIsLoaded(true);
+    // Hand the viewer to the Header's globe-view group (scene-mode picker,
+    // imagery picker). It re-applies the user's chosen scene projection so it
+    // survives this mode-driven rebuild.
+    registerViewer(cesiumViewer.current);
 
     return () => {
       cancelled = true;
+      registerViewer(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, CesiumJs]);
@@ -637,43 +632,11 @@ export const CesiumComponent: React.FunctionComponent<{
     return () => es.close();
   }, [isLoaded, mode, tleEntries, CesiumJs]);
 
+  // The globe's online/offline switch, scene-mode picker, and imagery/terrain
+  // picker now live in the unified Header (driven through GlobeControls); this
+  // component just renders the Cesium canvas.
   return (
     <div style={{ position: "relative" }}>
-      <label
-        style={{
-          // Floating top-right, stacked ON TOP of Cesium's toolbar (scene-mode
-          // 2D/3D picker + base-layer tile picker), which globals.css nudges
-          // down to top:48px so this control clears it.
-          position: "absolute",
-          top: 8,
-          right: 8,
-          zIndex: 30,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 10px",
-          borderRadius: 6,
-          border: "1px solid rgba(255,255,255,0.4)",
-          background: "rgba(0,0,0,0.6)",
-          color: "#fff",
-          fontSize: 13,
-          cursor: "pointer",
-          userSelect: "none",
-        }}
-        title={
-          mode === "offline"
-            ? t("globe.tooltip.offline")
-            : t("globe.tooltip.online")
-        }
-      >
-        <span>{mode === "offline" ? t("globe.modeOffline") : t("globe.modeOnline")}</span>
-        <Switch
-          checked={mode === "online"}
-          onCheckedChange={(v) => setMode(v ? "online" : "offline")}
-          aria-label={t("globe.toggleAria")}
-          className="data-[state=checked]:bg-sky-500 data-[state=unchecked]:bg-white/30"
-        />
-      </label>
       <div
         ref={cesiumContainerRef}
         id="cesium-container"
