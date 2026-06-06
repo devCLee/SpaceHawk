@@ -3,10 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "description": "SpaceHawk — SDA & Real-Time Operational Dashboard (monorepo root)",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
     "dev": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/web",
