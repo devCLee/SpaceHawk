@@ -46,7 +46,11 @@ const SCENE_MORPH_SEC = 2.0;
 // from the public surface even though it exists at runtime; reach it through a
 // narrow shape rather than `any`.
 type ViewerWithPicker = Viewer & {
-  baseLayerPicker?: { viewModel: { dropDownVisible: boolean } };
+  baseLayerPicker?: {
+    viewModel: { dropDownVisible: boolean };
+    // BaseLayerPicker's private capture-phase document close handler.
+    _closeDropDown?: (e: Event) => void;
+  };
 };
 
 // Flip Cesium's BaseLayerPicker dropdown and report the new state, or null when
@@ -117,9 +121,20 @@ export function GlobeControlsProvider({
       viewerRef.current = viewer;
       setActive(Boolean(viewer));
       setImageryOpen(false);
-      setImageryAvailable(
-        Boolean((viewer as ViewerWithPicker | null)?.baseLayerPicker)
-      );
+      const picker = (viewer as ViewerWithPicker | null)?.baseLayerPicker;
+      setImageryAvailable(Boolean(picker));
+      // Cesium's BaseLayerPicker installs a capture-phase document `pointerdown`
+      // handler that closes its dropdown on any click outside its *own* (now
+      // CSS-hidden) toggle button. The Header's imagery button counts as
+      // "outside", so that handler closed the panel on the button's pointerdown
+      // and the click then re-opened it — the toggle could never close, and
+      // outside clicks closed the panel without telling React. The Header now
+      // owns open/close + outside-dismiss, so detach Cesium's handler.
+      if (picker?._closeDropDown) {
+        document.removeEventListener("pointerdown", picker._closeDropDown, true);
+        document.removeEventListener("mousedown", picker._closeDropDown, true);
+        document.removeEventListener("touchstart", picker._closeDropDown, true);
+      }
       // A mode switch rebuilds the viewer (defaulting back to 3D); re-apply the
       // user's chosen projection instantly (no animation) so it just survives
       // the rebuild rather than morphing on screen.

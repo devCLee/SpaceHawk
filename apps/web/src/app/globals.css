@@ -158,7 +158,7 @@ a {
   right: 0;
 }
 #cesium-container .cesium-sceneModePicker-wrapper,
-#cesium-container .cesium-baseLayerPicker-selected {
+#cesium-container .cesium-toolbar-button:has(.cesium-baseLayerPicker-selected) {
   display: none;
 }
 #cesium-container .cesium-baseLayerPicker-dropDown {

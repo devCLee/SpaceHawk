@@ -37,6 +37,7 @@ export default function Header() {
   const [mode, setActiveMode] = React.useState<ModeId>("live");
   const [pop, setPop] = React.useState<Pop>(null);
   const clusterRef = React.useRef<HTMLDivElement>(null);
+  const imageryBtnRef = React.useRef<HTMLButtonElement>(null);
 
   async function signOut() {
     try {
@@ -48,7 +49,6 @@ export default function Header() {
   }
 
   // Close the alerts/account popovers on any click outside the right cluster.
-  // (Cesium's own imagery dropdown manages itself; we leave it alone here.)
   React.useEffect(() => {
     if (pop === null) return;
     function onDown(e: PointerEvent) {
@@ -58,9 +58,28 @@ export default function Header() {
     return () => document.removeEventListener("pointerdown", onDown);
   }, [pop]);
 
-  // Opening a header popover closes the Cesium imagery dropdown, and vice versa.
+  // Dismiss the imagery dropdown on any click outside it and its toggle button.
+  // The panel is Cesium's curated BaseLayerPicker (floated under the header by
+  // globals.css); GlobeControls strips Cesium's own auto-close so the Header is
+  // its single owner. Capture phase so we run before the click lands. Clicks on
+  // the button fall through to its onClick toggle; clicks inside the panel
+  // (picking a basemap) keep it open.
+  React.useEffect(() => {
+    if (!globe.imageryOpen) return;
+    function onDown(e: PointerEvent) {
+      const target = e.target as Element | null;
+      if (imageryBtnRef.current?.contains(target as Node)) return;
+      if (target?.closest?.(".cesium-baseLayerPicker-dropDown")) return;
+      globe.toggleImagery();
+    }
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [globe]);
+
+  // A header popover and the imagery dropdown are mutually exclusive. Opening a
+  // popover counts as a click outside the panel, so its own outside-dismiss
+  // (above) closes it; opening imagery clears any popover below.
   function openPop(next: Pop) {
-    if (globe.imageryOpen) globe.toggleImagery();
     setPop((cur) => (cur === next ? null : next));
   }
   function openImagery() {
@@ -143,6 +162,7 @@ export default function Header() {
               </div>
 
               <button
+                ref={imageryBtnRef}
                 className={`icon-btn${globe.imageryOpen ? " active" : ""}`}
                 onClick={openImagery}
                 disabled={!globe.imageryAvailable}
