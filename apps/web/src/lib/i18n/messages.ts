@@ -138,6 +138,9 @@ export const messages = {
 
   // Globe (Cesium)
   "globe.offlineToast": "네트워크 연결이 감지되지 않았습니다 — 오프라인 지구본을 불러옵니다.",
+  "globe.webglErrorTitle": "3D 지구본을 초기화할 수 없습니다 (WebGL 사용 불가)",
+  "globe.webglErrorBody":
+    "이 브라우저/환경에서 WebGL 렌더링 컨텍스트를 생성하지 못했습니다. 하드웨어 가속(GPU)을 켜거나, 그래픽 드라이버를 업데이트하거나, WebGL을 지원하는 브라우저로 다시 여십시오. 위성 카탈로그와 패널은 계속 사용할 수 있습니다.",
   "globe.modeOffline": "지구본: 오프라인",
   "globe.modeOnline": "지구본: 온라인 (Ion)",
   "globe.toggleAria": "온라인 지구본 영상 전환",
