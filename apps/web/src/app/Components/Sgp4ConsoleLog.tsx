@@ -2,15 +2,24 @@
 
 import { useEffect } from "react";
 import { runOneSgp4Calculation } from "../utils/sgp4FromTle";
-import mainData from "../../data/main.json";
 
-export function Sgp4ConsoleLog() {
+// First object's TLE is passed in from the server page so the bundled catalog
+// (now ~15k objects / several MB) is NOT imported into the client bundle just to
+// log one propagation — only these three strings cross to the client.
+export function Sgp4ConsoleLog({
+  line1,
+  line2,
+  name,
+}: {
+  line1?: string;
+  line2?: string;
+  name?: string;
+}) {
   useEffect(() => {
-    const first = mainData[0] as { TLE_LINE1: string; TLE_LINE2: string; OBJECT_NAME?: string };
-    if (first?.TLE_LINE1 && first?.TLE_LINE2) {
-      console.log("Running SGP4 for first object:", first.OBJECT_NAME ?? first);
-      runOneSgp4Calculation(first.TLE_LINE1, first.TLE_LINE2);
+    if (line1 && line2) {
+      console.log("Running SGP4 for first object:", name ?? "(unnamed)");
+      runOneSgp4Calculation(line1, line2);
     }
-  }, []);
+  }, [line1, line2, name]);
   return null;
 }
