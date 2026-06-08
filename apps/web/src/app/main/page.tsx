@@ -20,18 +20,21 @@ function toTleEntries(rows: CatalogObject[]): TleObject[] {
     }));
 }
 
-// Bundled Space-Track snapshot — the fallback when the engine is unavailable
-// (e.g. local dev without the backend up). The slice's live source is the engine.
-const fallbackEntries = (
-  mainData as Array<{ TLE_LINE1?: string; TLE_LINE2?: string; OBJECT_NAME?: string }>
-).filter((e) => e.TLE_LINE1 && e.TLE_LINE2) as TleObject[];
+// Bundled catalog snapshot (~15k active objects; CelesTrak GP + SATCAT, built by
+// scripts/build-snapshot.mjs) — the fallback when the engine is unavailable
+// (e.g. local dev without the backend up). The live source is the engine. The
+// file already matches the TleObject shape, so no remap is needed.
+const fallbackEntries = (mainData as TleObject[]).filter(
+  (e) => e.TLE_LINE1 && e.TLE_LINE2
+);
 
 // Minimum object count for the live engine catalog to be considered "real".
 // An unseeded / freshly-migrated engine DB can return a degenerate handful (e.g.
-// a single leftover ISS fixture row from a test run) — fewer objects than the
-// bundled snapshot and not worth rendering over it. Below this floor we prefer
-// the bundled snapshot so the globe always shows a full catalog (same intent as
-// the "engine unavailable" fallback). A successful ingest returns ~200.
+// a single leftover ISS fixture row from a test run) — far fewer than a real
+// ingest and not worth rendering over the bundled snapshot. Below this floor we
+// prefer the snapshot so the globe always shows a full catalog (same intent as
+// the "engine unavailable" fallback). A successful ingest returns the full
+// Celestrak "active" set (~15k objects, per ingest_limit).
 const MIN_LIVE_CATALOG = 50;
 
 export default async function MainPage() {

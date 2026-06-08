@@ -179,9 +179,12 @@ class Settings(BaseSettings):
     # In the air-gapped enclave this is pointed at the offline mirror instead.
     celestrak_gp_url: str = "https://celestrak.org/NORAD/elements/gp.php"
     celestrak_group: str = "active"
-    # Cap ingested objects for the spike: keep the catalog small enough to render
-    # with the (pre-migration) Entity path and to propagate every tick cheaply.
-    ingest_limit: int = 200
+    # Cap per Celestrak pull and per-tick propagation fan-out. The original 200
+    # was a thin-slice cap sized for the pre-migration Entity renderer; the globe
+    # now uses a GPU-batched PointPrimitiveCollection (dev-plan Stage 3) that
+    # scales to 10k+ objects, so this is raised to cover the full Celestrak
+    # "active" group (~15k satellites) instead of a 200-object slice.
+    ingest_limit: int = 20000
     # How often the background loop re-propagates the set and refreshes Redis.
     propagation_interval_sec: int = 5
     # TTL on per-object latest-state keys; a few propagation cycles, so a stalled

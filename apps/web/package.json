@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "load-test": "node scripts/load-test.mjs"
+    "load-test": "node scripts/load-test.mjs",
+    "build-snapshot": "node scripts/build-snapshot.mjs"
   },
   "dependencies": {
     "@radix-ui/react-popover": "^1.1.6",
