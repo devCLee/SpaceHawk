@@ -62,6 +62,7 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  allowedDevOrigins: ["devclee-spacehawk.shares.zrok.io"],
   // npm-workspaces monorepo: the lockfile lives at the repo root, so Turbopack
   // otherwise *infers* a workspace root and (Next 16 bug) mis-resolves the App
   // Router project directory to <root>/src/app -> ENOENT scandir. Pin both roots
