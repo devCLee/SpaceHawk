@@ -101,6 +101,10 @@ export const CesiumComponent: React.FunctionComponent<{
   const selectedOrbitRef = React.useRef<Entity | null>(null);
   const sensorEntityRef = React.useRef<Entity | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
+  // True when a WebGL rendering context can't be created (GPU-less / headless /
+  // remote-tunneled environment): we show a graceful message instead of letting
+  // the thrown Cesium RuntimeError crash the whole dashboard.
+  const [webglError, setWebglError] = React.useState(false);
   // Globe mode lives in GlobeControls so the unified Header owns the
   // online/offline switch. Default is the bundled offline globe (Natural Earth
   // II): the app ships a strict CSP (`connect-src 'self'`, Stage 5 hardening)
@@ -127,6 +131,7 @@ export const CesiumComponent: React.FunctionComponent<{
   // the viewer. Satellites re-render via the `isLoaded` effect below.
   React.useEffect(() => {
     if (cesiumContainerRef.current === null) return;
+    const container = cesiumContainerRef.current;
 
     // Tear down any existing viewer (mode switch / React strict-mode remount).
     if (cesiumViewer.current !== null && !cesiumViewer.current.isDestroyed()) {
@@ -141,6 +146,30 @@ export const CesiumComponent: React.FunctionComponent<{
     setIsLoaded(false);
 
     let cancelled = false;
+
+    // Construct the Viewer resiliently. A GPU-less / headless / remote-tunneled
+    // environment can expose the WebGL2 *API* (so Cesium reports "browser
+    // supports WebGL") yet fail to create a rendering context — getContext()
+    // returns null and Cesium throws inside the constructor, which would crash
+    // the whole React tree. Try WebGL2 first, then retry forcing WebGL1 (works
+    // in some constrained GPU setups), clearing any partial widget DOM the failed
+    // attempt left in the container. Returns null when no context can be made.
+    const buildViewer = (
+      options: ConstructorParameters<typeof Viewer>[1]
+    ): Viewer | null => {
+      const attempts = [
+        { webgl: { failIfMajorPerformanceCaveat: false } },
+        { requestWebgl1: true, webgl: { failIfMajorPerformanceCaveat: false } },
+      ];
+      for (const contextOptions of attempts) {
+        try {
+          return new CesiumJs.Viewer(container, { ...options, contextOptions });
+        } catch {
+          while (container.firstChild) container.removeChild(container.firstChild);
+        }
+      }
+      return null;
+    };
 
     // Cesium defaults to 6 concurrent requests per host. Single-host imagery
     // providers (ArcGIS/ESRI, OpenStreetMap, Stadia — the BaseLayerPicker grid)
@@ -210,7 +239,7 @@ export const CesiumComponent: React.FunctionComponent<{
           ownedTerrain.has(normalize(vm.name))
         );
 
-      const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
+      const viewer = buildViewer({
         imageryProviderViewModels,
         selectedImageryProviderViewModel: imageryProviderViewModels.find(
           (vm) => normalize(vm.name) === "Bing Maps Aerial"
@@ -225,18 +254,20 @@ export const CesiumComponent: React.FunctionComponent<{
 
       // OSM Buildings (Ion asset). Non-blocking: failure must not hide the globe
       // or the satellites.
-      CesiumJs.createOsmBuildingsAsync()
-        .then((osmBuildings) => {
-          if (cancelled || cesiumViewer.current === null) return;
-          const primitive = viewer.scene.primitives.add(osmBuildings);
-          addedScenePrimitives.current.push(primitive);
-        })
-        .catch(() => {
-          /* Ion unavailable (no token / offline) — globe still renders. */
-        });
+      if (viewer !== null) {
+        CesiumJs.createOsmBuildingsAsync()
+          .then((osmBuildings) => {
+            if (cancelled || cesiumViewer.current === null) return;
+            const primitive = viewer.scene.primitives.add(osmBuildings);
+            addedScenePrimitives.current.push(primitive);
+          })
+          .catch(() => {
+            /* Ion unavailable (no token / offline) — globe still renders. */
+          });
+      }
     } else {
       // Offline: bundled Natural Earth II imagery + default ellipsoid, no Ion.
-      const viewer = new CesiumJs.Viewer(cesiumContainerRef.current, {
+      cesiumViewer.current = buildViewer({
         baseLayer: CesiumJs.ImageryLayer.fromProviderAsync(
           CesiumJs.TileMapServiceImageryProvider.fromUrl(
             CesiumJs.buildModuleUrl("Assets/Textures/NaturalEarthII")
@@ -246,8 +277,18 @@ export const CesiumComponent: React.FunctionComponent<{
         baseLayerPicker: false,
         ...HIDDEN_WIDGETS,
       });
-      cesiumViewer.current = viewer;
     }
+
+    // No WebGL context could be created — surface a message rather than crash,
+    // and skip the rest of the setup (which dereferences the viewer).
+    if (cesiumViewer.current === null) {
+      setWebglError(true);
+      return () => {
+        cancelled = true;
+        registerViewer(null);
+      };
+    }
+    setWebglError(false);
 
     cesiumViewer.current.clock.clockStep =
       CesiumJs.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
@@ -642,6 +683,31 @@ export const CesiumComponent: React.FunctionComponent<{
         id="cesium-container"
         style={{ height: "calc(100vh - 56px)", width: "100vw" }}
       />
+      {webglError && (
+        <div
+          role="alert"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+            padding: 24,
+            textAlign: "center",
+            background: "#0b0f1a",
+            color: "#e5e7eb",
+          }}
+        >
+          <p style={{ fontWeight: 600, fontSize: 16, margin: 0 }}>
+            {t("globe.webglErrorTitle")}
+          </p>
+          <p style={{ maxWidth: 520, fontSize: 14, opacity: 0.8, margin: 0 }}>
+            {t("globe.webglErrorBody")}
+          </p>
+        </div>
+      )}
     </div>
   );
 };
