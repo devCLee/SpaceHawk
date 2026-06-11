@@ -59,6 +59,17 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
 ];
 
+// The vendored Cesium runtime (public/cesium/*) is content-stable for a given
+// Cesium version, so cache it for a year and skip revalidation. Without this it
+// is served with the public-dir default (max-age=0, must-revalidate), so every
+// repeat visit pays a conditional request for each of the ~100+ worker/asset
+// files. NOTE: the file paths are not content-hashed, so on a Cesium UPGRADE
+// bust the cache (e.g. version the CESIUM_BASE_URL path) or returning users keep
+// the old assets for up to a year.
+const cesiumCacheHeaders = [
+  { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -73,7 +84,13 @@ const nextConfig = {
   },
   outputFileTracingRoot: monorepoRoot,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Long-lived immutable caching for the vendored Cesium runtime. Listed
+      // after the security rule so both apply to /cesium/* (Next merges headers
+      // from every matching source).
+      { source: "/cesium/:path*", headers: cesiumCacheHeaders },
+    ];
   },
 };
 
