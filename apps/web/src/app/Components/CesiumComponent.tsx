@@ -51,14 +51,26 @@ const SELECTED_POINT_SIZE = 10;
 const WATCHED_POINT_SIZE = 6;
 const MATCH_POINT_SIZE = 4;
 
-/** A parsed catalog object: SGP4 record + its GPU point + identity. */
+/** A catalog object: GPU point + identity + its TLE. The SGP4 record is parsed
+ *  lazily (the worker propagates the catalog; the main thread only needs a
+ *  satrec for the selected object's orbit line or the no-worker fallback). */
 interface RenderedSat {
   id: string;
   name: string;
-  satrec: SatRec;
+  line1: string;
+  line2: string;
+  satrec: SatRec | null;
   primitive: PointPrimitive;
   countryCode: string | null;
   constellation: string | null;
+}
+
+/** Parse a sat's TLE on demand and cache it on the record. */
+function ensureSatrec(sat: RenderedSat): SatRec {
+  if (sat.satrec === null) {
+    sat.satrec = twoline2satrec(sat.line1, sat.line2);
+  }
+  return sat.satrec;
 }
 
 /** Default Cesium widgets to hide — keep timeline/animation (time control) and
@@ -342,18 +354,19 @@ export const CesiumComponent: React.FunctionComponent<{
 
     const now = new Date();
 
+    // Cheap setup pass: one GPU point per object, keeping its raw TLE — but NO
+    // twoline2satrec / propagate here. Parsing + propagating the whole catalog on
+    // the main thread blocked it for ~200-500ms; that work now happens in the
+    // worker. Points start hidden and are revealed as positions arrive.
     (tleEntries ?? []).forEach((entry, index) => {
       const { TLE_LINE1: line1, TLE_LINE2: line2 } = entry;
       if (!line1 || !line2) return;
 
-      const satrec = twoline2satrec(line1, line2);
       const id = entry.OBJECT_ID ?? entry.OBJECT_NAME ?? `sat-${index}`;
-      const geo = geodeticAt(satrec, now);
-      if (geo === null) return;
-
       const primitive = points.add({
         id,
-        position: Cesium.Cartesian3.fromDegrees(geo.lon, geo.lat, geo.altM),
+        position: Cesium.Cartesian3.ZERO,
+        show: false,
         pixelSize: POINT_SIZE,
         color: Cesium.Color.WHITE,
         outlineColor: Cesium.Color.BLACK,
@@ -364,7 +377,9 @@ export const CesiumComponent: React.FunctionComponent<{
       satsById.set(id, {
         id,
         name,
-        satrec,
+        line1,
+        line2,
+        satrec: null,
         primitive,
         countryCode: entry.COUNTRY_CODE ?? null,
         constellation: classifyConstellation(name),
@@ -379,17 +394,32 @@ export const CesiumComponent: React.FunctionComponent<{
     viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
     viewer.clock.shouldAnimate = true;
 
-    // Offload re-propagation to a Web Worker so the main thread stays
-    // responsive at catalog scale (dev-plan Stage 3, keeptrack pattern). The
-    // worker returns positions in `ordered` index order; the main thread only
-    // writes them to the GPU points. Falls back to main-thread propagation if
-    // Workers are unavailable.
+    // Apply a batch of worker-computed positions: snap each valid point into
+    // place and reveal it (NaN = unparseable TLE — leave it hidden).
+    const applyPositions = (
+      lon: Float64Array,
+      lat: Float64Array,
+      alt: Float64Array
+    ) => {
+      for (let i = 0; i < ordered.length; i++) {
+        if (Number.isNaN(lon[i])) continue;
+        const p = ordered[i];
+        p.position = Cesium.Cartesian3.fromDegrees(lon[i], lat[i], alt[i]);
+        if (!p.show) p.show = true;
+      }
+    };
+
+    // Offload ALL propagation — including the first frame — to a Web Worker so
+    // the main thread never parses or propagates the full catalog (dev-plan
+    // Stage 3, keeptrack pattern). The worker parses the TLE set once on init
+    // (the main thread no longer parses it too — that was a duplicate pass), and
+    // we ask for the initial positions immediately so points appear without
+    // waiting for the first throttled clock tick.
     let worker: Worker | null = null;
     try {
       worker = new Worker(
         new URL("../workers/propagation.worker.ts", import.meta.url)
       );
-      worker.postMessage({ type: "init", sats: workerInputs });
       worker.onmessage = (e: MessageEvent) => {
         const data = e.data as {
           type: string;
@@ -398,19 +428,30 @@ export const CesiumComponent: React.FunctionComponent<{
           alt: Float64Array;
         };
         if (data.type !== "positions" || viewer.isDestroyed()) return;
-        const { lon, lat, alt } = data;
-        for (let i = 0; i < ordered.length; i++) {
-          if (Number.isNaN(lon[i])) continue;
-          ordered[i].position = Cesium.Cartesian3.fromDegrees(
-            lon[i],
-            lat[i],
-            alt[i]
-          );
-        }
+        applyPositions(data.lon, data.lat, data.alt);
       };
+      worker.postMessage({ type: "init", sats: workerInputs });
+      worker.postMessage({ type: "propagate", timeMs: now.getTime() });
     } catch {
       worker = null;
     }
+
+    // No Worker available (headless / unsupported): propagate on the main thread.
+    // satrecs are parsed lazily here and ONLY in this fallback path — the common
+    // (worker) path never parses on the main thread.
+    const propagateOnMainThread = (date: Date) => {
+      satsById.forEach((sat) => {
+        const geo = geodeticAt(ensureSatrec(sat), date);
+        if (geo === null) return;
+        sat.primitive.position = Cesium.Cartesian3.fromDegrees(
+          geo.lon,
+          geo.lat,
+          geo.altM
+        );
+        if (!sat.primitive.show) sat.primitive.show = true;
+      });
+    };
+    if (!worker) propagateOnMainThread(now); // seed the first frame
 
     // Throttled cadence (POSITION_UPDATE_SEC of sim time): ask the worker for
     // fresh positions, or compute on the main thread if there's no worker.
@@ -428,15 +469,7 @@ export const CesiumComponent: React.FunctionComponent<{
         worker.postMessage({ type: "propagate", timeMs: date.getTime() });
         return;
       }
-      satsById.forEach((sat) => {
-        const geo = geodeticAt(sat.satrec, date);
-        if (geo === null) return;
-        sat.primitive.position = Cesium.Cartesian3.fromDegrees(
-          geo.lon,
-          geo.lat,
-          geo.altM
-        );
-      });
+      propagateOnMainThread(date);
     });
 
     // Left-click selects the object under the cursor (our points carry a string
@@ -554,7 +587,7 @@ export const CesiumComponent: React.FunctionComponent<{
       t += ORBIT_SAMPLE_STEP_SEC * 1000
     ) {
       const date = new Date(t);
-      const geo = geodeticAt(sat.satrec, date);
+      const geo = geodeticAt(ensureSatrec(sat), date);
       if (geo === null) continue;
       property.addSample(
         Cesium.JulianDate.fromDate(date),

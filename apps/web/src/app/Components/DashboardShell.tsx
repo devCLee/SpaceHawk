@@ -11,16 +11,18 @@ import ControlRail from "./ControlRail";
 import { SelectedSatelliteProvider } from "../context/SelectedSatelliteContext";
 import { CatalogViewProvider } from "../context/CatalogViewContext";
 import { SensorProvider } from "../context/SensorContext";
-import type { TleObject } from "../utils/sgp4FromTle";
+import { useCatalog } from "@/lib/api/useCatalog";
 
-export const DashboardShell: React.FunctionComponent<{
-  tleEntries: TleObject[];
-}> = ({ tleEntries }) => {
+export const DashboardShell: React.FunctionComponent = () => {
+  // Catalog fetched client-side (and cached/shared via React Query) rather than
+  // arriving as an RSC prop. The globe mounts immediately and renders points
+  // once the fetch resolves.
+  const { data: tleEntries } = useCatalog();
   return (
     <SelectedSatelliteProvider>
       <CatalogViewProvider>
         <SensorProvider>
-          <CesiumWrapper positions={[]} tleEntries={tleEntries} />
+          <CesiumWrapper positions={[]} tleEntries={tleEntries ?? []} />
           <ControlRail />
           <SatelliteInfoPanel />
         </SensorProvider>

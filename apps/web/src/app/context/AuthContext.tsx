@@ -32,8 +32,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useApiQuery<SessionUser>({
     queryKey: AUTH_ME_KEY,
+    // retry:0 — a 401 is a definitive "no session", not a transient error.
+    // staleTime 5m — the session rarely changes mid-visit and login/logout call
+    // refresh() (invalidate) explicitly, so there's no need to re-validate on
+    // every mount/navigation. (staleTime:0 refetched /api/auth/me constantly.)
     url: "/api/auth/me",
-    options: { retry: 0, staleTime: 0 },
+    options: { retry: 0, staleTime: 5 * 60_000 },
   });
 
   // A 401 surfaces as isError; treat anything but a clean hit as "no session".
