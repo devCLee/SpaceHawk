@@ -9,13 +9,9 @@ import { useCatalogView } from "../context/CatalogViewContext";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 import { countryName } from "../data/countries";
 import { CONSTELLATIONS } from "../data/constellations";
-import { useApiQuery } from "@/lib/api/useApiQuery";
-import { queryKeys } from "@/lib/api/queryKeys";
-import type { CatalogObject } from "@/lib/orbital-engine";
+import { useCatalog } from "@/lib/api/useCatalog";
 import * as s from "./panelStyles";
 import { t } from "@/lib/i18n/t";
-
-const AGG_LIMIT = 5000;
 
 function selectableRow(active: boolean): React.CSSProperties {
   return {
@@ -26,24 +22,18 @@ function selectableRow(active: boolean): React.CSSProperties {
 
 export const CountriesPanel: React.FunctionComponent = () => {
   const { countryFilter, setCountryFilter } = useCatalogView();
-  const {
-    data: rows = [],
-    isLoading,
-    isError,
-  } = useApiQuery<CatalogObject[]>({
-    queryKey: queryKeys.catalog({ limit: AGG_LIMIT }),
-    url: "/api/catalog",
-    options: { params: { limit: AGG_LIMIT } },
-  });
+  // Counts derive from the same catalog the globe already loaded (shared React
+  // Query cache) — no separate aggregate fetch.
+  const { data: catalog = [], isLoading, isError } = useCatalog();
 
   const counts = React.useMemo<Array<[string, number]>>(() => {
     const tally = new Map<string, number>();
-    for (const r of rows) {
-      const code = r.country_code ?? "—";
+    for (const r of catalog) {
+      const code = r.COUNTRY_CODE ?? "—";
       tally.set(code, (tally.get(code) ?? 0) + 1);
     }
     return [...tally.entries()].sort((a, b) => b[1] - a[1]);
-  }, [rows]);
+  }, [catalog]);
 
   return (
     <CollapsiblePanel title={t("countries.title")}>

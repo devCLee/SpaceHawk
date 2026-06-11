@@ -5,6 +5,8 @@
 import type { CatalogQuery } from "@/lib/orbital-engine";
 
 export const queryKeys = {
+  // GET /api/catalog/all (full globe catalog, shared by the globe + filter panels)
+  catalogAll: () => ["catalog", "all"] as const,
   // GET /api/catalog
   catalog: (query: CatalogQuery) => ["catalog", "list", query] as const,
   // GET /api/catalog/{id}
