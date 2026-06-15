@@ -45,6 +45,14 @@ export const messages = {
   "search.unavailable": "검색을 사용할 수 없습니다.",
   "search.noMatches": "검색 결과 없음",
 
+  // Visualization options (colour-by + legend + category visibility)
+  "viz.title": "시각화",
+  "viz.colorBy": "색상 기준",
+  "viz.mode.regime": "궤도 영역",
+  "viz.mode.type": "객체 유형",
+  "viz.show": "표시",
+  "viz.hide": "숨기기",
+
   // Countries / Constellations / Watchlist
   "countries.title": "국가",
   "countries.unavailable": "카탈로그를 사용할 수 없습니다.",

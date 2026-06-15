@@ -4,6 +4,7 @@ import React from "react";
 import type { CesiumType } from "../types/cesium";
 import {
   Cesium3DTileset,
+  type Color,
   type Entity,
   type PointPrimitive,
   type PointPrimitiveCollection,
@@ -21,13 +22,24 @@ import {
   type SatRec,
 } from "satellite.js";
 import type { Position } from "../types/position";
-import type { TleObject } from "../utils/sgp4FromTle";
+import {
+  regimeFromTle,
+  type TleObject,
+  type OrbitRegime,
+} from "../utils/sgp4FromTle";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 import { t } from "@/lib/i18n/t";
 import { useCatalogView } from "../context/CatalogViewContext";
 import { useSensor } from "../context/SensorContext";
 import { useGlobeControls } from "../context/GlobeControlsContext";
 import { classifyConstellation } from "../data/constellations";
+import {
+  classifyObjectType,
+  categoryColor,
+  categoriesFor,
+  CATEGORY_FALLBACK_COLOR,
+  type ObjectCategory,
+} from "../data/visualization";
 import { toast } from "sonner";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
@@ -63,6 +75,17 @@ interface RenderedSat {
   primitive: PointPrimitive;
   countryCode: string | null;
   constellation: string | null;
+  /** Object class + orbit regime — the two colour-by axes (#viz). Derived once
+   *  at build time (regime is a cheap TLE-column read, no SGP4 parse). */
+  category: ObjectCategory;
+  regime: OrbitRegime | null;
+  /** True once a valid propagated position has been applied to the primitive.
+   *  Shown = hasPosition && visible: the position pipeline reveals points as
+   *  they are computed, the styling pass hides whole categories on demand —
+   *  this flag keeps the two writers of `primitive.show` from fighting. */
+  hasPosition: boolean;
+  /** False when this object's category is toggled off in the viz panel. */
+  visible: boolean;
 }
 
 /** Parse a sat's TLE on demand and cache it on the record. */
@@ -135,7 +158,13 @@ export const CesiumComponent: React.FunctionComponent<{
     }
   }, []);
   const { selectedId, setSelectedId } = useSelectedSatellite();
-  const { countryFilter, constellationFilter, watchlist } = useCatalogView();
+  const {
+    countryFilter,
+    constellationFilter,
+    watchlist,
+    colorMode,
+    hiddenCategories,
+  } = useCatalogView();
   const { activeSensor } = useSensor();
 
   // (Re)create the Cesium viewer whenever the globe mode changes. The imagery /
@@ -348,8 +377,8 @@ export const CesiumComponent: React.FunctionComponent<{
     const satsById = new Map<string, RenderedSat>();
     satsByIdRef.current = satsById;
     // Index-aligned arrays for the Web Worker: it returns positions in this
-    // same order so the main thread can update primitives by index.
-    const ordered: PointPrimitive[] = [];
+    // same order so the main thread can update the matching sat by index.
+    const ordered: RenderedSat[] = [];
     const workerInputs: { line1: string; line2: string }[] = [];
 
     const now = new Date();
@@ -374,7 +403,7 @@ export const CesiumComponent: React.FunctionComponent<{
       });
 
       const name = entry.OBJECT_NAME ?? id;
-      satsById.set(id, {
+      const sat: RenderedSat = {
         id,
         name,
         line1,
@@ -383,8 +412,13 @@ export const CesiumComponent: React.FunctionComponent<{
         primitive,
         countryCode: entry.COUNTRY_CODE ?? null,
         constellation: classifyConstellation(name),
-      });
-      ordered.push(primitive);
+        category: classifyObjectType(name, entry.OBJECT_TYPE),
+        regime: regimeFromTle(line2),
+        hasPosition: false,
+        visible: true,
+      };
+      satsById.set(id, sat);
+      ordered.push(sat);
       workerInputs.push({ line1, line2 });
     });
 
@@ -395,7 +429,8 @@ export const CesiumComponent: React.FunctionComponent<{
     viewer.clock.shouldAnimate = true;
 
     // Apply a batch of worker-computed positions: snap each valid point into
-    // place and reveal it (NaN = unparseable TLE — leave it hidden).
+    // place and reveal it unless its category is toggled off (NaN = unparseable
+    // TLE — leave it hidden).
     const applyPositions = (
       lon: Float64Array,
       lat: Float64Array,
@@ -403,9 +438,14 @@ export const CesiumComponent: React.FunctionComponent<{
     ) => {
       for (let i = 0; i < ordered.length; i++) {
         if (Number.isNaN(lon[i])) continue;
-        const p = ordered[i];
-        p.position = Cesium.Cartesian3.fromDegrees(lon[i], lat[i], alt[i]);
-        if (!p.show) p.show = true;
+        const sat = ordered[i];
+        sat.primitive.position = Cesium.Cartesian3.fromDegrees(
+          lon[i],
+          lat[i],
+          alt[i]
+        );
+        sat.hasPosition = true;
+        if (sat.primitive.show !== sat.visible) sat.primitive.show = sat.visible;
       }
     };
 
@@ -448,7 +488,8 @@ export const CesiumComponent: React.FunctionComponent<{
           geo.lat,
           geo.altM
         );
-        if (!sat.primitive.show) sat.primitive.show = true;
+        sat.hasPosition = true;
+        if (sat.primitive.show !== sat.visible) sat.primitive.show = sat.visible;
       });
     };
     if (!worker) propagateOnMainThread(now); // seed the first frame
@@ -505,10 +546,13 @@ export const CesiumComponent: React.FunctionComponent<{
     };
   }, [isLoaded, CesiumJs, tleEntries, mode, setSelectedId]);
 
-  // Style every point from the current view state: selection (yellow) >
-  // watchlist (orange) > country/constellation filter match (cyan) > dimmed
-  // (filter active, no match) > default (white). One O(N) pass, only on a
-  // selection/filter/watchlist change — not per frame.
+  // Style every point from the current view state, in one O(N) pass that only
+  // runs on a colour/selection/filter/watchlist change — not per frame.
+  // Base colour is the object's category under the active colour mode (orbit
+  // regime or object class, #viz); overlays then take precedence:
+  // selection (yellow) > watchlist (orange) > country/constellation match (cyan)
+  // > dimmed (filter active, no match) > category colour. Categories toggled off
+  // in the viz panel are hidden via `show` (selection still forces visible).
   React.useEffect(() => {
     if (
       !isLoaded ||
@@ -519,15 +563,34 @@ export const CesiumComponent: React.FunctionComponent<{
 
     const Cesium = CesiumJs;
     const watchSet = new Set(watchlist);
+    const hiddenSet = new Set(hiddenCategories);
     const filterActive = Boolean(countryFilter || constellationFilter);
 
+    // Parse the small (≤4) palette once into Cesium colours, not per object.
+    const palette: Record<string, Color> = {};
+    for (const key of categoriesFor(colorMode)) {
+      palette[key] = Cesium.Color.fromCssColorString(
+        categoryColor(colorMode, key)
+      );
+    }
+    const fallbackColor = Cesium.Color.fromCssColorString(
+      CATEGORY_FALLBACK_COLOR
+    );
+
     satsByIdRef.current.forEach((sat) => {
+      const catKey = colorMode === "type" ? sat.category : sat.regime;
+      const isSelected = sat.id === selectedId;
+      // Hide a whole category on demand — but a selected object stays visible
+      // (it may have been picked from a panel before its category was hidden).
+      const hidden = !isSelected && catKey !== null && hiddenSet.has(catKey);
+      sat.visible = !hidden;
+
       const countryOk = !countryFilter || sat.countryCode === countryFilter;
       const constOk =
         !constellationFilter || sat.constellation === constellationFilter;
       const matches = countryOk && constOk;
 
-      let color = Cesium.Color.WHITE;
+      let color = (catKey && palette[catKey]) || fallbackColor;
       let size = POINT_SIZE;
       if (filterActive && matches) {
         color = Cesium.Color.CYAN;
@@ -540,18 +603,21 @@ export const CesiumComponent: React.FunctionComponent<{
         color = Cesium.Color.ORANGE;
         size = WATCHED_POINT_SIZE;
       }
-      if (sat.id === selectedId) {
+      if (isSelected) {
         color = Cesium.Color.YELLOW;
         size = SELECTED_POINT_SIZE;
       }
       sat.primitive.color = color;
       sat.primitive.pixelSize = size;
+      sat.primitive.show = sat.hasPosition && sat.visible;
     });
   }, [
     selectedId,
     countryFilter,
     constellationFilter,
     watchlist,
+    colorMode,
+    hiddenCategories,
     isLoaded,
     CesiumJs,
     tleEntries,
@@ -697,6 +763,10 @@ export const CesiumComponent: React.FunctionComponent<{
             o.lat_deg,
             o.alt_km * 1000
           );
+          sat.hasPosition = true;
+          if (sat.primitive.show !== sat.visible) {
+            sat.primitive.show = sat.visible;
+          }
         }
       } catch {
         /* ignore malformed snapshot */
