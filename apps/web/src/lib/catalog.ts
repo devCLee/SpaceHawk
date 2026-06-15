@@ -27,6 +27,7 @@ export function toTleEntries(rows: CatalogObject[]): TleObject[] {
       OBJECT_ID: r.object_id,
       NORAD_CAT_ID: r.norad_cat_id,
       COUNTRY_CODE: r.country_code,
+      OBJECT_TYPE: r.object_type,
     }));
 }
 

@@ -9,6 +9,7 @@ const OBJECT_TYPE_LABEL: Record<string, string> = {
   PAYLOAD: "탑재체",
   "ROCKET BODY": "로켓 본체",
   DEBRIS: "잔해",
+  UNKNOWN: "미상",
 };
 
 export function objectTypeLabel(value: string): string {

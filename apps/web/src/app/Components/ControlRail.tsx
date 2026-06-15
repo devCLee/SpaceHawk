@@ -5,6 +5,7 @@
 
 import React from "react";
 import SearchPanel from "./SearchPanel";
+import VisualizationPanel from "./VisualizationPanel";
 import SensorPanel from "./SensorPanel";
 import CollisionsPanel from "./CollisionsPanel";
 import ManeuverPanel from "./ManeuverPanel";
@@ -32,6 +33,7 @@ export const ControlRail: React.FunctionComponent = () => {
       }}
     >
       <SearchPanel />
+      <VisualizationPanel />
       <CountriesPanel />
       <ConstellationsPanel />
       <SensorPanel />

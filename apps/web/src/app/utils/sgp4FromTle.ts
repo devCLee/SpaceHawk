@@ -16,6 +16,8 @@ export interface TleObject {
   NORAD_CAT_ID?: number | null;
   /** Owner/operator code (#9d colour-by-nation). */
   COUNTRY_CODE?: string | null;
+  /** CCSDS/SATCAT object class (PAYLOAD / ROCKET BODY / DEBRIS), for colour-by-type. */
+  OBJECT_TYPE?: string | null;
 }
 
 /**
@@ -95,6 +97,23 @@ function classifyRegime(periodMin: number, eccentricity: number): OrbitRegime {
   if (periodMin < 128) return "LEO";
   if (periodMin >= 1410 && periodMin <= 1450) return "GEO";
   return "MEO";
+}
+
+/**
+ * Cheap orbit-regime classification straight off TLE line 2 — no
+ * `twoline2satrec` parse, so it is safe to run across the whole catalogue on the
+ * main thread when the points are built (the per-object SGP4 parse is what the
+ * Web Worker deliberately offloads). Reads mean motion (cols 53–63, revs/day)
+ * and eccentricity (cols 27–33, leading "0." assumed) by fixed TLE column.
+ * Returns null for a malformed/short line.
+ */
+export function regimeFromTle(line2: string): OrbitRegime | null {
+  if (!line2 || line2.length < 63) return null;
+  const meanMotion = Number.parseFloat(line2.slice(52, 63));
+  if (!Number.isFinite(meanMotion) || meanMotion <= 0) return null;
+  const ecc = Number.parseFloat(`0.${line2.slice(26, 33).trim()}`);
+  const periodMin = 1440 / meanMotion;
+  return classifyRegime(periodMin, Number.isFinite(ecc) ? ecc : 0);
 }
 
 /** Derive inclination / period / eccentricity / regime from a TLE (#9b). */
