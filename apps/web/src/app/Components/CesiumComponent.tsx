@@ -4,8 +4,10 @@ import React from "react";
 import type { CesiumType } from "../types/cesium";
 import {
   Cesium3DTileset,
+  type Cartesian3,
   type Color,
   type Entity,
+  type JulianDate,
   type PointPrimitive,
   type PointPrimitiveCollection,
   type ProviderViewModel,
@@ -31,7 +33,12 @@ import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
 import { t } from "@/lib/i18n/t";
 import { useCatalogView } from "../context/CatalogViewContext";
 import { useSensor } from "../context/SensorContext";
+import { useSensorVolume } from "../context/SensorVolumeContext";
 import { useGlobeControls } from "../context/GlobeControlsContext";
+import {
+  sensorVolumeGeometry,
+  type SensorVolumeGeometry,
+} from "../utils/sensorVolume";
 import { classifyConstellation } from "../data/constellations";
 import {
   classifyObjectType,
@@ -135,6 +142,7 @@ export const CesiumComponent: React.FunctionComponent<{
   const pickHandlerRef = React.useRef<ScreenSpaceEventHandler | null>(null);
   const selectedOrbitRef = React.useRef<Entity | null>(null);
   const sensorEntityRef = React.useRef<Entity | null>(null);
+  const sensorVolumeRef = React.useRef<Entity | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
   // True when a WebGL rendering context can't be created (GPU-less / headless /
   // remote-tunneled environment): we show a graceful message instead of letting
@@ -166,6 +174,10 @@ export const CesiumComponent: React.FunctionComponent<{
     hiddenCategories,
   } = useCatalogView();
   const { activeSensor } = useSensor();
+  const {
+    enabled: sensorVolumeEnabled,
+    halfAngleDeg: sensorHalfAngleDeg,
+  } = useSensorVolume();
 
   // (Re)create the Cesium viewer whenever the globe mode changes. The imagery /
   // terrain providers are chosen at construction time, so switching mode rebuilds
@@ -184,6 +196,7 @@ export const CesiumComponent: React.FunctionComponent<{
     satsByIdRef.current = new Map();
     selectedOrbitRef.current = null;
     sensorEntityRef.current = null;
+    sensorVolumeRef.current = null;
     setIsLoaded(false);
 
     let cancelled = false;
@@ -680,6 +693,126 @@ export const CesiumComponent: React.FunctionComponent<{
       }
     };
   }, [selectedId, isLoaded, CesiumJs, tleEntries, mode]);
+
+  // Draw the SELECTED object's sensor-coverage volume — the area its onboard
+  // sensor can observe — as a translucent nadir cone (apex at the satellite,
+  // base on the footprint) plus the ground footprint disk. One time-dynamic
+  // Entity (like the orbit line) so it tracks the satellite as the clock runs;
+  // toggled per-selection from the info panel (SensorVolumeContext). Applies to
+  // ALL orbit regimes: the geometry (sensorVolume.ts) is altitude-parametric and
+  // clamps the half-angle to the horizon, so GEO/MEO render a correct, bounded
+  // field-of-regard just as LEO does.
+  React.useEffect(() => {
+    if (!isLoaded || !cesiumViewer.current) return;
+
+    const viewer = cesiumViewer.current;
+    const Cesium = CesiumJs;
+
+    if (sensorVolumeRef.current && !viewer.isDestroyed()) {
+      viewer.entities.remove(sensorVolumeRef.current);
+      sensorVolumeRef.current = null;
+    }
+
+    if (!sensorVolumeEnabled || selectedId === null) return;
+    const sat = satsByIdRef.current.get(selectedId);
+    if (!sat) return;
+
+    const satrec = ensureSatrec(sat);
+
+    // Recompute the sat's geodetic position + footprint geometry once per clock
+    // time — each frame queries several CallbackProperties with the same `time`,
+    // so memoise on the millisecond to run SGP4 + the trig a single time.
+    let cachedMs = Number.NaN;
+    let cached: { lon: number; lat: number; geom: SensorVolumeGeometry } | null =
+      null;
+    const computeAt = (
+      time?: JulianDate
+    ): { lon: number; lat: number; geom: SensorVolumeGeometry } | null => {
+      if (!time) return null;
+      const ms = Cesium.JulianDate.toDate(time).getTime();
+      if (ms === cachedMs) return cached;
+      cachedMs = ms;
+      const geo = geodeticAt(satrec, new Date(ms));
+      const geom =
+        geo === null
+          ? null
+          : sensorVolumeGeometry(geo.altM / 1000, sensorHalfAngleDeg);
+      cached =
+        geo === null || geom === null
+          ? null
+          : { lon: geo.lon, lat: geo.lat, geom };
+      return cached;
+    };
+
+    // Cone (cylinder with a zero top radius): the entity position is the cone
+    // CENTRE on the nadir line; the apex sits at the satellite and the base
+    // radius is the footprint rim's horizontal extent. Lengths/radii are metres.
+    const conePosition = new Cesium.CallbackPositionProperty(
+      (time?: JulianDate, result?: Cartesian3) => {
+        const c = computeAt(time);
+        if (c === null) return undefined;
+        return Cesium.Cartesian3.fromDegrees(
+          c.lon,
+          c.lat,
+          c.geom.coneCenterAltitudeKm * 1000,
+          undefined,
+          result
+        );
+      },
+      false
+    );
+    const coneLength = new Cesium.CallbackProperty((time?: JulianDate) => {
+      const c = computeAt(time);
+      return c === null ? 0 : c.geom.coneLengthKm * 1000;
+    }, false);
+    const coneBottomRadius = new Cesium.CallbackProperty((time?: JulianDate) => {
+      const c = computeAt(time);
+      return c === null ? 0 : c.geom.coneBaseRadiusKm * 1000;
+    }, false);
+    // Footprint disk: drawn at sea level (height 0) centred on the sub-satellite
+    // point with the geodesic coverage radius — the literal "area observed".
+    const footprintRadius = new Cesium.CallbackProperty((time?: JulianDate) => {
+      const c = computeAt(time);
+      return c === null ? 0 : c.geom.groundRadiusKm * 1000;
+    }, false);
+
+    const sensorColor = Cesium.Color.CYAN;
+    sensorVolumeRef.current = viewer.entities.add({
+      name: `${sat.name} sensor volume`,
+      position: conePosition,
+      cylinder: {
+        length: coneLength,
+        topRadius: 0,
+        bottomRadius: coneBottomRadius,
+        material: sensorColor.withAlpha(0.12),
+        outline: true,
+        outlineColor: sensorColor.withAlpha(0.5),
+      },
+      ellipse: {
+        semiMajorAxis: footprintRadius,
+        semiMinorAxis: footprintRadius,
+        height: 0,
+        material: sensorColor.withAlpha(0.18),
+        outline: true,
+        outlineColor: sensorColor.withAlpha(0.7),
+      },
+    });
+
+    return () => {
+      if (sensorVolumeRef.current && !viewer.isDestroyed()) {
+        viewer.entities.remove(sensorVolumeRef.current);
+        sensorVolumeRef.current = null;
+      }
+    };
+  }, [
+    selectedId,
+    isLoaded,
+    CesiumJs,
+    tleEntries,
+    mode,
+    sensorVolumeEnabled,
+    sensorHalfAngleDeg,
+  ]);
 
   // Draw the active sensor's site marker + nominal coverage ring (#9c).
   React.useEffect(() => {
