@@ -19,6 +19,7 @@ import {
   propagate,
   gstime,
   eciToGeodetic,
+  eciToEcf,
   degreesLat,
   degreesLong,
   type SatRec,
@@ -56,12 +57,12 @@ if (typeof window !== "undefined") {
   (window as any).CESIUM_BASE_URL = "/cesium";
 }
 
-/** One orbit period in seconds (LEO ~90 min). */
-const ORBIT_PERIOD_SEC = 90 * 60;
-/** How far before/after "now" the selected object's orbit line is sampled. */
-const ORBIT_WINDOW_SEC = ORBIT_PERIOD_SEC;
-/** Sample step for the selected orbit polyline. */
-const ORBIT_SAMPLE_STEP_SEC = 20;
+/** Fallback orbit period (s) when mean motion is unavailable — LEO ~90 min. */
+const ORBIT_PERIOD_FALLBACK_SEC = 90 * 60;
+/** ECI samples drawn across one orbital period for the selected object's orbit
+ *  line; the line is rendered as a closed inertial ring (see the orbit effect),
+ *  so this controls how round the ellipse looks. */
+const ORBIT_SAMPLES_PER_PERIOD = 256;
 /** How often (sim seconds) the full catalog's point positions are re-propagated. */
 const POSITION_UPDATE_SEC = 1;
 
@@ -655,33 +656,58 @@ export const CesiumComponent: React.FunctionComponent<{
     const sat = satsByIdRef.current.get(selectedId);
     if (!sat) return;
 
-    // Sample one orbit around "now" for the path line.
-    const property = new Cesium.SampledPositionProperty(
-      Cesium.ReferenceFrame.FIXED
-    );
+    // The orbit must be drawn in the INERTIAL frame: an orbit is a closed
+    // ellipse fixed in inertial space, while the same positions in the
+    // Earth-fixed frame trace a ground track — an open sinusoid that precesses
+    // westward every revolution and never closes (the previous "two ends" bug).
+    // A Cesium `path` graphic also re-derives that ground track because it plots
+    // position-at-time in the rotating world, so we instead build a static
+    // closed polyline.
+    //
+    // satrec.no is mean motion in rad/min, so period(s) = 2π/no × 60. We sample
+    // ECI (TEME) positions across exactly one period — the loop closes back on
+    // itself — then render them with a CallbackProperty that rotates the fixed
+    // inertial ring into the Earth-fixed frame by GMST at the current clock
+    // time, so the ring sits correctly on the globe and turns with it.
+    const satrec = ensureSatrec(sat);
+    const periodSec =
+      satrec.no > 0
+        ? ((2 * Math.PI) / satrec.no) * 60
+        : ORBIT_PERIOD_FALLBACK_SEC;
     const center = Cesium.JulianDate.toDate(viewer.clock.currentTime).getTime();
-    for (
-      let t = center - ORBIT_WINDOW_SEC * 1000;
-      t <= center + ORBIT_WINDOW_SEC * 1000;
-      t += ORBIT_SAMPLE_STEP_SEC * 1000
-    ) {
-      const date = new Date(t);
-      const geo = geodeticAt(ensureSatrec(sat), date);
-      if (geo === null) continue;
-      property.addSample(
-        Cesium.JulianDate.fromDate(date),
-        Cesium.Cartesian3.fromDegrees(geo.lon, geo.lat, geo.altM)
+
+    const eciSamples: { x: number; y: number; z: number }[] = [];
+    for (let i = 0; i <= ORBIT_SAMPLES_PER_PERIOD; i++) {
+      const date = new Date(
+        center + (i / ORBIT_SAMPLES_PER_PERIOD) * periodSec * 1000
       );
+      const pv = propagate(satrec, date);
+      if (pv === null || pv.position == null) continue;
+      eciSamples.push({ x: pv.position.x, y: pv.position.y, z: pv.position.z });
     }
+    // Close the ring exactly, in case secular drift left a small end gap.
+    if (eciSamples.length > 1) eciSamples.push(eciSamples[0]);
 
     selectedOrbitRef.current = viewer.entities.add({
       name: sat.name,
-      position: property,
-      path: {
-        resolution: ORBIT_SAMPLE_STEP_SEC,
+      polyline: {
+        positions: new Cesium.CallbackProperty((time) => {
+          const gmst = gstime(
+            Cesium.JulianDate.toDate(time ?? viewer.clock.currentTime)
+          );
+          return eciSamples.map((p) => {
+            const ecf = eciToEcf(p, gmst); // km
+            return new Cesium.Cartesian3(
+              ecf.x * 1000,
+              ecf.y * 1000,
+              ecf.z * 1000
+            );
+          });
+        }, false),
+        // Straight 3-D segments between samples; without this Cesium draws
+        // geodesics clamped to the ellipsoid surface, flattening the orbit.
+        arcType: Cesium.ArcType.NONE,
         width: 2,
-        leadTime: ORBIT_PERIOD_SEC,
-        trailTime: ORBIT_PERIOD_SEC,
         material: Cesium.Color.YELLOW.withAlpha(0.6),
       },
     });
