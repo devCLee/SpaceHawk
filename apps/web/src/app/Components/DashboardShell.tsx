@@ -11,6 +11,7 @@ import ControlRail from "./ControlRail";
 import { SelectedSatelliteProvider } from "../context/SelectedSatelliteContext";
 import { CatalogViewProvider } from "../context/CatalogViewContext";
 import { SensorProvider } from "../context/SensorContext";
+import { SensorVolumeProvider } from "../context/SensorVolumeContext";
 import { useCatalog } from "@/lib/api/useCatalog";
 
 export const DashboardShell: React.FunctionComponent = () => {
@@ -22,9 +23,11 @@ export const DashboardShell: React.FunctionComponent = () => {
     <SelectedSatelliteProvider>
       <CatalogViewProvider>
         <SensorProvider>
-          <CesiumWrapper positions={[]} tleEntries={tleEntries ?? []} />
-          <ControlRail />
-          <SatelliteInfoPanel />
+          <SensorVolumeProvider>
+            <CesiumWrapper positions={[]} tleEntries={tleEntries ?? []} />
+            <ControlRail />
+            <SatelliteInfoPanel />
+          </SensorVolumeProvider>
         </SensorProvider>
       </CatalogViewProvider>
     </SelectedSatelliteProvider>

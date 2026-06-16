@@ -143,6 +143,12 @@ export const messages = {
   "sat.row.meanMotion": "평균 운동",
   "sat.row.semiMajorAxis": "긴반지름",
   "sat.row.epoch": "원기",
+  "sat.group.sensorVolume": "센서 관측 영역",
+  "sat.sensor.enable": "센서 영역 표시",
+  "sat.sensor.halfAngle": "센서 반각",
+  "sat.sensor.groundRadius": "지표 반경",
+  "sat.sensor.coverage": "지표 피복률",
+  "sat.sensor.horizonLimited": "지평선 제한 — 가시 반구 전체를 관측합니다.",
 
   // Globe (Cesium)
   "globe.offlineToast": "네트워크 연결이 감지되지 않았습니다 — 오프라인 지구본을 불러옵니다.",
