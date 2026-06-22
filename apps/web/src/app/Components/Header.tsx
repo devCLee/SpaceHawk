@@ -13,20 +13,37 @@
 // overlap the satellite info panel again.
 
 import React from "react";
+import * as Flags from "country-flag-icons/react/3x2";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { useGlobeControls } from "@/app/context/GlobeControlsContext";
+import { useCatalogView } from "@/app/context/CatalogViewContext";
+import { useCatalog } from "@/lib/api/useCatalog";
+import { countryISO, countryName } from "@/app/data/countries";
 import {
   useAlerts,
   accentFor,
   titleFor,
   TIME_WINDOWS,
+  type AlertRecord,
 } from "@/app/context/AlertsContext";
 import { http } from "@/lib/api/apiClient";
 import { t } from "@/lib/i18n/t";
 
 type ModeId = "live" | "sandbox" | "audit";
 type Pop = "alerts" | "account" | null;
+type AlertCat = "all" | "watch";
+
+type FlagComponent = React.FC<
+  React.SVGProps<SVGSVGElement> & { title?: string }
+>;
+
+/** country-flag-icons SVG for a Space-Track owner code, or null. */
+function flagFor(code: string | null | undefined): FlagComponent | null {
+  const iso = countryISO(code);
+  if (!iso) return null;
+  return (Flags as unknown as Record<string, FlagComponent>)[iso] ?? null;
+}
 
 export default function Header() {
   const { user, isAdmin, refresh } = useAuth();
@@ -282,6 +299,7 @@ export default function Header() {
  * panel, so the rows here are a heads-up surface, not action buttons. */
 function AlertsPop({ history }: { history: ReturnType<typeof useAlerts>["history"] }) {
   const [windowMs, setWindowMs] = React.useState(TIME_WINDOWS[2].ms); // 1h
+  const [cat, setCat] = React.useState<AlertCat>("all");
   // Snapshot the clock in an effect (Date.now() is impure in render) and tick it
   // once a second so a "1m" view drops entries as they age out.
   const [now, setNow] = React.useState(() => Date.now());
@@ -289,13 +307,52 @@ function AlertsPop({ history }: { history: ReturnType<typeof useAlerts>["history
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
-  const filtered = history.filter((r) => now - r.receivedAt <= windowMs);
+
+  // Watchlist membership + per-object owner/name, so the watchlist category can
+  // filter alerts to tracked objects and show each one's flag + title. Same
+  // shared catalog cache the panels use — no extra fetch.
+  const { watchlist } = useCatalogView();
+  const { data: catalog = [] } = useCatalog();
+  const watchSet = React.useMemo(() => new Set(watchlist), [watchlist]);
+  const byId = React.useMemo(() => {
+    const m = new Map<string, { name: string; code: string | null }>();
+    for (const r of catalog) {
+      const id = r.OBJECT_ID ?? r.OBJECT_NAME;
+      if (id) m.set(id, { name: r.OBJECT_NAME ?? id, code: r.COUNTRY_CODE ?? null });
+    }
+    return m;
+  }, [catalog]);
+
+  const isWatch = React.useCallback(
+    (r: AlertRecord) => !!r.alert.object_id && watchSet.has(r.alert.object_id),
+    [watchSet]
+  );
+
+  const inWindow = history.filter((r) => now - r.receivedAt <= windowMs);
+  const watchCount = inWindow.filter(isWatch).length;
+  const filtered =
+    cat === "watch" ? inWindow.filter(isWatch) : inWindow;
 
   return (
     <div className="pop pop-alerts open">
       <div className="pop-head">
         <h3>{t("notifications.title")}</h3>
         <span className="sub">{t("notifications.subtitle")}</span>
+      </div>
+      <div className="cats">
+        <button
+          className={cat === "all" ? "on" : ""}
+          onClick={() => setCat("all")}
+        >
+          {t("notifications.cat.all")}
+        </button>
+        <button
+          className={cat === "watch" ? "on" : ""}
+          onClick={() => setCat("watch")}
+        >
+          {t("notifications.cat.watch")}
+          {watchCount > 0 ? ` (${watchCount})` : ""}
+        </button>
       </div>
       <div className="filters">
         {TIME_WINDOWS.map((w) => (
@@ -311,19 +368,40 @@ function AlertsPop({ history }: { history: ReturnType<typeof useAlerts>["history
       {filtered.length === 0 ? (
         <p className="alerts-empty">{t("notifications.empty")}</p>
       ) : (
-        filtered.map((r) => (
-          <div className="alert-row" key={r.id}>
-            <div className="top">
-              <span className="sev" style={{ color: accentFor(r.alert) }}>
-                {titleFor(r.alert)}
-              </span>
-              <span className="time">
-                {new Date(r.receivedAt).toLocaleTimeString("ko-KR")}
-              </span>
+        filtered.map((r) => {
+          const watch = isWatch(r);
+          const meta = r.alert.object_id ? byId.get(r.alert.object_id) : undefined;
+          const title = meta?.name ?? r.alert.object_name;
+          const Flag = flagFor(meta?.code);
+          return (
+            <div className="alert-row" key={r.id}>
+              <div className="top">
+                <span
+                  className="sev"
+                  style={{ color: watch ? "#ffa94d" : accentFor(r.alert) }}
+                >
+                  {watch ? t("notifications.cat.watch") : titleFor(r.alert)}
+                </span>
+                <span className="time">
+                  {new Date(r.receivedAt).toLocaleTimeString("ko-KR")}
+                </span>
+              </div>
+              {watch && title && (
+                <div className="watch-sat">
+                  {Flag ? (
+                    <Flag title={countryName(meta?.code)} className="flag" />
+                  ) : (
+                    <span className="flag-fallback" aria-hidden>
+                      🌐
+                    </span>
+                  )}
+                  <span className="sat-title">{title}</span>
+                </div>
+              )}
+              <div className="msg">{r.alert.message}</div>
             </div>
-            <div className="msg">{r.alert.message}</div>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
@@ -495,6 +573,11 @@ const HEADER_CSS = `
 .sh-hdr .pop-head .sub{font-size:11px;color:#7d8da0}
 
 .sh-hdr .pop-alerts{right:0;width:340px;max-height:70vh;overflow-y:auto}
+.sh-hdr .cats{display:flex;gap:6px;padding:0 15px 10px}
+.sh-hdr .cats button{flex:1;font:inherit;font-size:11.5px;color:#7d8da0;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 0;cursor:pointer;transition:.12s}
+.sh-hdr .cats button:hover{color:#e6edf3}
+.sh-hdr .cats button.on{color:#04222e;background:#ffa94d;border-color:transparent;font-weight:600}
 .sh-hdr .filters{display:flex;gap:6px;padding:0 15px 12px}
 .sh-hdr .filters button{flex:1;font:inherit;font-size:11px;color:#7d8da0;background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 0;cursor:pointer;transition:.12s}
@@ -506,6 +589,12 @@ const HEADER_CSS = `
 .sh-hdr .alert-row .sev{font-size:12px;font-weight:650}
 .sh-hdr .alert-row .time{font-size:10.5px;color:#7d8da0;font-variant-numeric:tabular-nums}
 .sh-hdr .alert-row .msg{font-size:12.5px;color:#dfe7ef;margin-top:3px}
+.sh-hdr .alert-row .watch-sat{display:flex;align-items:center;gap:6px;margin-top:4px}
+.sh-hdr .alert-row .watch-sat .flag{width:18px;height:13px;border-radius:2px;flex:none;
+  box-shadow:0 0 0 1px rgba(255,255,255,0.12)}
+.sh-hdr .alert-row .watch-sat .flag-fallback{font-size:13px;line-height:1}
+.sh-hdr .alert-row .watch-sat .sat-title{font-size:12.5px;font-weight:600;color:#f3f7fb;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .sh-hdr .pop-account{right:0;min-width:214px;padding:6px}
 .sh-hdr .pop-account .acc-head{padding:8px 9px 10px;border-bottom:1px solid rgba(255,255,255,0.08);

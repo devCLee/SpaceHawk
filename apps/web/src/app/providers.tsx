@@ -10,6 +10,7 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/app/context/AuthContext";
 import { GlobeControlsProvider } from "@/app/context/GlobeControlsContext";
 import { AlertsProvider } from "@/app/context/AlertsContext";
+import { CatalogViewProvider } from "@/app/context/CatalogViewContext";
 
 export default function Providers({
   children,
@@ -29,8 +30,13 @@ export default function Providers({
       <AuthProvider>
         <GlobeControlsProvider>
           <AlertsProvider>
-            {children}
-            <Toaster theme="dark" position="top-center" richColors />
+            {/* App-global so both the dashboard panels AND the Header's
+                notification bell (rendered in the root layout, above the
+                dashboard subtree) read the same watchlist/filter state. */}
+            <CatalogViewProvider>
+              {children}
+              <Toaster theme="dark" position="top-center" richColors />
+            </CatalogViewProvider>
           </AlertsProvider>
         </GlobeControlsProvider>
       </AuthProvider>

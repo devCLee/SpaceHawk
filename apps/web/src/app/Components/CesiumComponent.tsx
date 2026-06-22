@@ -222,6 +222,7 @@ export const CesiumComponent: React.FunctionComponent<{
     watchlist,
     colorMode,
     hiddenCategories,
+    watchlistOnly,
   } = useCatalogView();
   const { activeSensor } = useSensor();
   const {
@@ -684,9 +685,14 @@ export const CesiumComponent: React.FunctionComponent<{
     satsByIdRef.current.forEach((sat) => {
       const catKey = colorMode === "type" ? sat.category : sat.regime;
       const isSelected = sat.id === selectedId;
-      // Hide a whole category on demand — but a selected object stays visible
-      // (it may have been picked from a panel before its category was hidden).
-      const hidden = !isSelected && catKey !== null && hiddenSet.has(catKey);
+      const inWatch = watchSet.has(sat.id);
+      // Hide a whole category on demand, or everything outside the watchlist when
+      // watchlist-only mode is on — but a selected object stays visible (it may
+      // have been picked from a panel before its category/mode hid it).
+      const hidden =
+        !isSelected &&
+        ((catKey !== null && hiddenSet.has(catKey)) ||
+          (watchlistOnly && !inWatch));
       sat.visible = !hidden;
 
       const countryOk = !countryFilter || sat.countryCode === countryFilter;
@@ -727,6 +733,7 @@ export const CesiumComponent: React.FunctionComponent<{
     watchlist,
     colorMode,
     hiddenCategories,
+    watchlistOnly,
     isLoaded,
     CesiumJs,
     tleEntries,

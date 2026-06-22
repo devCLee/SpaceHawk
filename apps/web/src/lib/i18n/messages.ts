@@ -9,6 +9,8 @@ export const messages = {
   "common.clearFilter": "필터 해제",
   "common.all": "전체",
   "common.loadingAria": "로딩 중",
+  "common.confirm": "확인",
+  "common.cancel": "취소",
 
   // Header
   "header.live": "라이브",
@@ -54,10 +56,17 @@ export const messages = {
   "viz.mode.type": "객체 유형",
   "viz.show": "표시",
   "viz.hide": "숨기기",
+  "viz.watchlistOnly": "관심 목록만 표시",
 
   // Countries / Constellations / Watchlist
   "countries.title": "국가",
   "countries.unavailable": "카탈로그를 사용할 수 없습니다.",
+  "countries.addWatch": "{country} 위성을 관심 목록에 추가",
+  "countries.removeWatch": "{country} 위성을 관심 목록에서 제거",
+  "countries.addTitle": "관심 목록에 추가",
+  "countries.removeTitle": "관심 목록에서 제거",
+  "countries.addConfirm": "{country} 위성 {n}개를 관심 목록에 추가할까요?",
+  "countries.removeConfirm": "{country} 위성 {n}개를 관심 목록에서 제거할까요?",
   "constellations.title": "위성군집",
   "watchlist.title": "관심 목록 ({n})",
   "watchlist.empty": "관심 등록된 객체가 없습니다. 객체를 열고 ☆를 눌러 등록하세요.",
@@ -74,6 +83,8 @@ export const messages = {
   "notifications.subtitle": "관심 지역 · 진입/이탈",
   "notifications.empty": "이 기간에 알림이 없습니다.",
   "notifications.dismiss": "알림 닫기",
+  "notifications.cat.all": "전체",
+  "notifications.cat.watch": "관심 위성",
   "toast.conjunction": "근접",
   "toast.regionEntry": "지역 진입",
 

@@ -10,7 +10,6 @@ import SatelliteInfoPanel from "./SatelliteInfoPanel";
 import DebrisInfoPanel from "./DebrisInfoPanel";
 import ControlRail from "./ControlRail";
 import { SelectedSatelliteProvider } from "../context/SelectedSatelliteContext";
-import { CatalogViewProvider } from "../context/CatalogViewContext";
 import { SensorProvider } from "../context/SensorContext";
 import { SensorVolumeProvider } from "../context/SensorVolumeContext";
 import { DebrisLayerProvider } from "../context/DebrisLayerContext";
@@ -25,22 +24,20 @@ export const DashboardShell: React.FunctionComponent = () => {
   const { data: debrisEntries } = useDebris();
   return (
     <SelectedSatelliteProvider>
-      <CatalogViewProvider>
-        <SensorProvider>
-          <SensorVolumeProvider>
-            <DebrisLayerProvider>
-              <CesiumWrapper
-                positions={[]}
-                tleEntries={tleEntries ?? []}
-                debrisEntries={debrisEntries ?? []}
-              />
-              <ControlRail />
-              <SatelliteInfoPanel />
-              <DebrisInfoPanel />
-            </DebrisLayerProvider>
-          </SensorVolumeProvider>
-        </SensorProvider>
-      </CatalogViewProvider>
+      <SensorProvider>
+        <SensorVolumeProvider>
+          <DebrisLayerProvider>
+            <CesiumWrapper
+              positions={[]}
+              tleEntries={tleEntries ?? []}
+              debrisEntries={debrisEntries ?? []}
+            />
+            <ControlRail />
+            <SatelliteInfoPanel />
+            <DebrisInfoPanel />
+          </DebrisLayerProvider>
+        </SensorVolumeProvider>
+      </SensorProvider>
     </SelectedSatelliteProvider>
   );
 };
