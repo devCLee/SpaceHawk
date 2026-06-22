@@ -42,9 +42,28 @@ function swatch(color: string): React.CSSProperties {
   };
 }
 
+function toggleRow(active: boolean): React.CSSProperties {
+  return {
+    ...s.listItem,
+    width: "100%",
+    boxSizing: "border-box",
+    border: "none",
+    textAlign: "left",
+    font: "inherit",
+    color: "inherit",
+    background: active ? "rgba(0,180,220,0.18)" : "rgba(0,0,0,0.4)",
+  };
+}
+
 export const VisualizationPanel: React.FunctionComponent = () => {
-  const { colorMode, setColorMode, isCategoryHidden, toggleCategory } =
-    useCatalogView();
+  const {
+    colorMode,
+    setColorMode,
+    isCategoryHidden,
+    toggleCategory,
+    watchlistOnly,
+    setWatchlistOnly,
+  } = useCatalogView();
 
   // Regime codes (LEO/MEO/GEO/HEO) are not translated (messages.ts policy);
   // object-class values are localized via the shared enum label map.
@@ -67,6 +86,15 @@ export const VisualizationPanel: React.FunctionComponent = () => {
           </button>
         ))}
       </div>
+      <button
+        type="button"
+        aria-pressed={watchlistOnly}
+        onClick={() => setWatchlistOnly(!watchlistOnly)}
+        style={toggleRow(watchlistOnly)}
+      >
+        <span>{t("viz.watchlistOnly")}</span>
+        <span style={s.muted}>{watchlistOnly ? "◉" : "◯"}</span>
+      </button>
       <ul style={s.list}>
         {categoriesFor(colorMode).map((key) => {
           const hidden = isCategoryHidden(key);

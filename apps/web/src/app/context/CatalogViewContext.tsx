@@ -25,6 +25,11 @@ interface CatalogViewContextValue {
   watchlist: string[];
   isWatched: (id: string) => boolean;
   toggleWatch: (id: string) => void;
+  /** Bulk add (e.g. every satellite of one country) — already-watched ids are
+   *  skipped so the operation is idempotent and preserves insertion order. */
+  addManyToWatch: (ids: string[]) => void;
+  /** Bulk remove — drops every given id from the watchlist in one update. */
+  removeManyFromWatch: (ids: string[]) => void;
   /** Globe colour-by axis: object class or orbit regime. */
   colorMode: ColorMode;
   setColorMode: (mode: ColorMode) => void;
@@ -32,6 +37,10 @@ interface CatalogViewContextValue {
   hiddenCategories: string[];
   isCategoryHidden: (key: string) => boolean;
   toggleCategory: (key: string) => void;
+  /** When true, the globe shows only watchlisted objects (everything else is
+   *  hidden). Persisted with the other viz options. */
+  watchlistOnly: boolean;
+  setWatchlistOnly: (v: boolean) => void;
 }
 
 const CatalogViewContext =
@@ -52,6 +61,7 @@ export function CatalogViewProvider({
   // active-only bundled snapshot (object_type colouring needs the live engine).
   const [colorMode, setColorMode] = React.useState<ColorMode>("regime");
   const [hiddenCategories, setHiddenCategories] = React.useState<string[]>([]);
+  const [watchlistOnly, setWatchlistOnly] = React.useState(false);
 
   // Load the persisted watchlist + viz options once on mount. This is
   // intentionally a post-mount setState (not a lazy initializer): reading
@@ -72,6 +82,7 @@ export function CatalogViewProvider({
         const viz = JSON.parse(raw) as {
           colorMode?: ColorMode;
           hidden?: string[];
+          watchlistOnly?: boolean;
         };
         // Validate the stored colour mode against the allowed literals — a
         // corrupt/hand-edited entry must not poison the typed state.
@@ -79,6 +90,9 @@ export function CatalogViewProvider({
           setColorMode(viz.colorMode);
         }
         if (Array.isArray(viz.hidden)) setHiddenCategories(viz.hidden);
+        if (typeof viz.watchlistOnly === "boolean") {
+          setWatchlistOnly(viz.watchlistOnly);
+        }
       }
     } catch {
       /* corrupt / unavailable storage — start with defaults */
@@ -98,12 +112,12 @@ export function CatalogViewProvider({
     try {
       window.localStorage.setItem(
         VIZ_KEY,
-        JSON.stringify({ colorMode, hidden: hiddenCategories })
+        JSON.stringify({ colorMode, hidden: hiddenCategories, watchlistOnly })
       );
     } catch {
       /* storage unavailable — keep in-memory only */
     }
-  }, [colorMode, hiddenCategories]);
+  }, [colorMode, hiddenCategories, watchlistOnly]);
 
   const watchSet = React.useMemo(() => new Set(watchlist), [watchlist]);
   const hiddenSet = React.useMemo(
@@ -123,6 +137,23 @@ export function CatalogViewProvider({
         setWatchlist((prev) =>
           prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
         ),
+      addManyToWatch: (ids: string[]) =>
+        setWatchlist((prev) => {
+          const seen = new Set(prev);
+          const next = [...prev];
+          for (const id of ids) {
+            if (!seen.has(id)) {
+              seen.add(id);
+              next.push(id);
+            }
+          }
+          return next;
+        }),
+      removeManyFromWatch: (ids: string[]) =>
+        setWatchlist((prev) => {
+          const drop = new Set(ids);
+          return prev.filter((x) => !drop.has(x));
+        }),
       colorMode,
       setColorMode,
       hiddenCategories,
@@ -131,6 +162,8 @@ export function CatalogViewProvider({
         setHiddenCategories((prev) =>
           prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]
         ),
+      watchlistOnly,
+      setWatchlistOnly,
     }),
     [
       countryFilter,
@@ -140,6 +173,7 @@ export function CatalogViewProvider({
       colorMode,
       hiddenCategories,
       hiddenSet,
+      watchlistOnly,
     ]
   );
 
