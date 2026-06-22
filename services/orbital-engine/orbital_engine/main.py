@@ -16,11 +16,13 @@ from orbital_engine.logging import configure_logging, get_logger
 from orbital_engine.pipeline import (
     ingest_if_empty,
     run_fingerprint_loop,
+    run_ingest_loop,
     run_maneuver_loop,
     run_propagation_loop,
     run_rpo_loop,
     run_screening_loop,
 )
+from orbital_engine.seed_maneuver import seed_demo_maneuver
 from orbital_engine.state import close as close_redis
 
 
@@ -40,7 +42,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await ingest_if_empty(settings)
         except Exception as exc:  # noqa: BLE001
             log.warning("startup.ingest_failed", error=str(exc))
+        try:
+            await seed_demo_maneuver(settings)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("startup.seed_maneuver_failed", error=str(exc))
         tasks = [
+            asyncio.create_task(run_ingest_loop(settings, stop)),
             asyncio.create_task(run_propagation_loop(settings, stop)),
             asyncio.create_task(run_screening_loop(settings, stop)),
             asyncio.create_task(run_maneuver_loop(settings, stop)),

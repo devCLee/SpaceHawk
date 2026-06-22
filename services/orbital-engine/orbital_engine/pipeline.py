@@ -16,6 +16,7 @@ from orbital_engine.domain.maneuver import Maneuver
 from orbital_engine.fingerprint import build_baseline, score_deviation
 from orbital_engine.ingestion.cdm import fetch_cdms
 from orbital_engine.ingestion.celestrak import fetch_celestrak
+from orbital_engine.ingestion.runner import ingest_available
 from orbital_engine.logging import get_logger
 from orbital_engine.maneuver import detect_maneuvers
 from orbital_engine.propagation.sgp4_service import propagate_objects
@@ -48,6 +49,31 @@ async def ingest_if_empty(settings: Settings) -> int:
     await append_history(objects)
     log.info("pipeline.ingest", written=written)
     return written
+
+
+async def run_ingest_loop(settings: Settings, stop: asyncio.Event) -> None:
+    """Re-ingest the catalog on a cadence so gp_history accrues new epochs.
+
+    Maneuver detection (run_maneuver_loop) needs a multi-epoch element-set series
+    per object, and that series only grows when fresh TLEs at new epochs are
+    appended to gp_history — which happens on ingest, not on propagation (the
+    propagation loop reuses the standing mean elements, so it never produces a new
+    epoch). ``ingest_if_empty`` seeds a single epoch at boot; without this loop the
+    history stays one row deep and PREFIL skips every object (no maneuver ever
+    detected). Runs slowly: TLEs refresh a few times a day and the feeds throttle.
+    """
+    log.info("ingest.loop.start", interval=settings.catalog_ingest_interval_sec)
+    while not stop.is_set():
+        try:
+            summary = await ingest_available(settings)
+            log.info("ingest.cycle", **summary)
+        except Exception as exc:  # noqa: BLE001 - one bad ingest must not kill the loop
+            log.warning("ingest.loop.error", error=str(exc))
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=settings.catalog_ingest_interval_sec)
+        except TimeoutError:
+            pass
+    log.info("ingest.loop.stop")
 
 
 async def run_propagation_loop(settings: Settings, stop: asyncio.Event) -> None:
