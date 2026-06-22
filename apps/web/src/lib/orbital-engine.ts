@@ -133,6 +133,89 @@ export async function fetchConjunctions(): Promise<ConjunctionsResult> {
   }
 }
 
+// --- Debris (CelesTrak fragmentation groups + collision risk) ---
+
+/** One tracked-debris object with derived orbital params + risk. Mirrors the
+ * engine `DebrisObject` response; the direct-CelesTrak / snapshot fallbacks
+ * (lib/debris.ts) produce the same shape. */
+export interface Debris {
+  object_id: string;
+  norad_cat_id: number | null;
+  object_name: string;
+  country_code: string | null;
+  rcs_size: string | null;
+  inclination: number | null;
+  eccentricity: number | null;
+  period_min: number | null;
+  apoapsis_km: number | null;
+  periapsis_km: number | null;
+  mean_altitude_km: number | null;
+  speed_km_s: number | null;
+  /** 0-100 relative-risk index (density × velocity × size). */
+  risk_score: number;
+  /** Critical / High / Medium / Low. */
+  risk_level: string;
+  tle_line0: string | null;
+  tle_line1: string | null;
+  tle_line2: string | null;
+}
+
+export interface DebrisDensityBin {
+  altitude_km: number;
+  count: number;
+}
+
+/** Population-level debris risk analysis (engine `/debris/risk`). `conjunctions`
+ * carry the real SGP4-screened probability-of-collision; empty until screening
+ * has run with debris in the catalog. */
+export interface DebrisRiskSummary {
+  available: boolean;
+  total: number;
+  by_level: Record<string, number>;
+  density_by_shell: DebrisDensityBin[];
+  conjunctions: Conjunction[];
+}
+
+/** Fetch the engine's tracked-debris list. Returns null when the engine `/debris`
+ * endpoint is unavailable so lib/debris.ts can fall back to a direct CelesTrak
+ * pull or the bundled snapshot (never throws). */
+export async function fetchDebris(): Promise<Debris[] | null> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/debris?limit=20000`, {
+      cache: "no-store",
+      headers: await engineAuthHeaders(),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Debris[];
+  } catch {
+    return null;
+  }
+}
+
+const EMPTY_DEBRIS_RISK: DebrisRiskSummary = {
+  available: false,
+  total: 0,
+  by_level: {},
+  density_by_shell: [],
+  conjunctions: [],
+};
+
+/** Fetch the engine's debris risk analysis. Graceful: `available: false` (never
+ * throws) when the engine endpoint is offline or screening hasn't populated. */
+export async function fetchDebrisRisk(): Promise<DebrisRiskSummary> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/debris/risk`, {
+      cache: "no-store",
+      headers: await engineAuthHeaders(),
+    });
+    if (!res.ok) return EMPTY_DEBRIS_RISK;
+    const data = (await res.json()) as Omit<DebrisRiskSummary, "available">;
+    return { available: true, ...data };
+  } catch {
+    return EMPTY_DEBRIS_RISK;
+  }
+}
+
 export type AlertStatus = "NEW" | "ACK" | "DISMISSED";
 
 /** One durable alert in the triage log (alert center). */

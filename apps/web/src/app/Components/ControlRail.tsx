@@ -8,6 +8,7 @@ import SearchPanel from "./SearchPanel";
 import VisualizationPanel from "./VisualizationPanel";
 import SensorPanel from "./SensorPanel";
 import CollisionsPanel from "./CollisionsPanel";
+import DebrisPanel from "./DebrisPanel";
 import ManeuverPanel from "./ManeuverPanel";
 import AlertCenter from "./AlertCenter";
 import {
@@ -38,6 +39,7 @@ export const ControlRail: React.FunctionComponent = () => {
       <ConstellationsPanel />
       <SensorPanel />
       <CollisionsPanel />
+      <DebrisPanel />
       <ManeuverPanel />
       <AlertCenter />
       <WatchlistPanel />

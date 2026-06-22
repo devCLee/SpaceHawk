@@ -37,6 +37,26 @@ export const REGIME_ORDER: OrbitRegime[] = ["LEO", "MEO", "GEO", "HEO"];
 /** Colour for an object with no resolvable category (e.g. an unparseable TLE). */
 export const CATEGORY_FALLBACK_COLOR = "#9ca3af";
 
+/** Debris collision-risk levels (descending severity) — the colour axis for the
+ *  dedicated debris layer (distinct from the object-class DEBRIS category). */
+export type DebrisRiskLevel = "Critical" | "High" | "Medium" | "Low";
+
+// Risk palette: red → orange → amber → green. Plain hex so the SAME tokens feed
+// the Cesium debris points (Cesium.Color.fromCssColorString) and the panel
+// legend swatches, exactly like TYPE_COLORS / REGIME_COLORS.
+export const RISK_COLORS: Record<DebrisRiskLevel, string> = {
+  Critical: "#ef4444", // red
+  High: "#f97316", // orange
+  Medium: "#eab308", // amber
+  Low: "#22c55e", // green
+};
+export const RISK_ORDER: DebrisRiskLevel[] = ["Critical", "High", "Medium", "Low"];
+
+/** Hex colour for a debris risk level (fallback grey if unknown). */
+export function riskColor(level: string): string {
+  return RISK_COLORS[level as DebrisRiskLevel] ?? CATEGORY_FALLBACK_COLOR;
+}
+
 /** The category keys shown in the legend (and toggled for visibility) per mode. */
 export function categoriesFor(mode: ColorMode): string[] {
   return mode === "type" ? TYPE_ORDER : REGIME_ORDER;
