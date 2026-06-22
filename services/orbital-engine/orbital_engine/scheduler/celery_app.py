@@ -47,10 +47,12 @@ celery_app.conf.beat_schedule = {
         "schedule": float(settings.celestrak_ingest_interval_sec),
         "args": (DataSource.CELESTRAK.value,),
     },
-    "ingest-cdms": {
-        "task": "orbital_engine.scheduler.tasks.ingest_cdms",
-        "schedule": float(settings.cdm_ingest_interval_sec),
-    },
+    # NOTE: no periodic "ingest-cdms" beat entry. Public-CDM polling is owned by
+    # the engine's screening loop (pipeline.run_screening_loop), throttled to
+    # cdm_ingest_interval_sec, so CDMs are fetched once per cadence from a single
+    # place. A second periodic fetcher here would double the Space-Track CDM
+    # query rate — exactly the over-polling that breaches the API usage policy.
+    # The ingest_cdms task is still registered for manual/on-demand runs.
     # DISCOS metadata enrichment — slow cadence (physical characteristics rarely
     # change); a no-op inside the task until a DISCOS token is configured.
     "enrich-discos": {

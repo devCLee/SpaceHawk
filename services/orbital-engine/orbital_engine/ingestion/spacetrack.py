@@ -46,15 +46,14 @@ def _fmt(dt: datetime) -> str:
 def build_gp_query(since: datetime | None = None, *, limit: int | None = None) -> str:
     """Predicate path for the ``gp`` class.
 
-    Incremental when ``since`` is given (records created after the watermark);
-    otherwise the full on-orbit set (``decay_date`` null). Ordered by
-    ``CREATION_DATE`` so the watermark advances monotonically.
+    Always filters ``decay_date/null-val`` so only on-orbit (propagable) objects
+    come back — Space-Track's recommended GP predicate. Incremental when ``since``
+    is given (records created after the watermark); ordered by ``CREATION_DATE``
+    so the watermark advances monotonically.
     """
-    parts = ["class", "gp"]
+    parts = ["class", "gp", "decay_date", "null-val"]
     if since is not None:
         parts += ["CREATION_DATE", f">{_fmt(since)}"]
-    else:
-        parts += ["decay_date", "null-val"]
     parts += ["orderby", "CREATION_DATE asc", "format", "json"]
     if limit is not None:
         parts += ["limit", str(int(limit))]
@@ -72,12 +71,16 @@ def build_satcat_query(*, limit: int | None = None) -> str:
 def build_cdm_query(since: datetime | None = None, *, limit: int | None = None) -> str:
     """Predicate path for the public ``cdm_public`` class (conjunction data messages).
 
-    Full parsing/screening is Stage 4 (#7); this makes CDMs queryable now.
+    Incremental on ``CREATED`` (the row's publish time) — Space-Track's required
+    watermark for public CDMs ("add /CREATED/>... when checking"). This MUST match
+    the field ``fetch_cdms`` persists as its watermark (max ``CREATED``); filtering
+    a different field (e.g. ``CREATION_DATE``) would re-pull the whole feed every
+    call, the over-query that breaches the API usage policy.
     """
     parts = ["class", "cdm_public"]
     if since is not None:
-        parts += ["CREATION_DATE", f">{_fmt(since)}"]
-    parts += ["orderby", "CREATION_DATE asc", "format", "json"]
+        parts += ["CREATED", f">{_fmt(since)}"]
+    parts += ["orderby", "CREATED asc", "format", "json"]
     if limit is not None:
         parts += ["limit", str(int(limit))]
     return f"{QUERY_PREFIX}/" + "/".join(parts)
