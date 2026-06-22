@@ -64,6 +64,10 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
   } = useSensorVolume();
   const [live, setLive] = React.useState<Sgp4State | null>(null);
 
+  // A `debris:` selection is owned by DebrisInfoPanel — this catalog panel skips
+  // it (the id isn't a catalog object, so /api/catalog/{id} would 404).
+  const isDebris = selectedId?.startsWith("debris:") ?? false;
+
   // Footprint readout for the sensor-volume panel — recomputed from the live
   // altitude + the chosen half-angle (the globe draws the matching cone). Valid
   // for every orbit regime; horizon-clamped for high objects (see sensorVolume).
@@ -79,7 +83,7 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
   } = useApiQuery<ObjectDetail>({
     queryKey: queryKeys.catalogDetail(selectedId ?? ""),
     url: `/api/catalog/${encodeURIComponent(selectedId ?? "")}`,
-    options: { enabled: selectedId !== null },
+    options: { enabled: selectedId !== null && !isDebris },
   });
 
   // Propagate the live position/velocity from the TLE on a timer. (Reset is by
@@ -94,7 +98,7 @@ export const SatelliteInfoPanel: React.FunctionComponent = () => {
     return () => window.clearInterval(handle);
   }, [detail?.tle_line1, detail?.tle_line2]);
 
-  if (selectedId === null) return null;
+  if (selectedId === null || isDebris) return null;
 
   return (
     <aside style={styles.panel}>

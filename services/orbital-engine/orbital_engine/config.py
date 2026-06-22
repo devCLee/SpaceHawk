@@ -179,6 +179,17 @@ class Settings(BaseSettings):
     # In the air-gapped enclave this is pointed at the offline mirror instead.
     celestrak_gp_url: str = "https://celestrak.org/NORAD/elements/gp.php"
     celestrak_group: str = "active"
+    # Tracked-debris special-interest GROUP slugs ingested alongside the "active"
+    # group (CelesTrak debris-viz/risk feature). Each is fetched + throttle-isolated
+    # independently and stamped object_type=DEBRIS (CelesTrak GP carries no
+    # OBJECT_TYPE, but every object in a debris group is a fragment). The three
+    # major fragmentation clouds together yield ~1,150 tracked objects; override
+    # via ORBITAL_ENGINE_CELESTRAK_DEBRIS_GROUPS (JSON list) or set [] to disable.
+    celestrak_debris_groups: list[str] = [
+        "fengyun-1c-debris",
+        "cosmos-2251-debris",
+        "iridium-33-debris",
+    ]
     # Cap per Celestrak pull and per-tick propagation fan-out. The original 200
     # was a thin-slice cap sized for the pre-migration Entity renderer; the globe
     # now uses a GPU-batched PointPrimitiveCollection (dev-plan Stage 3) that

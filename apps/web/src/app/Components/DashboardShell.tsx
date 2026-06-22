@@ -7,26 +7,37 @@
 import React from "react";
 import CesiumWrapper from "./CesiumWrapper";
 import SatelliteInfoPanel from "./SatelliteInfoPanel";
+import DebrisInfoPanel from "./DebrisInfoPanel";
 import ControlRail from "./ControlRail";
 import { SelectedSatelliteProvider } from "../context/SelectedSatelliteContext";
 import { CatalogViewProvider } from "../context/CatalogViewContext";
 import { SensorProvider } from "../context/SensorContext";
 import { SensorVolumeProvider } from "../context/SensorVolumeContext";
+import { DebrisLayerProvider } from "../context/DebrisLayerContext";
 import { useCatalog } from "@/lib/api/useCatalog";
+import { useDebris } from "@/lib/api/useDebris";
 
 export const DashboardShell: React.FunctionComponent = () => {
-  // Catalog fetched client-side (and cached/shared via React Query) rather than
-  // arriving as an RSC prop. The globe mounts immediately and renders points
-  // once the fetch resolves.
+  // Catalog + debris fetched client-side (and cached/shared via React Query)
+  // rather than arriving as RSC props. The globe mounts immediately and renders
+  // points once each fetch resolves.
   const { data: tleEntries } = useCatalog();
+  const { data: debrisEntries } = useDebris();
   return (
     <SelectedSatelliteProvider>
       <CatalogViewProvider>
         <SensorProvider>
           <SensorVolumeProvider>
-            <CesiumWrapper positions={[]} tleEntries={tleEntries ?? []} />
-            <ControlRail />
-            <SatelliteInfoPanel />
+            <DebrisLayerProvider>
+              <CesiumWrapper
+                positions={[]}
+                tleEntries={tleEntries ?? []}
+                debrisEntries={debrisEntries ?? []}
+              />
+              <ControlRail />
+              <SatelliteInfoPanel />
+              <DebrisInfoPanel />
+            </DebrisLayerProvider>
           </SensorVolumeProvider>
         </SensorProvider>
       </CatalogViewProvider>

@@ -223,6 +223,34 @@ async def query_catalog(
         return [dict(row) for row in result.mappings()]
 
 
+# Wider projection for the debris layer/risk endpoint: the orbital params the
+# risk model + the globe popups need, plus the TLE lines the client propagates.
+_DEBRIS_COLUMNS = (
+    "object_id, norad_cat_id, object_name, object_type, country_code, rcs_size, "
+    "inclination, eccentricity, mean_motion, ra_of_asc_node, period_min, "
+    "apoapsis_km, periapsis_km, semimajor_axis_km, tle_line0, tle_line1, tle_line2"
+)
+
+
+async def query_debris(*, limit: int = 2000, offset: int = 0) -> list[dict[str, Any]]:
+    """Return current (non-decayed) DEBRIS-class objects that carry TLE lines.
+
+    Reuses the same ``object_type::text`` filter as ``query_catalog`` (no schema
+    change — DEBRIS is a first-class object class); the client derives risk from
+    the returned mean elements + the TLE lines it then propagates.
+    """
+    sql = (
+        f"SELECT {_DEBRIS_COLUMNS} FROM space_object "
+        "WHERE decay_date IS NULL AND object_type::text = 'DEBRIS' "
+        "AND tle_line1 IS NOT NULL AND tle_line2 IS NOT NULL "
+        "ORDER BY object_name LIMIT :lim OFFSET :off"
+    )
+    params = {"lim": max(1, min(int(limit), 20000)), "off": max(0, int(offset))}
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql), params)
+        return [dict(row) for row in result.mappings()]
+
+
 # Full record returned by the object-detail endpoint.
 _DETAIL_COLUMNS = (
     "object_id, norad_cat_id, intl_designator, data_source, originator, "
@@ -397,6 +425,30 @@ async def query_conjunctions(
         "ORDER BY tca ASC LIMIT :lim"
     )
     params["lim"] = max(1, min(int(limit), 5000))
+    async with get_engine().connect() as conn:
+        result = await conn.execute(text(sql), params)
+        return [dict(row) for row in result.mappings()]
+
+
+async def query_debris_conjunctions(*, limit: int = 200) -> list[dict[str, Any]]:
+    """Return screened conjunctions that involve a DEBRIS object, closest first.
+
+    Reuses the screening loop's already-computed, real ``estimate_pc`` Pc /
+    severity (no re-screen): a cheap indexed read of the conjunction table joined
+    to debris participants. Empty until the screening loop has run with debris in
+    the catalog (the collisions panel / web layer degrade gracefully).
+    """
+    sql = (
+        f"SELECT {_CONJUNCTION_SELECT} FROM conjunction "
+        "WHERE EXISTS ("
+        "  SELECT 1 FROM space_object o "
+        "  WHERE o.object_type::text = 'DEBRIS' "
+        "    AND (o.object_id = conjunction.primary_object_id "
+        "         OR o.object_id = conjunction.secondary_object_id)"
+        ") "
+        "ORDER BY miss_distance_km ASC LIMIT :lim"
+    )
+    params = {"lim": max(1, min(int(limit), 5000))}
     async with get_engine().connect() as conn:
         result = await conn.execute(text(sql), params)
         return [dict(row) for row in result.mappings()]

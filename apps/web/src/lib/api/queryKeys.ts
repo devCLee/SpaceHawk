@@ -14,6 +14,10 @@ export const queryKeys = {
     ["catalog", "detail", objectId] as const,
   // GET /api/conjunctions
   conjunctions: () => ["conjunctions", "list"] as const,
+  // GET /api/debris (tracked debris layer + per-object risk)
+  debris: () => ["debris", "list"] as const,
+  // GET /api/debris/risk (population risk analysis + screened conjunctions)
+  debrisRisk: () => ["debris", "risk"] as const,
   // GET /api/alerts/log
   alerts: (status?: string) => ["alerts", "list", status ?? "all"] as const,
   // GET /api/maneuvers (optionally scoped to one object)

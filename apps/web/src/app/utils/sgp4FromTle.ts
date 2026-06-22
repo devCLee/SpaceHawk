@@ -134,6 +134,50 @@ export function deriveOrbitParams(
   };
 }
 
+// Earth gravitational parameter (km^3/s^2) + equatorial radius (km), WGS-84 —
+// matches the engine (screening.py / debris_risk.py) so derived apsis agree.
+const MU_EARTH = 398600.4418;
+const R_EARTH = 6378.137;
+
+export interface ApsisParams {
+  /** Apogee / perigee altitudes above the equatorial radius (km). */
+  apogeeKm: number;
+  perigeeKm: number;
+  semiMajorAxisKm: number;
+  /** Mean (circular-equivalent) altitude = a − R⊕ (km), the risk-shell key. */
+  meanAltitudeKm: number;
+  periodMin: number;
+  inclinationDeg: number;
+  eccentricity: number;
+  /** Right ascension of the ascending node (deg). */
+  raanDeg: number;
+}
+
+/**
+ * Derive apogee/perigee/semi-major-axis + mean altitude from a TLE (#debris).
+ * Recovers the semi-major axis from the SGP4 mean motion via Kepler's third law
+ * (satrec.no is rad/min), then apsis altitudes above R⊕. Used to compute debris
+ * risk + the orbital-parameter popup when only the TLE is available (the
+ * direct-CelesTrak / bundled-snapshot path, where the engine isn't consulted).
+ */
+export function deriveApsis(line1: string, line2: string): ApsisParams | null {
+  const satrec = twoline2satrec(line1, line2);
+  if (!satrec.no || satrec.no <= 0) return null;
+  const nRadS = satrec.no / 60; // rad/min → rad/s
+  const a = Math.cbrt(MU_EARTH / (nRadS * nRadS));
+  const e = satrec.ecco;
+  return {
+    apogeeKm: a * (1 + e) - R_EARTH,
+    perigeeKm: a * (1 - e) - R_EARTH,
+    semiMajorAxisKm: a,
+    meanAltitudeKm: a - R_EARTH,
+    periodMin: (2 * Math.PI) / satrec.no,
+    inclinationDeg: (satrec.inclo * 180) / Math.PI,
+    eccentricity: e,
+    raanDeg: (satrec.nodeo * 180) / Math.PI,
+  };
+}
+
 export interface Sgp4State {
   /** Geodetic position (WGS-84). */
   lat: number;

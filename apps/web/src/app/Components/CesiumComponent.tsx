@@ -46,8 +46,13 @@ import {
   categoryColor,
   categoriesFor,
   CATEGORY_FALLBACK_COLOR,
+  riskColor,
+  RISK_ORDER,
   type ObjectCategory,
+  type DebrisRiskLevel,
 } from "../data/visualization";
+import { useDebrisLayer } from "../context/DebrisLayerContext";
+import type { Debris } from "@/lib/orbital-engine";
 import { toast } from "sonner";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
@@ -70,6 +75,15 @@ const POINT_SIZE = 3;
 const SELECTED_POINT_SIZE = 10;
 const WATCHED_POINT_SIZE = 6;
 const MATCH_POINT_SIZE = 4;
+
+// Debris layer: crisp points sized up a little by risk so Critical fragments
+// stand out. (The risk-density heatmap is a separate 2D overlay — DebrisHeatmap2D.)
+const DEBRIS_RISK_SIZE: Record<DebrisRiskLevel, number> = {
+  Critical: 6,
+  High: 5,
+  Medium: 4,
+  Low: 3,
+};
 
 /** A catalog object: GPU point + identity + its TLE. The SGP4 record is parsed
  *  lazily (the worker propagates the catalog; the main thread only needs a
@@ -104,6 +118,29 @@ function ensureSatrec(sat: RenderedSat): SatRec {
   return sat.satrec;
 }
 
+/** A debris object: GPU point + identity + its TLE + collision-risk level (the
+ *  colour axis for the debris layer). Selection ids are prefixed `debris:` so the
+ *  pick handler and the info panels can tell debris from catalog objects. */
+interface RenderedDebris {
+  id: string;
+  name: string;
+  line1: string;
+  line2: string;
+  satrec: SatRec | null;
+  primitive: PointPrimitive;
+  riskLevel: DebrisRiskLevel;
+  hasPosition: boolean;
+  visible: boolean;
+}
+
+/** Parse a debris object's TLE on demand and cache it on the record. */
+function ensureDebrisSatrec(d: RenderedDebris): SatRec {
+  if (d.satrec === null) {
+    d.satrec = twoline2satrec(d.line1, d.line2);
+  }
+  return d.satrec;
+}
+
 /** Default Cesium widgets to hide — keep timeline/animation (time control) and
  * the scene-mode picker (2D/3D toggle); drop the rest of the chrome. */
 const HIDDEN_WIDGETS = {
@@ -134,12 +171,15 @@ export const CesiumComponent: React.FunctionComponent<{
   CesiumJs: CesiumType;
   positions: Position[];
   tleEntries?: TleObject[];
-}> = ({ CesiumJs, positions, tleEntries }) => {
+  debrisEntries?: Debris[];
+}> = ({ CesiumJs, positions, tleEntries, debrisEntries }) => {
   const cesiumViewer = React.useRef<Viewer | null>(null);
   const cesiumContainerRef = React.useRef<HTMLDivElement>(null);
   const addedScenePrimitives = React.useRef<Cesium3DTileset[]>([]);
   const pointsRef = React.useRef<PointPrimitiveCollection | null>(null);
   const satsByIdRef = React.useRef<Map<string, RenderedSat>>(new Map());
+  const debrisPointsRef = React.useRef<PointPrimitiveCollection | null>(null);
+  const debrisByIdRef = React.useRef<Map<string, RenderedDebris>>(new Map());
   const pickHandlerRef = React.useRef<ScreenSpaceEventHandler | null>(null);
   const selectedOrbitRef = React.useRef<Entity | null>(null);
   const sensorEntityRef = React.useRef<Entity | null>(null);
@@ -179,6 +219,7 @@ export const CesiumComponent: React.FunctionComponent<{
     enabled: sensorVolumeEnabled,
     halfAngleDeg: sensorHalfAngleDeg,
   } = useSensorVolume();
+  const { visible: debrisVisible, hiddenRisks } = useDebrisLayer();
 
   // (Re)create the Cesium viewer whenever the globe mode changes. The imagery /
   // terrain providers are chosen at construction time, so switching mode rebuilds
@@ -195,6 +236,8 @@ export const CesiumComponent: React.FunctionComponent<{
     addedScenePrimitives.current = [];
     pointsRef.current = null;
     satsByIdRef.current = new Map();
+    debrisPointsRef.current = null;
+    debrisByIdRef.current = new Map();
     selectedOrbitRef.current = null;
     sensorEntityRef.current = null;
     sensorVolumeRef.current = null;
@@ -537,7 +580,12 @@ export const CesiumComponent: React.FunctionComponent<{
           | { id?: unknown }
           | undefined;
         const pickedId = picked?.id;
-        if (typeof pickedId === "string" && satsById.has(pickedId)) {
+        // Points carry a string id — catalog ids select a satellite; `debris:`
+        // ids (resolved via the debris layer's map) select a debris object.
+        if (
+          typeof pickedId === "string" &&
+          (satsById.has(pickedId) || debrisByIdRef.current.has(pickedId))
+        ) {
           setSelectedId(pickedId);
         } else {
           setSelectedId(null);
@@ -623,7 +671,12 @@ export const CesiumComponent: React.FunctionComponent<{
       }
       sat.primitive.color = color;
       sat.primitive.pixelSize = size;
-      sat.primitive.show = sat.hasPosition && sat.visible;
+      // When the dedicated debris layer is on, hide the main catalog's DEBRIS
+      // points so debris shows once (risk-coloured) rather than twice; a selected
+      // object always stays visible.
+      const debrisDeduped =
+        debrisVisible && sat.category === "DEBRIS" && !isSelected;
+      sat.primitive.show = sat.hasPosition && sat.visible && !debrisDeduped;
     });
   }, [
     selectedId,
@@ -635,6 +688,192 @@ export const CesiumComponent: React.FunctionComponent<{
     isLoaded,
     CesiumJs,
     tleEntries,
+    mode,
+    debrisVisible,
+  ]);
+
+  // Render the tracked-debris population as a SECOND GPU PointPrimitiveCollection
+  // (independent of the catalog layer), propagated by its own Web Worker on the
+  // same throttled clock tick. Built only while the layer is visible (no wasted
+  // propagation when off). Points carry a `debris:`-prefixed id so the shared pick
+  // handler selects them; colour/visibility come from the styling pass below.
+  React.useEffect(() => {
+    if (!isLoaded || !cesiumViewer.current || !debrisVisible) return;
+
+    const viewer = cesiumViewer.current;
+    const Cesium = CesiumJs;
+
+    const points = new Cesium.PointPrimitiveCollection();
+    viewer.scene.primitives.add(points);
+    debrisPointsRef.current = points;
+
+    const byId = new Map<string, RenderedDebris>();
+    debrisByIdRef.current = byId;
+    const ordered: RenderedDebris[] = [];
+    const workerInputs: { line1: string; line2: string }[] = [];
+    const now = new Date();
+
+    (debrisEntries ?? []).forEach((d) => {
+      const line1 = d.tle_line1;
+      const line2 = d.tle_line2;
+      if (!line1 || !line2) return;
+      const id = `debris:${d.object_id}`;
+      const primitive = points.add({
+        id,
+        position: Cesium.Cartesian3.ZERO,
+        show: false,
+        pixelSize: POINT_SIZE,
+        color: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 1,
+      });
+      const rec: RenderedDebris = {
+        id,
+        name: d.object_name,
+        line1,
+        line2,
+        satrec: null,
+        primitive,
+        riskLevel: (d.risk_level as DebrisRiskLevel) || "Low",
+        hasPosition: false,
+        visible: true,
+      };
+      byId.set(id, rec);
+      ordered.push(rec);
+      workerInputs.push({ line1, line2 });
+    });
+
+    // Snap worker-computed positions onto the index-aligned debris primitives.
+    const applyPositions = (
+      lon: Float64Array,
+      lat: Float64Array,
+      alt: Float64Array
+    ) => {
+      for (let i = 0; i < ordered.length; i++) {
+        if (Number.isNaN(lon[i])) continue;
+        const rec = ordered[i];
+        rec.primitive.position = Cesium.Cartesian3.fromDegrees(
+          lon[i],
+          lat[i],
+          alt[i]
+        );
+        rec.hasPosition = true;
+        if (rec.primitive.show !== rec.visible) rec.primitive.show = rec.visible;
+      }
+    };
+
+    // Second worker instance — same {init, propagate} contract as the catalog.
+    let worker: Worker | null = null;
+    try {
+      worker = new Worker(
+        new URL("../workers/propagation.worker.ts", import.meta.url)
+      );
+      worker.onmessage = (e: MessageEvent) => {
+        const data = e.data as {
+          type: string;
+          lon: Float64Array;
+          lat: Float64Array;
+          alt: Float64Array;
+        };
+        if (data.type !== "positions" || viewer.isDestroyed()) return;
+        applyPositions(data.lon, data.lat, data.alt);
+      };
+      worker.postMessage({ type: "init", sats: workerInputs });
+      worker.postMessage({ type: "propagate", timeMs: now.getTime() });
+    } catch {
+      worker = null;
+    }
+
+    // No-worker (headless) fallback: propagate the debris set on the main thread.
+    const propagateOnMainThread = (date: Date) => {
+      byId.forEach((rec) => {
+        const geo = geodeticAt(ensureDebrisSatrec(rec), date);
+        if (geo === null) return;
+        rec.primitive.position = Cesium.Cartesian3.fromDegrees(
+          geo.lon,
+          geo.lat,
+          geo.altM
+        );
+        rec.hasPosition = true;
+        if (rec.primitive.show !== rec.visible) rec.primitive.show = rec.visible;
+      });
+    };
+    if (!worker) propagateOnMainThread(now);
+
+    let lastUpdate = now;
+    const onTick = viewer.clock.onTick.addEventListener((clock) => {
+      const date = Cesium.JulianDate.toDate(clock.currentTime);
+      if (
+        Math.abs(date.getTime() - lastUpdate.getTime()) <
+        POSITION_UPDATE_SEC * 1000
+      ) {
+        return;
+      }
+      lastUpdate = date;
+      if (worker) {
+        worker.postMessage({ type: "propagate", timeMs: date.getTime() });
+        return;
+      }
+      propagateOnMainThread(date);
+    });
+
+    return () => {
+      onTick();
+      if (worker) {
+        worker.onmessage = null;
+        worker.terminate();
+      }
+      if (!viewer.isDestroyed()) viewer.scene.primitives.remove(points);
+      debrisPointsRef.current = null;
+      debrisByIdRef.current = new Map();
+    };
+  }, [isLoaded, CesiumJs, debrisEntries, mode, debrisVisible]);
+
+  // Style every debris point by collision-risk level — one O(N) pass that runs
+  // only on a layer/risk-filter/selection change (not per frame). Hidden when the
+  // layer is off or its risk tier is filtered out; selection forces yellow.
+  React.useEffect(() => {
+    if (
+      !isLoaded ||
+      !cesiumViewer.current ||
+      cesiumViewer.current.isDestroyed()
+    )
+      return;
+
+    const Cesium = CesiumJs;
+    const hiddenSet = new Set(hiddenRisks);
+
+    // Parse the 4-colour risk palette once into Cesium colours, not per object.
+    const palette: Record<string, Color> = {};
+    for (const level of RISK_ORDER) {
+      palette[level] = Cesium.Color.fromCssColorString(riskColor(level));
+    }
+    const fallbackColor = Cesium.Color.fromCssColorString(
+      CATEGORY_FALLBACK_COLOR
+    );
+
+    debrisByIdRef.current.forEach((rec) => {
+      const isSelected = rec.id === selectedId;
+      const riskHidden = hiddenSet.has(rec.riskLevel);
+      rec.visible = debrisVisible && (isSelected || !riskHidden);
+
+      let color = palette[rec.riskLevel] ?? fallbackColor;
+      let size = DEBRIS_RISK_SIZE[rec.riskLevel];
+      if (isSelected) {
+        color = Cesium.Color.YELLOW;
+        size = SELECTED_POINT_SIZE;
+      }
+      rec.primitive.color = color;
+      rec.primitive.pixelSize = size;
+      rec.primitive.show = rec.hasPosition && rec.visible;
+    });
+  }, [
+    debrisVisible,
+    hiddenRisks,
+    selectedId,
+    isLoaded,
+    CesiumJs,
+    debrisEntries,
     mode,
   ]);
 

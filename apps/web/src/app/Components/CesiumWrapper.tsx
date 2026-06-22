@@ -5,6 +5,7 @@ import React from 'react';
 import type { CesiumType } from '../types/cesium';
 import type { Position } from '../types/position';
 import type { TleObject } from '../utils/sgp4FromTle';
+import type { Debris } from '@/lib/orbital-engine';
 
 const CesiumDynamicComponent = dynamic(() => import('./CesiumComponent'), {
     ssr: false
@@ -13,7 +14,8 @@ const CesiumDynamicComponent = dynamic(() => import('./CesiumComponent'), {
 export const CesiumWrapper: React.FunctionComponent<{
   positions: Position[];
   tleEntries?: TleObject[];
-}> = ({ positions, tleEntries }) => {
+  debrisEntries?: Debris[];
+}> = ({ positions, tleEntries, debrisEntries }) => {
   const [CesiumJs, setCesiumJs] = React.useState<CesiumType | null>(null);
 
   React.useEffect(() => {
@@ -30,6 +32,7 @@ export const CesiumWrapper: React.FunctionComponent<{
       CesiumJs={CesiumJs}
       positions={positions}
       tleEntries={tleEntries}
+      debrisEntries={debrisEntries}
     />
   ) : null;
 };
