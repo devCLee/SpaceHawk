@@ -4,6 +4,7 @@
 // collisions). Each branch adds its panel here.
 
 import React from "react";
+import { useGlobeControls } from "../context/GlobeControlsContext";
 import SearchPanel from "./SearchPanel";
 import VisualizationPanel from "./VisualizationPanel";
 import SensorPanel from "./SensorPanel";
@@ -18,8 +19,12 @@ import {
 } from "./FilterPanels";
 
 export const ControlRail: React.FunctionComponent = () => {
+  // The Header's panel-left button drives railOpen; closed slides the rail off
+  // the left edge (pointer-events off so the hidden rail can't catch globe clicks).
+  const { railOpen } = useGlobeControls();
   return (
     <div
+      aria-hidden={!railOpen}
       style={{
         position: "absolute",
         top: 72,
@@ -34,6 +39,9 @@ export const ControlRail: React.FunctionComponent = () => {
         display: "flex",
         flexDirection: "column",
         gap: 8,
+        transform: railOpen ? "translateX(0)" : "translateX(-110%)",
+        transition: "transform 0.22s ease",
+        pointerEvents: railOpen ? "auto" : "none",
       }}
     >
       <SearchPanel />
