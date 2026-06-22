@@ -16,7 +16,7 @@ from orbital_engine.domain.maneuver import Maneuver
 from orbital_engine.fingerprint import build_baseline, score_deviation
 from orbital_engine.ingestion.cdm import fetch_cdms
 from orbital_engine.ingestion.celestrak import fetch_celestrak
-from orbital_engine.ingestion.runner import ingest_available
+from orbital_engine.ingestion.runner import ingest_redundant
 from orbital_engine.logging import get_logger
 from orbital_engine.maneuver import detect_maneuvers
 from orbital_engine.propagation.sgp4_service import propagate_objects
@@ -61,11 +61,16 @@ async def run_ingest_loop(settings: Settings, stop: asyncio.Event) -> None:
     epoch). ``ingest_if_empty`` seeds a single epoch at boot; without this loop the
     history stays one row deep and PREFIL skips every object (no maneuver ever
     detected). Runs slowly: TLEs refresh a few times a day and the feeds throttle.
+
+    Uses ``ingest_redundant`` (Celestrak only), NOT ``ingest_available``: at this
+    cadence (sub-hourly) re-querying Space-Track every tick would breach its
+    ``class/gp`` 1/hour limit. Space-Track GP is owned solely by the hourly
+    ``ingest-spacetrack`` Celery beat; both paths append to gp_history.
     """
     log.info("ingest.loop.start", interval=settings.catalog_ingest_interval_sec)
     while not stop.is_set():
         try:
-            summary = await ingest_available(settings)
+            summary = await ingest_redundant(settings)
             log.info("ingest.cycle", **summary)
         except Exception as exc:  # noqa: BLE001 - one bad ingest must not kill the loop
             log.warning("ingest.loop.error", error=str(exc))
@@ -115,9 +120,22 @@ async def run_screening_loop(settings: Settings, stop: asyncio.Event) -> None:
     """
     alerter = ConjunctionAlerter(settings)
     log.info("screening.loop.start", interval=settings.conjunction_screen_interval_sec)
+    # CDMs are pulled on their own (slow) cadence, NOT every screen cycle:
+    # Space-Track suspends accounts that re-query public CDMs more than a few
+    # times/day. The self-screen below still runs every cycle (it hits no
+    # external API); only the official-CDM fetch is throttled to cdm_ingest_interval.
+    last_cdm_fetch: datetime | None = None
     while not stop.is_set():
         try:
-            cdm_conjunctions = await fetch_cdms(settings)
+            now = datetime.now(UTC)
+            if (
+                last_cdm_fetch is None
+                or (now - last_cdm_fetch).total_seconds() >= settings.cdm_ingest_interval_sec
+            ):
+                cdm_conjunctions = await fetch_cdms(settings)
+                last_cdm_fetch = now
+            else:
+                cdm_conjunctions = []
             rows = await fetch_catalog(settings.ingest_limit)
             screened = screen_objects(rows, settings)
             written = await upsert_conjunctions(cdm_conjunctions + screened)

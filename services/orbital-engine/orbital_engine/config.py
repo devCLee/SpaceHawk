@@ -106,9 +106,13 @@ class Settings(BaseSettings):
     discos_ingest_interval_sec: int = 86400
 
     # --- Conjunction CDM ingest (Stage 4) ---
-    # CDMs are published less often than GP; hourly is ample. Cap per-query rows
-    # in dev; None (no limit) for the full feed in the enclave.
-    cdm_ingest_interval_sec: int = 3600
+    # Space-Track's API policy caps public-CDM polling at a few queries/day and
+    # requires an incremental CREATED watermark ("once you download a CDM you do
+    # not need to download it again"). Over-polling here (every screen cycle) got
+    # the account suspended; default to daily, and the fetch is incremental
+    # (CREATED > watermark) so each pull only returns CDMs published since the
+    # last one. Cap per-query rows in dev; None (no limit) for the full enclave feed.
+    cdm_ingest_interval_sec: int = 86400
     cdm_query_limit: int | None = 500
 
     # --- Trust-calibrated severity tiers (Stage 4 / roadmap O4) ---

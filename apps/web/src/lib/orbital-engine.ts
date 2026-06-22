@@ -22,16 +22,35 @@ export interface CatalogObject {
   tle_line2: string | null;
 }
 
-/** Fetch the current catalog from the engine. Throws on a non-2xx response. */
+// The engine caps a single /catalog response at le=5000 rows (api/catalog.py).
+// The globe needs the FULL active catalog (~15k), so page through with offset
+// until a short page signals the end. MAX_CATALOG_PAGES bounds the loop (engine
+// ingest_limit is 20000 → 4 full pages) so a misbehaving engine cannot spin.
+const CATALOG_PAGE_SIZE = 5000;
+const MAX_CATALOG_PAGES = 8;
+
+/** Fetch the FULL current catalog from the engine, paging past the per-request
+ *  5000-row cap. Throws on a non-2xx response. */
 export async function fetchCatalog(): Promise<CatalogObject[]> {
-  const res = await fetch(`${ENGINE_URL}/catalog`, {
-    cache: "no-store",
-    headers: await engineAuthHeaders(),
-  });
-  if (!res.ok) {
-    throw new Error(`orbital-engine /catalog failed: ${res.status}`);
+  const headers = await engineAuthHeaders();
+  const all: CatalogObject[] = [];
+  for (let page = 0; page < MAX_CATALOG_PAGES; page++) {
+    const params = new URLSearchParams({
+      limit: String(CATALOG_PAGE_SIZE),
+      offset: String(page * CATALOG_PAGE_SIZE),
+    });
+    const res = await fetch(`${ENGINE_URL}/catalog?${params.toString()}`, {
+      cache: "no-store",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error(`orbital-engine /catalog failed: ${res.status}`);
+    }
+    const rows = (await res.json()) as CatalogObject[];
+    all.push(...rows);
+    if (rows.length < CATALOG_PAGE_SIZE) break; // short page = last page
   }
-  return res.json() as Promise<CatalogObject[]>;
+  return all;
 }
 
 export interface CatalogQuery {

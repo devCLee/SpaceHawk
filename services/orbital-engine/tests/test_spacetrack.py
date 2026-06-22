@@ -57,6 +57,9 @@ def test_build_gp_query_incremental_uses_creation_date() -> None:
     q = build_gp_query(datetime(2024, 3, 10, 18, 0, 0))
     assert "CREATION_DATE/>2024-03-10 18:00:00" in q
     assert "orderby/CREATION_DATE asc" in q
+    # Even incremental pulls must filter on-orbit objects (Space-Track's
+    # recommended GP predicate) — not just the full one-time pull.
+    assert "decay_date/null-val" in q
 
 
 def test_build_gp_query_applies_limit() -> None:
@@ -67,6 +70,16 @@ def test_other_class_builders_target_right_class() -> None:
     assert "/class/satcat/" in build_satcat_query()
     assert "/class/cdm_public/" in build_cdm_query()
     assert "/class/tip/" in build_tip_query()
+
+
+def test_build_cdm_query_incremental_uses_created_watermark() -> None:
+    # cdm_public is incremental on CREATED (the field fetch_cdms persists as its
+    # watermark = max CREATED). Filtering a different field (e.g. CREATION_DATE)
+    # would re-pull the entire feed every call — the over-query that breached the
+    # Space-Track API usage policy and got the account suspended.
+    q = build_cdm_query(datetime(2024, 3, 10, 18, 0, 0))
+    assert "CREATED/>2024-03-10 18:00:00" in q
+    assert "orderby/CREATED asc" in q
 
 
 def test_normalize_gp_maps_records_to_canonical() -> None:

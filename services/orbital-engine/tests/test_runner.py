@@ -101,3 +101,19 @@ async def test_ingest_one_filters_to_requested_available_source(captured: dict) 
     # No creds -> only Celestrak is available; requesting Space-Track ingests nothing.
     settings = Settings()
     assert (await runner.ingest_one(DataSource.SPACE_TRACK.value, settings))["sources"] == 0
+
+
+async def test_ingest_redundant_excludes_spacetrack(
+    captured: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Space-Track's class/gp is capped at 1/hour and owned by the hourly beat, so
+    # the sub-hourly accrual loop must skip it. Even when Space-Track is available,
+    # ingest_redundant fetches only the redundant sources (Celestrak here).
+    adapters = [
+        _FakeAdapter(DataSource.SPACE_TRACK, [_obj(1, DataSource.SPACE_TRACK)]),
+        _FakeAdapter(DataSource.CELESTRAK, [_obj(2, DataSource.CELESTRAK)]),
+    ]
+    monkeypatch.setattr(runner, "available_adapters", lambda settings=None: adapters)
+    summary = await runner.ingest_redundant(Settings())
+    assert summary["sources"] == 1
+    assert {o.norad_cat_id for o in captured["upserted"]} == {2}  # Space-Track skipped

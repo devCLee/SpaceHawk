@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 
 from orbital_engine.config import Settings, get_settings
-from orbital_engine.domain.space_object import SpaceObject
+from orbital_engine.domain.space_object import DataSource, SpaceObject
 from orbital_engine.ingestion.base import SourceAdapter
 from orbital_engine.ingestion.discos import fetch_discos
 from orbital_engine.ingestion.merge import merge_objects
@@ -44,6 +44,23 @@ async def ingest_sources(adapters: list[SourceAdapter]) -> dict[str, int]:
 async def ingest_available(settings: Settings | None = None) -> dict[str, int]:
     """Run every source configured in this environment."""
     return await ingest_sources(available_adapters(settings))
+
+
+async def ingest_redundant(settings: Settings | None = None) -> dict[str, int]:
+    """Run only the redundant/low-latency sources — everything except Space-Track.
+
+    Space-Track's API caps ``class/gp`` polling at 1/hour, so it must have a
+    single owner: the hourly Celery beat (``ingest-spacetrack``). The in-process
+    accrual loop (``pipeline.run_ingest_loop``) runs far more often to keep
+    ``gp_history`` fresh, so it calls this — fetching only Celestrak — instead of
+    ``ingest_available``, which would re-query Space-Track every loop tick and
+    breach the 1/hour limit.
+    """
+    settings = settings or get_settings()
+    adapters = [
+        a for a in available_adapters(settings) if a.source is not DataSource.SPACE_TRACK
+    ]
+    return await ingest_sources(adapters)
 
 
 async def ingest_one(source: str, settings: Settings | None = None) -> dict[str, int]:
