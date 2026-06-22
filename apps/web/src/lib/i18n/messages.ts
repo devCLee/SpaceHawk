@@ -17,6 +17,8 @@ export const messages = {
   "header.signOut": "로그아웃",
   "header.modesAria": "작업 공간 모드",
   "header.accountMenu": "계정 메뉴",
+  "header.railShow": "대시보드 패널 표시",
+  "header.railHide": "대시보드 패널 숨기기",
 
   // Sign in
   "signin.subtitle": "운영 대시보드 — 로그인하여 계속하세요.",

@@ -28,6 +28,9 @@ interface GlobeControlsValue {
   imageryAvailable: boolean;
   /** True while a Cesium viewer is mounted (i.e. the globe dashboard is shown). */
   active: boolean;
+  /** Left analyst rail (ControlRail) open/closed; Header owns the toggle. */
+  railOpen: boolean;
+  toggleRail: () => void;
   /** CesiumComponent registers its viewer on build and `null` on teardown. */
   registerViewer: (viewer: Viewer | null) => void;
 }
@@ -76,6 +79,9 @@ export function GlobeControlsProvider({
   const [imageryOpen, setImageryOpen] = React.useState(false);
   const [imageryAvailable, setImageryAvailable] = React.useState(false);
   const [active, setActive] = React.useState(false);
+  // Rail starts open (current default layout); the Header toggle hides/shows it.
+  const [railOpen, setRailOpen] = React.useState(true);
+  const toggleRail = React.useCallback(() => setRailOpen((v) => !v), []);
 
   const viewerRef = React.useRef<Viewer | null>(null);
   // Mirror sceneMode in a ref so registerViewer can re-apply the latest choice
@@ -153,6 +159,8 @@ export function GlobeControlsProvider({
       toggleImagery,
       imageryAvailable,
       active,
+      railOpen,
+      toggleRail,
       registerViewer,
     }),
     [
@@ -163,6 +171,8 @@ export function GlobeControlsProvider({
       toggleImagery,
       imageryAvailable,
       active,
+      railOpen,
+      toggleRail,
       registerViewer,
     ]
   );

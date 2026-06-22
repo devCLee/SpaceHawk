@@ -98,7 +98,20 @@ export default function Header() {
     <header className="sh-hdr">
       <style>{HEADER_CSS}</style>
 
-      <div className="wordmark">SpaceHawk</div>
+      <div className="left">
+        {globe.active && (
+          <button
+            className={`icon-btn rail-btn${globe.railOpen ? " active" : ""}`}
+            onClick={globe.toggleRail}
+            title={globe.railOpen ? t("header.railHide") : t("header.railShow")}
+            aria-label={globe.railOpen ? t("header.railHide") : t("header.railShow")}
+            aria-pressed={globe.railOpen}
+          >
+            <PanelLeftIcon />
+          </button>
+        )}
+        <div className="wordmark">SpaceHawk</div>
+      </div>
 
       <div className="right" ref={clusterRef}>
         {/* workspace modes */}
@@ -317,6 +330,23 @@ function AlertsPop({ history }: { history: ReturnType<typeof useAlerts>["history
 }
 
 /* ---- icons (match the design's stroke set) ---- */
+// lucide `panel-left` — the analyst-rail toggle.
+function PanelLeftIcon() {
+  return (
+    <svg
+      className="icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+    </svg>
+  );
+}
 function SceneIcon3D() {
   return (
     <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -390,6 +420,7 @@ const HEADER_CSS = `
   display:flex;align-items:center;justify-content:space-between;padding:0 16px;
   background:rgba(0,0,0,0.78);border-bottom:1px solid rgba(255,255,255,0.08);
   color:#e6edf3;font-family:inherit;-webkit-font-smoothing:antialiased}
+.sh-hdr .left{display:flex;align-items:center;gap:10px}
 .sh-hdr .wordmark{font-size:14px;font-weight:650;letter-spacing:.02em}
 .sh-hdr .right{display:flex;align-items:center;gap:12px;position:relative}
 .sh-hdr .divider{width:1px;height:22px;background:rgba(255,255,255,0.12);flex:none}
