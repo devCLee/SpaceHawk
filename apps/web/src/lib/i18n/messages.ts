@@ -149,6 +149,9 @@ export const messages = {
   "sat.sensor.groundRadius": "지표 반경",
   "sat.sensor.coverage": "지표 피복률",
   "sat.sensor.horizonLimited": "지평선 제한 — 가시 반구 전체를 관측합니다.",
+  "sat.hover.id": "카탈로그 ID",
+  "sat.hover.orbit": "궤도",
+  "sat.hover.constellation": "위성군집",
 
   // Globe (Cesium)
   "globe.offlineToast": "네트워크 연결이 감지되지 않았습니다 — 오프라인 지구본을 불러옵니다.",

@@ -53,6 +53,10 @@ import {
 } from "../data/visualization";
 import { useDebrisLayer } from "../context/DebrisLayerContext";
 import type { Debris } from "@/lib/orbital-engine";
+import {
+  SatelliteHoverCard,
+  type SatelliteHoverInfo,
+} from "./SatelliteHoverCard";
 import { toast } from "sonner";
 //NOTE: This is required to get the stylings for default Cesium UI and controls
 import "cesium/Build/Cesium/Widgets/widgets.css";
@@ -181,6 +185,11 @@ export const CesiumComponent: React.FunctionComponent<{
   const debrisPointsRef = React.useRef<PointPrimitiveCollection | null>(null);
   const debrisByIdRef = React.useRef<Map<string, RenderedDebris>>(new Map());
   const pickHandlerRef = React.useRef<ScreenSpaceEventHandler | null>(null);
+  // Hover read-out: the card mirrors whatever catalog point is under the cursor.
+  // `hoverIdRef` dedupes the high-frequency MOUSE_MOVE so we only re-render on a
+  // real change (new object, or moving while still over one), not on every pixel.
+  const [hovered, setHovered] = React.useState<SatelliteHoverInfo | null>(null);
+  const hoverIdRef = React.useRef<string | null>(null);
   const selectedOrbitRef = React.useRef<Entity | null>(null);
   const sensorEntityRef = React.useRef<Entity | null>(null);
   const sensorVolumeRef = React.useRef<Entity | null>(null);
@@ -594,8 +603,41 @@ export const CesiumComponent: React.FunctionComponent<{
       Cesium.ScreenSpaceEventType.LEFT_CLICK
     );
 
+    // Hover surfaces a compact info card for the catalog point under the cursor.
+    // Scoped to catalog satellites (debris has no owner/flag — its own panel owns
+    // it). `endPosition` is canvas-relative, which is also the hover card's
+    // coordinate space (it's absolutely positioned inside the same wrapper).
+    handler.setInputAction(
+      (movement: ScreenSpaceEventHandler.MotionEvent) => {
+        const picked = viewer.scene.pick(movement.endPosition) as
+          | { id?: unknown }
+          | undefined;
+        const pickedId = picked?.id;
+        if (typeof pickedId === "string" && satsById.has(pickedId)) {
+          const sat = satsById.get(pickedId)!;
+          hoverIdRef.current = pickedId;
+          setHovered({
+            id: sat.id,
+            name: sat.name,
+            countryCode: sat.countryCode,
+            category: sat.category,
+            regime: sat.regime,
+            constellation: sat.constellation,
+            x: movement.endPosition.x,
+            y: movement.endPosition.y,
+          });
+        } else if (hoverIdRef.current !== null) {
+          hoverIdRef.current = null;
+          setHovered(null);
+        }
+      },
+      Cesium.ScreenSpaceEventType.MOUSE_MOVE
+    );
+
     return () => {
       onTick();
+      hoverIdRef.current = null;
+      setHovered(null);
       if (worker) {
         worker.onmessage = null;
         worker.terminate();
@@ -1184,6 +1226,7 @@ export const CesiumComponent: React.FunctionComponent<{
         id="cesium-container"
         style={{ height: "calc(100vh - 56px)", width: "100vw" }}
       />
+      <SatelliteHoverCard info={hovered} />
       {webglError && (
         <div
           role="alert"
