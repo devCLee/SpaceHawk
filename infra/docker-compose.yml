@@ -50,9 +50,12 @@ services:
       ORBITAL_ENGINE_REDIS_URL: redis://redis:6379/0
       ORBITAL_ENGINE_ENVIRONMENT: development
       ORBITAL_ENGINE_LOG_JSON: "true"
-      # Dev cap on the Space-Track pull — the full on-orbit set is ~28k objects;
-      # the web only reads 200. Raise/remove for a complete enclave catalog.
-      ORBITAL_ENGINE_SPACETRACK_QUERY_LIMIT: "1000"
+      # Per-query row cap on the Space-Track GP pull. Set to 50k (> the full
+      # ~28k on-orbit set) so the hourly incremental GP ingest clears its backlog
+      # in a single request. This does NOT change query frequency (still one
+      # class/gp call per hour) — Space-Track throttles request rate, not row
+      # count, and a full on-orbit GP retrieval is a documented pattern.
+      ORBITAL_ENGINE_SPACETRACK_QUERY_LIMIT: "50000"
     ports:
       - "8000:8000"
     depends_on:
@@ -76,7 +79,7 @@ services:
       ORBITAL_ENGINE_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-spacehawk}:${POSTGRES_PASSWORD:-spacehawk}@db:5432/${POSTGRES_DB:-spacehawk}
       ORBITAL_ENGINE_REDIS_URL: redis://redis:6379/0
       ORBITAL_ENGINE_LOG_JSON: "true"
-      ORBITAL_ENGINE_SPACETRACK_QUERY_LIMIT: "1000"
+      ORBITAL_ENGINE_SPACETRACK_QUERY_LIMIT: "50000"
     depends_on:
       db:
         condition: service_healthy
