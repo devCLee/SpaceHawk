@@ -26,7 +26,10 @@ export const ControlRail: React.FunctionComponent = () => {
         left: 8,
         zIndex: 15,
         width: 300,
-        maxHeight: "calc(100vh - 136px)",
+        // Bottom reservation (120px) clears Cesium's animation widget
+        // (.cesium-viewer-animationContainer, 169x112px, bottom-left) plus an
+        // 8px gap so the rail never overlaps the shuttle-ring playback control.
+        maxHeight: "calc(100vh - 192px)",
         overflowY: "auto",
         display: "flex",
         flexDirection: "column",
