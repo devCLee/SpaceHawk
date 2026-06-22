@@ -13,7 +13,7 @@
 // overlap the satellite info panel again.
 
 import React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { useGlobeControls } from "@/app/context/GlobeControlsContext";
 import {
@@ -31,10 +31,16 @@ type Pop = "alerts" | "account" | null;
 export default function Header() {
   const { user, isAdmin, refresh } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const globe = useGlobeControls();
   const { history } = useAlerts();
 
+  // The audit segment maps to a real route, so its active state is driven by the
+  // URL — not local state — or it desyncs after navigating to /admin/audit (e.g.
+  // via the account menu). Live/sandbox are workspace toggles with no route yet.
+  const onAudit = pathname?.startsWith("/admin/audit") ?? false;
   const [mode, setActiveMode] = React.useState<ModeId>("live");
+  const activeMode: ModeId = onAudit ? "audit" : mode;
   const [pop, setPop] = React.useState<Pop>(null);
   const clusterRef = React.useRef<HTMLDivElement>(null);
   const imageryBtnRef = React.useRef<HTMLButtonElement>(null);
@@ -88,8 +94,13 @@ export default function Header() {
   }
 
   function selectMode(id: ModeId) {
+    if (id === "audit") {
+      router.push("/admin/audit");
+      return;
+    }
     setActiveMode(id);
-    if (id === "audit") router.push("/admin/audit");
+    // Leaving the audit page back to a workspace mode returns to the dashboard.
+    if (onAudit) router.push("/");
   }
 
   const online = globe.mode === "online";
@@ -110,27 +121,34 @@ export default function Header() {
             <PanelLeftIcon />
           </button>
         )}
-        <div className="wordmark">SpaceHawk</div>
+        <button
+          className="wordmark"
+          onClick={() => router.push("/")}
+          title={t("header.home")}
+          aria-label={t("header.home")}
+        >
+          SpaceHawk
+        </button>
       </div>
 
       <div className="right" ref={clusterRef}>
         {/* workspace modes */}
         <div className="seg" role="group" aria-label={t("header.modesAria")}>
           <button
-            className={mode === "live" ? "on" : ""}
+            className={activeMode === "live" ? "on" : ""}
             onClick={() => selectMode("live")}
           >
             {t("header.live")}
           </button>
           <button
-            className={mode === "sandbox" ? "on" : ""}
+            className={activeMode === "sandbox" ? "on" : ""}
             onClick={() => selectMode("sandbox")}
           >
             {t("header.sandbox")}
           </button>
           {isAdmin && (
             <button
-              className={mode === "audit" ? "on" : ""}
+              className={activeMode === "audit" ? "on" : ""}
               onClick={() => selectMode("audit")}
             >
               {t("header.audit")}
@@ -421,7 +439,9 @@ const HEADER_CSS = `
   background:rgba(0,0,0,0.78);border-bottom:1px solid rgba(255,255,255,0.08);
   color:#e6edf3;font-family:inherit;-webkit-font-smoothing:antialiased}
 .sh-hdr .left{display:flex;align-items:center;gap:10px}
-.sh-hdr .wordmark{font-size:14px;font-weight:650;letter-spacing:.02em}
+.sh-hdr .wordmark{font-size:14px;font-weight:650;letter-spacing:.02em;
+  appearance:none;border:0;background:transparent;color:inherit;cursor:pointer;
+  font-family:inherit;padding:0;line-height:1}
 .sh-hdr .right{display:flex;align-items:center;gap:12px;position:relative}
 .sh-hdr .divider{width:1px;height:22px;background:rgba(255,255,255,0.12);flex:none}
 

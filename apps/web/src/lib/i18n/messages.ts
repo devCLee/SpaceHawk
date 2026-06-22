@@ -11,6 +11,7 @@ export const messages = {
   "common.loadingAria": "로딩 중",
 
   // Header
+  "header.home": "SpaceHawk 홈으로 이동",
   "header.live": "라이브",
   "header.sandbox": "샌드박스",
   "header.audit": "감사 로그",
