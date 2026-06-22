@@ -226,6 +226,17 @@ export default function Header() {
               </button>
 
               <button
+                className={`icon-btn${globe.roiVisible ? " active" : ""}`}
+                onClick={globe.toggleRoi}
+                title={globe.roiVisible ? t("globe.roi.hide") : t("globe.roi.show")}
+                aria-label={t("globe.roi.show")}
+                aria-pressed={globe.roiVisible}
+              >
+                <RoiIcon />
+                <span className="lbl">{t("globe.roi.label")}</span>
+              </button>
+
+              <button
                 className={`online${online ? "" : " off"}`}
                 onClick={() => globe.setMode(online ? "offline" : "online")}
                 title={online ? t("globe.tooltip.online") : t("globe.tooltip.offline")}
@@ -464,6 +475,23 @@ function SceneIconColumbus() {
     <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
       <path d="M2 19h20L16.5 6.5h-9L2 19z" />
       <path d="M4.8 13.6h14.4M6.6 9.6h10.8M12 6.5v12.5" />
+    </svg>
+  );
+}
+// Region-of-interest toggle — a target frame (corner brackets + inner box).
+function RoiIcon() {
+  return (
+    <svg
+      className="icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
+      <rect x="9" y="9" width="6" height="6" rx="1" />
     </svg>
   );
 }

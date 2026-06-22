@@ -31,6 +31,9 @@ interface GlobeControlsValue {
   /** Left analyst rail (ControlRail) open/closed; Header owns the toggle. */
   railOpen: boolean;
   toggleRail: () => void;
+  /** Region-of-interest overlay box on the globe; Header owns the toggle. */
+  roiVisible: boolean;
+  toggleRoi: () => void;
   /** CesiumComponent registers its viewer on build and `null` on teardown. */
   registerViewer: (viewer: Viewer | null) => void;
 }
@@ -82,6 +85,9 @@ export function GlobeControlsProvider({
   // Rail starts open (current default layout); the Header toggle hides/shows it.
   const [railOpen, setRailOpen] = React.useState(true);
   const toggleRail = React.useCallback(() => setRailOpen((v) => !v), []);
+  // ROI box starts hidden; the Header toggle reveals the region overlay.
+  const [roiVisible, setRoiVisible] = React.useState(false);
+  const toggleRoi = React.useCallback(() => setRoiVisible((v) => !v), []);
 
   const viewerRef = React.useRef<Viewer | null>(null);
   // Mirror sceneMode in a ref so registerViewer can re-apply the latest choice
@@ -161,6 +167,8 @@ export function GlobeControlsProvider({
       active,
       railOpen,
       toggleRail,
+      roiVisible,
+      toggleRoi,
       registerViewer,
     }),
     [
@@ -173,6 +181,8 @@ export function GlobeControlsProvider({
       active,
       railOpen,
       toggleRail,
+      roiVisible,
+      toggleRoi,
       registerViewer,
     ]
   );

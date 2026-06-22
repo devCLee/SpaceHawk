@@ -188,6 +188,9 @@ export const messages = {
   "globe.scene.columbus": "콜럼버스 뷰",
   "globe.imagery.title": "지도 / 지형",
   "globe.imagery.unavailable": "지도/지형 선택은 온라인 모드에서 사용할 수 있습니다.",
+  "globe.roi.label": "관심 지역",
+  "globe.roi.show": "관심 지역 표시",
+  "globe.roi.hide": "관심 지역 숨기기",
 
   // Audit log
   "audit.title": "감사 로그",
