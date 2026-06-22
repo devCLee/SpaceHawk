@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     # authoritative); Celestrak more frequent (redundant/low-latency).
     spacetrack_ingest_interval_sec: int = 3600
     celestrak_ingest_interval_sec: int = 1800
+    # Cadence (seconds) for the in-process re-ingest loop (pipeline.run_ingest_loop)
+    # that keeps gp_history growing so maneuver detection has a multi-epoch series.
+    # 30 min catches each freshly-published TLE promptly without hammering the feeds
+    # (matches celestrak_ingest_interval_sec; safe vs the 403 double-request throttle).
+    # Note: distinct epochs arrive only as fast as the upstream feeds publish (a few
+    # per day) — gp_history is keyed by epoch, so a tighter poll re-appends nothing.
+    catalog_ingest_interval_sec: int = 1800
 
     # --- DISCOS enrichment (ESA DISCOSweb metadata; Stage 2) ---
     # DISCOS supplies physical characteristics (mass/size/shape/cross-section) but
@@ -154,6 +161,11 @@ class Settings(BaseSettings):
     # (when in-track dominates) is an orbit raise/lower vs an along-track phasing.
     maneuver_station_keeping_dv_m_s: float = 1.0
     maneuver_orbit_change_min_dsma_km: float = 2.0
+    # Dev/demo only: seed one synthetic object with a hand-built multi-epoch
+    # gp_history (a clean orbit-raise V) at boot, so the maneuver panel shows data
+    # immediately instead of waiting days for real TLE epochs to accrue. Rejected
+    # in production (assert_secure_for_environment); see seed_maneuver.py.
+    seed_demo_maneuver: bool = False
 
     # --- Co-planar RPO monitoring (Stage 6 / roadmap P2a feature #12) ---
     # A threat is co-planar/co-altitude with a protected asset (the RPO geometry)
@@ -224,6 +236,8 @@ class Settings(BaseSettings):
             problems.append("auth_jwt_secret is still the insecure dev default")
         if len(self.auth_jwt_secret.encode("utf-8")) < 32:
             problems.append("auth_jwt_secret must be at least 32 bytes for HS256")
+        if self.seed_demo_maneuver:
+            problems.append("seed_demo_maneuver must be off in production (dev/demo fixture)")
         if problems:
             raise RuntimeError("insecure production configuration: " + "; ".join(problems))
 
