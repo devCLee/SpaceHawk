@@ -75,6 +75,11 @@ const ORBIT_SAMPLES_PER_PERIOD = 256;
 /** How often (sim seconds) the full catalog's point positions are re-propagated. */
 const POSITION_UPDATE_SEC = 1;
 
+/** Region-of-interest box (Korean theatre) — mirrors the engine's ROI gate
+ *  (orbital_engine config roi_lat/lon_*): an object inside this lat/lon box trips
+ *  the region-entry alert. Drawn as an optional overlay rectangle on the globe. */
+const ROI_BOUNDS = { west: 124.0, south: 33.0, east: 132.0, north: 43.0 } as const;
+
 const POINT_SIZE = 3;
 const SELECTED_POINT_SIZE = 10;
 const WATCHED_POINT_SIZE = 6;
@@ -193,6 +198,7 @@ export const CesiumComponent: React.FunctionComponent<{
   const selectedOrbitRef = React.useRef<Entity | null>(null);
   const sensorEntityRef = React.useRef<Entity | null>(null);
   const sensorVolumeRef = React.useRef<Entity | null>(null);
+  const roiEntityRef = React.useRef<Entity | null>(null);
   const [isLoaded, setIsLoaded] = React.useState(false);
   // True when a WebGL rendering context can't be created (GPU-less / headless /
   // remote-tunneled environment): we show a graceful message instead of letting
@@ -206,7 +212,7 @@ export const CesiumComponent: React.FunctionComponent<{
   // Offline imagery is same-origin and needs no network. The online branch
   // auto-falls-back to offline if Ion is unreachable (no network / blocked /
   // bad token).
-  const { mode, setMode, registerViewer } = useGlobeControls();
+  const { mode, setMode, registerViewer, roiVisible } = useGlobeControls();
 
   // On first mount, if there is no network, tell the user why they're seeing the
   // offline globe. Fires once — manual switches afterward are intentional.
@@ -251,6 +257,7 @@ export const CesiumComponent: React.FunctionComponent<{
     selectedOrbitRef.current = null;
     sensorEntityRef.current = null;
     sensorVolumeRef.current = null;
+    roiEntityRef.current = null;
     setIsLoaded(false);
 
     let cancelled = false;
@@ -1176,6 +1183,46 @@ export const CesiumComponent: React.FunctionComponent<{
       }
     };
   }, [activeSensor, isLoaded, CesiumJs, mode]);
+
+  // Optional region-of-interest overlay: the Korean-theatre lat/lon box the engine
+  // screens for region entry (ROI_BOUNDS mirrors the engine's roi_* gate). Toggled
+  // from the Header globe-view group via GlobeControls; drawn as a single
+  // translucent rectangle. Keyed on `mode` so it re-draws after a viewer rebuild.
+  React.useEffect(() => {
+    if (!isLoaded || !cesiumViewer.current) return;
+    const viewer = cesiumViewer.current;
+    const Cesium = CesiumJs;
+
+    if (roiEntityRef.current && !viewer.isDestroyed()) {
+      viewer.entities.remove(roiEntityRef.current);
+      roiEntityRef.current = null;
+    }
+    if (!roiVisible) return;
+
+    const roiColor = Cesium.Color.fromCssColorString("#f43f5e");
+    roiEntityRef.current = viewer.entities.add({
+      name: t("globe.roi.show"),
+      rectangle: {
+        coordinates: Cesium.Rectangle.fromDegrees(
+          ROI_BOUNDS.west,
+          ROI_BOUNDS.south,
+          ROI_BOUNDS.east,
+          ROI_BOUNDS.north
+        ),
+        height: 0,
+        material: roiColor.withAlpha(0.08),
+        outline: true,
+        outlineColor: roiColor.withAlpha(0.8),
+      },
+    });
+
+    return () => {
+      if (roiEntityRef.current && !viewer.isDestroyed()) {
+        viewer.entities.remove(roiEntityRef.current);
+        roiEntityRef.current = null;
+      }
+    };
+  }, [roiVisible, isLoaded, CesiumJs, mode]);
 
   // Subscribe to the engine's authoritative latest-state stream (SSE via the
   // BFF). Each server snapshot snaps the matching points to the engine's

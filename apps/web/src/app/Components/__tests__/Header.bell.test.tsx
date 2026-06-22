@@ -31,6 +31,8 @@ vi.mock("../../context/GlobeControlsContext", () => ({
     active: true,
     railOpen: true,
     toggleRail: vi.fn(),
+    roiVisible: false,
+    toggleRoi: vi.fn(),
     mode: "online",
     setMode: vi.fn(),
     sceneMode: "3D",
