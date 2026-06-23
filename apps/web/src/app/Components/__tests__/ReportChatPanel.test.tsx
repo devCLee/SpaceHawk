@@ -124,15 +124,16 @@ describe("ReportChatPanel", () => {
     });
   });
 
-  it("includes captured images in the POST body when a globe snapshot exists", async () => {
-    // Stub useGlobeControls.captureGlobe so the panel has a capturable image,
-    // exercising the images-included branch without a live Cesium viewer.
-    const globeB64 = "Zm9vYmFy"; // base64("foobar")
+  it("includes the four per-country globes in the POST body when capture yields them", async () => {
+    // Stub useGlobeControls.captureAllCountryGlobes so the panel has the four
+    // per-country snapshots, exercising the images-included branch without a live
+    // Cesium viewer.
+    const globes = { NK: "bms=", CN: "Y24=", RU: "cnU=", JP: "anA=" };
     const ctx = await import("../../context/GlobeControlsContext");
     const spy = vi
       .spyOn(ctx, "useGlobeControls")
       .mockReturnValue({
-        captureGlobe: () => globeB64,
+        captureAllCountryGlobes: async () => globes,
       } as unknown as ReturnType<typeof ctx.useGlobeControls>);
 
     statusResponses = [{ job_id: "job-1", status: "DONE", download_url: "/x" }];
@@ -144,8 +145,32 @@ describe("ReportChatPanel", () => {
     await screen.findByText(t("report.download"));
     expect(postBodies).toHaveLength(1);
     expect(postBodies[0]).toMatchObject({
-      images: { country_globes: { NK: globeB64 } },
+      images: { country_globes: globes },
     });
+    spy.mockRestore();
+  });
+
+  it("still POSTs (no images) when per-country capture fails", async () => {
+    // captureAllCountryGlobes rejects -> the panel swallows it and submits an
+    // image-less report (best-effort capture must never block the request).
+    const ctx = await import("../../context/GlobeControlsContext");
+    const spy = vi
+      .spyOn(ctx, "useGlobeControls")
+      .mockReturnValue({
+        captureAllCountryGlobes: async () => {
+          throw new Error("viewer not ready");
+        },
+      } as unknown as ReturnType<typeof ctx.useGlobeControls>);
+
+    statusResponses = [{ job_id: "job-1", status: "DONE", download_url: "/x" }];
+    renderPanel();
+    openPanel();
+
+    typeAndSend("generate daily report for 2026-01-07");
+
+    await screen.findByText(t("report.download"));
+    expect(postBodies).toHaveLength(1);
+    expect(postBodies[0]).not.toHaveProperty("images");
     spy.mockRestore();
   });
 

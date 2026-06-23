@@ -10,8 +10,15 @@
 // and the Header simply omits the globe-view group.
 
 import React from "react";
-import type { Viewer } from "cesium";
-import { captureScene } from "@/lib/reportCapture";
+import { Cartesian3, type Viewer } from "cesium";
+import {
+  captureScene,
+  captureCountryScene,
+  REPORT_COUNTRY_CODES,
+  type CameraTarget,
+  type CountryCaptureScene,
+  type ReportCountryCode,
+} from "@/lib/reportCapture";
 
 /** Online = Cesium Ion imagery/terrain; offline = bundled Natural Earth II. */
 export type GlobeMode = "offline" | "online";
@@ -41,6 +48,17 @@ interface GlobeControlsValue {
    *  null when no viewer is mounted / the canvas can't be encoded. Used by the
    *  report capture (R8). Renders one frame first (Cesium clears its buffer). */
   captureGlobe: () => string | null;
+  /** Position the camera over a report country (NK/CN/RU/JP), wait for its tiles
+   *  to settle, snapshot the framed view to a base64 PNG, then RESTORE the user's
+   *  prior camera. Returns null when no viewer is mounted or capture fails
+   *  (best-effort). Async because Cesium streams tiles. */
+  captureCountryGlobe: (country: ReportCountryCode) => Promise<string | null>;
+  /** Capture all four report countries in order, restoring the camera once at the
+   *  end. Returns a map of the countries that captured successfully (failures /
+   *  nulls are skipped); empty when no viewer is mounted. */
+  captureAllCountryGlobes: () => Promise<
+    Partial<Record<ReportCountryCode, string>>
+  >;
 }
 
 const GlobeControlsContext = React.createContext<GlobeControlsValue | null>(
@@ -166,6 +184,78 @@ export function GlobeControlsProvider({
     return captureScene(viewer.scene);
   }, []);
 
+  // Build the narrow capture surface (positionCamera/render/tilesLoaded/canvas)
+  // over the live viewer. setView is instant (no animation) so the rendered
+  // frame is deterministic; the destination is the country's centroid at the
+  // tuned height, looking straight down.
+  const countryCaptureScene = React.useCallback(
+    (viewer: Viewer): CountryCaptureScene => ({
+      positionCamera: (target: CameraTarget) => {
+        viewer.scene.camera.setView({
+          destination: Cartesian3.fromDegrees(
+            target.lon,
+            target.lat,
+            target.heightMeters
+          ),
+        });
+      },
+      render: () => viewer.scene.render(),
+      tilesLoaded: () => viewer.scene.globe.tilesLoaded,
+      canvas: viewer.scene.canvas,
+    }),
+    []
+  );
+
+  // Snapshot the camera so we can put the user's view back after capturing. We
+  // clone position/direction/up (Cesium reuses these Cartesian3 instances per
+  // frame, so we must copy, not alias) and restore via a single instant setView.
+  const saveCamera = React.useCallback((viewer: Viewer) => {
+    const cam = viewer.scene.camera;
+    return {
+      destination: cam.position.clone(),
+      orientation: {
+        direction: cam.direction.clone(),
+        up: cam.up.clone(),
+      },
+    };
+  }, []);
+
+  const captureCountryGlobe = React.useCallback(
+    async (country: ReportCountryCode): Promise<string | null> => {
+      const viewer = viewerRef.current;
+      if (!viewer || viewer.isDestroyed()) return null;
+      const saved = saveCamera(viewer);
+      try {
+        return await captureCountryScene(countryCaptureScene(viewer), country);
+      } finally {
+        if (!viewer.isDestroyed()) viewer.scene.camera.setView(saved);
+      }
+    },
+    [countryCaptureScene, saveCamera]
+  );
+
+  const captureAllCountryGlobes = React.useCallback(async (): Promise<
+    Partial<Record<ReportCountryCode, string>>
+  > => {
+    const viewer = viewerRef.current;
+    if (!viewer || viewer.isDestroyed()) return {};
+    const saved = saveCamera(viewer);
+    const result: Partial<Record<ReportCountryCode, string>> = {};
+    try {
+      // Sequential: one shared canvas, so captures must not overlap.
+      for (const country of REPORT_COUNTRY_CODES) {
+        const img = await captureCountryScene(
+          countryCaptureScene(viewer),
+          country
+        );
+        if (img) result[country] = img;
+      }
+    } finally {
+      if (!viewer.isDestroyed()) viewer.scene.camera.setView(saved);
+    }
+    return result;
+  }, [countryCaptureScene, saveCamera]);
+
   const value = React.useMemo<GlobeControlsValue>(
     () => ({
       mode,
@@ -182,6 +272,8 @@ export function GlobeControlsProvider({
       toggleRoi,
       registerViewer,
       captureGlobe,
+      captureCountryGlobe,
+      captureAllCountryGlobes,
     }),
     [
       mode,
@@ -197,6 +289,8 @@ export function GlobeControlsProvider({
       toggleRoi,
       registerViewer,
       captureGlobe,
+      captureCountryGlobe,
+      captureAllCountryGlobes,
     ]
   );
 

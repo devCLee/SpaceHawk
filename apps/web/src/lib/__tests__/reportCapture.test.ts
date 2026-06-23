@@ -3,6 +3,12 @@ import {
   canvasToBase64Png,
   captureScene,
   captureReportImages,
+  cameraTargetForCountry,
+  captureCountryScene,
+  waitForTilesLoaded,
+  REPORT_COUNTRY_CODES,
+  type CountryCaptureScene,
+  type ReportCountryCode,
 } from "@/lib/reportCapture";
 
 // A minimal canvas stub: only width/height + toDataURL are read by the util.
@@ -101,5 +107,150 @@ describe("captureReportImages", () => {
     expect(captureReportImages({ scene, heatmapCanvas })).toEqual({
       country_globes: { NK: "R0xPQkU" },
     });
+  });
+});
+
+describe("cameraTargetForCountry", () => {
+  it("resolves a distinct centroid + height for each report country", () => {
+    const targets = REPORT_COUNTRY_CODES.map((c) => cameraTargetForCountry(c));
+    // Every country has a finite lon/lat and a positive camera height.
+    for (const target of targets) {
+      expect(Number.isFinite(target.lon)).toBe(true);
+      expect(Number.isFinite(target.lat)).toBe(true);
+      expect(target.heightMeters).toBeGreaterThan(0);
+      expect(target.lon).toBeGreaterThanOrEqual(-180);
+      expect(target.lon).toBeLessThanOrEqual(180);
+      expect(target.lat).toBeGreaterThanOrEqual(-90);
+      expect(target.lat).toBeLessThanOrEqual(90);
+    }
+    // The four centroids are distinct (no two countries share a target lon/lat).
+    const keys = new Set(targets.map((t) => `${t.lon},${t.lat}`));
+    expect(keys.size).toBe(REPORT_COUNTRY_CODES.length);
+  });
+
+  it("places North Korea's centroid in the Korean peninsula box", () => {
+    const nk = cameraTargetForCountry("NK");
+    expect(nk.lon).toBeGreaterThan(124);
+    expect(nk.lon).toBeLessThan(131);
+    expect(nk.lat).toBeGreaterThan(37);
+    expect(nk.lat).toBeLessThan(43);
+  });
+});
+
+// A capture-scene stub: records positionCamera/render calls, reports tilesLoaded
+// from a script (one boolean per poll), and encodes a fixed canvas data URL.
+function fakeCaptureScene(opts: {
+  dataUrl?: string;
+  tilesLoadedScript?: boolean[];
+  onPosition?: () => void;
+}): {
+  scene: CountryCaptureScene;
+  renderCount: () => number;
+  positions: () => number;
+} {
+  const { dataUrl = "data:image/png;base64,Q05U", tilesLoadedScript } = opts;
+  let renders = 0;
+  let positions = 0;
+  let pollIndex = 0;
+  const scene: CountryCaptureScene = {
+    positionCamera: () => {
+      positions += 1;
+      opts.onPosition?.();
+    },
+    render: () => {
+      renders += 1;
+    },
+    tilesLoaded: () => {
+      if (!tilesLoadedScript) return true;
+      const v = tilesLoadedScript[Math.min(pollIndex, tilesLoadedScript.length - 1)];
+      pollIndex += 1;
+      return v;
+    },
+    canvas: fakeCanvas({ dataUrl }),
+  };
+  return { scene, renderCount: () => renders, positions: () => positions };
+}
+
+describe("waitForTilesLoaded", () => {
+  it("returns as soon as tiles are loaded (renders the initial frame)", async () => {
+    const { scene, renderCount } = fakeCaptureScene({
+      tilesLoadedScript: [true],
+    });
+    const sleep = vi.fn(async () => {});
+    await waitForTilesLoaded(scene, { sleep });
+    // One up-front render; no polling sleep needed since tiles were ready.
+    expect(renderCount()).toBe(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("polls (rendering each cycle) until tiles load", async () => {
+    const { scene, renderCount } = fakeCaptureScene({
+      tilesLoadedScript: [false, false, true],
+    });
+    const sleep = vi.fn(async () => {});
+    await waitForTilesLoaded(scene, { sleep, pollMs: 10 });
+    // up-front render + a render after each of the two false polls.
+    expect(renderCount()).toBe(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after the timeout instead of hanging", async () => {
+    // Tiles never load; a real (timer) sleep advances Date.now past the deadline.
+    const { scene } = fakeCaptureScene({ tilesLoadedScript: [false] });
+    const start = Date.now();
+    await waitForTilesLoaded(scene, { timeoutMs: 30, pollMs: 5 });
+    expect(Date.now() - start).toBeGreaterThanOrEqual(25);
+  });
+});
+
+describe("captureCountryScene", () => {
+  it("positions the camera, waits, then snapshots to base64", async () => {
+    const { scene, positions } = fakeCaptureScene({
+      dataUrl: "data:image/png;base64,Q05U", // base64("CNT")
+      tilesLoadedScript: [true],
+    });
+    const out = await captureCountryScene(scene, "CN", { sleep: async () => {} });
+    expect(out).toBe("Q05U");
+    expect(positions()).toBe(1);
+  });
+
+  it("returns null when positioning the camera throws", async () => {
+    const { scene } = fakeCaptureScene({
+      onPosition: () => {
+        throw new Error("camera unavailable");
+      },
+    });
+    expect(
+      await captureCountryScene(scene, "NK", { sleep: async () => {} })
+    ).toBeNull();
+  });
+
+  it("returns null when the canvas cannot be encoded", async () => {
+    const { scene } = fakeCaptureScene({
+      dataUrl: "data:image/png;base64,", // blank -> encode fails
+      tilesLoadedScript: [true],
+    });
+    expect(
+      await captureCountryScene(scene, "JP", { sleep: async () => {} })
+    ).toBeNull();
+  });
+
+  it("captures all four countries with distinct positioning calls", async () => {
+    const results: Partial<Record<ReportCountryCode, string>> = {};
+    for (const country of REPORT_COUNTRY_CODES) {
+      const { scene } = fakeCaptureScene({
+        dataUrl: `data:image/png;base64,${btoa(country)}`,
+        tilesLoadedScript: [true],
+      });
+      const img = await captureCountryScene(scene, country, {
+        sleep: async () => {},
+      });
+      if (img) results[country] = img;
+    }
+    expect(Object.keys(results).sort()).toEqual(
+      [...REPORT_COUNTRY_CODES].sort()
+    );
+    expect(results.NK).toBe(btoa("NK"));
+    expect(results.JP).toBe(btoa("JP"));
   });
 });

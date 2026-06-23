@@ -41,48 +41,62 @@ export const ReportChatPanel: React.FunctionComponent = () => {
   // The last intent we tried, kept so "retry" can re-fire it without retyping.
   const [lastRequest, setLastRequest] = React.useState<ReportRequest | null>(null);
 
+  // True while the per-country globe snapshots are being captured (before the
+  // POST fires). Folded into `inFlight` so the submit control is disabled across
+  // the whole capture -> post -> poll cycle (no double-submit).
+  const [isCapturing, setIsCapturing] = React.useState(false);
+
   const createReport = useCreateReport();
   const { data: job } = useReportJob(activeJob?.id ?? null);
-  const { captureGlobe } = useGlobeControls();
+  const { captureAllCountryGlobes } = useGlobeControls();
   const { captureHeatmap } = useDebrisLayer();
 
-  // Best-effort report images (R8): snapshot whatever is on screen at submit time
-  // (the current globe view; the 2D heatmap if its overlay is open) into the
-  // engine's optional `images` shape. Returns undefined when nothing is
-  // capturable, so the POST simply omits images and still yields a valid report.
-  //
-  // Per-country globe snapshots (NK/CN/RU/JP) are NOT produced: the globe exposes
-  // no imperative camera-position-then-capture API, only the current viewer. We
-  // file the single current view under "NK" (the report's lead country) and leave
-  // true per-country capture as a follow-up needing that globe API — we do not
-  // fabricate four distinct snapshots from one view.
-  const captureImages = React.useCallback(():
-    | ReportImagesRequest
-    | undefined => {
+  // Best-effort report images (R8): snapshot the four per-country globe views
+  // (NK/CN/RU/JP) by driving the camera over each country in turn, plus the 2D
+  // heatmap if its overlay is open. Async because the globe streams tiles between
+  // camera moves. Returns undefined when nothing is capturable, so the POST omits
+  // images and still yields a valid report. Never throws — capture failures yield
+  // a partial/empty result.
+  const captureImages = React.useCallback(async (): Promise<
+    ReportImagesRequest | undefined
+  > => {
     const images: ReportImagesRequest = {};
-    const globe = captureGlobe();
-    if (globe) images.country_globes = { NK: globe };
+    try {
+      const globes = await captureAllCountryGlobes();
+      if (Object.keys(globes).length > 0) images.country_globes = globes;
+    } catch {
+      /* capture is best-effort — submit proceeds without the globes */
+    }
     const heatmap = captureHeatmap();
     if (heatmap) images.debris_heatmap = heatmap;
     return Object.keys(images).length > 0 ? images : undefined;
-  }, [captureGlobe, captureHeatmap]);
+  }, [captureAllCountryGlobes, captureHeatmap]);
 
   const pushBot = React.useCallback((text: string) => {
     setMessages((prev) => [...prev, { id: nextMsgId++, role: "bot", text }]);
   }, []);
 
-  // In-flight = a queued job not yet terminal, or the POST mutation pending.
+  // In-flight = capturing snapshots, a queued job not yet terminal, or the POST
+  // mutation pending. Capturing is part of the cycle so the control stays disabled
+  // from the first click through the whole capture -> post -> poll flow.
   const status = job?.status;
   const polling =
     activeJob !== null && status !== "DONE" && status !== "FAILED";
-  const inFlight = createReport.isPending || polling;
+  const inFlight = isCapturing || createReport.isPending || polling;
 
   const submit = React.useCallback(
-    (request: ReportRequest) => {
+    async (request: ReportRequest) => {
       setLastRequest(request);
       pushBot(t("report.queued", { date: request.report_date }));
-      // Capture fresh at submit time so the snapshot reflects the live view.
-      const withImages: ReportRequest = { ...request, images: captureImages() };
+      // Capture fresh at submit time so the snapshots reflect the live view.
+      setIsCapturing(true);
+      let images: ReportImagesRequest | undefined;
+      try {
+        images = await captureImages();
+      } finally {
+        setIsCapturing(false);
+      }
+      const withImages: ReportRequest = { ...request, images };
       createReport.mutate(withImages, {
         onSuccess: (created) => {
           setActiveJob({ id: created.job_id, date: request.report_date });
@@ -108,13 +122,16 @@ export const ReportChatPanel: React.FunctionComponent = () => {
       pushBot(t("report.unrecognized"));
       return;
     }
-    submit({ report_type: intent.reportType, report_date: intent.reportDate });
+    void submit({
+      report_type: intent.reportType,
+      report_date: intent.reportDate,
+    });
   }, [input, inFlight, pushBot, submit]);
 
   const handleRetry = React.useCallback(() => {
     if (lastRequest === null) return;
     setActiveJob(null);
-    submit(lastRequest);
+    void submit(lastRequest);
   }, [lastRequest, submit]);
 
   return (
