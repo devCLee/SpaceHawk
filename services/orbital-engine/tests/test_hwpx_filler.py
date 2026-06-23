@@ -250,11 +250,33 @@ def test_country_pass_rows_cloned(payload, prose, images) -> None:
     nk = _collect_document_tables(doc)[nk_index].table
     # title(0) + image(1) + col-headers(2) + 2 pass rows = 5
     assert nk.row_count == 5
+    # 위성명 is the new FIRST column (G4): header present, data filled.
+    assert nk.column_count == 5
+    assert nk.cell(hwpx_filler._COUNTRY_DATA_ROW - 1, 0).text == "위성명"
     text = doc.export_text()
-    assert "KMS-4" not in text  # satellite_name is not a column; sanity that we use pass_time
     assert "2026-06-22 03:14Z" in text
     assert "412.50 km" in text
     assert "첫 통과" in text
+
+
+def test_country_pass_satellite_name_in_col0(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+
+    nk_index = hwpx_filler._COUNTRY_TABLES[hwpx_filler.ReportCountry.NORTH_KOREA]
+    nk = _collect_document_tables(doc)[nk_index].table
+    data0 = hwpx_filler._COUNTRY_DATA_ROW
+    # Two NK passes -> two data rows, each with its satellite_name in column 0
+    # and pass_time shifted to column 1.
+    assert nk.cell(data0, 0).text == "KMS-4"
+    assert nk.cell(data0, 1).text == "2026-06-22 03:14Z"
+    assert nk.cell(data0 + 1, 0).text == "KMS-3"
+    assert nk.cell(data0 + 1, 1).text == "2026-06-22 14:02Z"
+
+    # Single-pass country: China's one pass -> one data row.
+    cn_index = hwpx_filler._COUNTRY_TABLES[hwpx_filler.ReportCountry.CHINA]
+    cn = _collect_document_tables(doc)[cn_index].table
+    assert cn.cell(data0, 0).text == "YAOGAN-30"
 
 
 def test_conjunction_rows_filled(payload, prose, images) -> None:

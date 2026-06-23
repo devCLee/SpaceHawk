@@ -91,10 +91,11 @@ _TEMPLATE_RESOURCE = "daily_report.hwpx"
 #
 #   [0] 1x1  cover (title + date)            -> not filled here (static cover)
 #   [1] 2x6  §1 관심목록 등록 위성 현황         국가|LEO|MEO|GEO|HEO|합계   (hdr row 0)
-#   [2] 4x4  §2 북한 위성 활동                  pass tbl; globe img r1; data r3
-#   [3] 4x4  §3 중국 위성 활동                  (same shape)
-#   [4] 4x4  §3 러시아 위성 활동                (same shape)
-#   [5] 4x4  §3 일본 위성 활동                  (same shape)
+#   [2] 4x5  §2 북한 위성 활동                  pass tbl; globe img r1; data r3
+#                                            위성명|통과시점|최근접|방위고도|비고
+#   [3] 4x5  §3 중국 위성 활동                  (same shape)
+#   [4] 4x5  §3 러시아 위성 활동                (same shape)
+#   [5] 4x5  §3 일본 위성 활동                  (same shape)
 #   [6] 2x6  §4 근접 및 충돌 현황              위성명|객체명|시각|거리|확률|구분 (hdr row 0)
 #   [7] 2x4  §5a 충돌 위험도                   심각|높음|보통|낮음           (hdr row 0)
 #   [8] 2x2  §5b 잔해 밀도 + 히트맵           density img r1c0 / heatmap r1c1
@@ -347,7 +348,7 @@ def _watchlist_rows(payload: DailyReportPayload) -> list[list[str]]:
 
 
 def _pass_rows(activity_passes: Sequence) -> list[list[str]]:
-    """§2/§3 rows for one country: 통과 시점 | 최근접 시각/거리 | 방위/고도 | 비고."""
+    """§2/§3 rows for one country: 위성명 | 통과 시점 | 최근접 시각/거리 | 방위/고도 | 비고."""
     rows: list[list[str]] = []
     for p in activity_passes:
         closest = _fmt_dt(p.closest_time)
@@ -356,7 +357,7 @@ def _pass_rows(activity_passes: Sequence) -> list[list[str]]:
         az = _fmt_num(p.azimuth_deg, 1)
         el = _fmt_num(p.elevation_deg, 1)
         az_el = f"{az} / {el}" if (az or el) else ""
-        rows.append([_fmt_dt(p.pass_time), closest_cell, az_el, p.remarks or ""])
+        rows.append([p.satellite_name, _fmt_dt(p.pass_time), closest_cell, az_el, p.remarks or ""])
     return rows
 
 
