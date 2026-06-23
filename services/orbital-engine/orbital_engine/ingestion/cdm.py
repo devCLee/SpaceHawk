@@ -12,7 +12,7 @@ cross-domain mirror (air-gap §4.6).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from orbital_engine.config import Settings, get_settings
@@ -124,7 +124,15 @@ async def fetch_cdms(settings: Settings | None = None) -> list[Conjunction]:
         return []
 
     since_iso = await read_sync_marker(CDM_MARKER_SCOPE)
-    since = datetime.fromisoformat(since_iso) if since_iso else None
+    watermark = datetime.fromisoformat(since_iso) if since_iso else None
+    # Clamp the lower bound up to a recent horizon so a stale/ancient watermark
+    # cannot trap ingestion in weeks-old CDMs (Space-Track's "/CREATED/>now-1/"
+    # recent-window pattern). Naive UTC to match the watermark's stored format
+    # (_fmt writes naive UTC strings). When the watermark is fresh it wins, so a
+    # healthy feed stays incremental; when it is stale the horizon wins and the
+    # next fetch self-heals to the present.
+    horizon = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=settings.cdm_lookback_days)
+    since = max(watermark, horizon) if watermark is not None else horizon
     client = SpaceTrackClient(settings)
     try:
         records = await client.query_cdm(since, limit=settings.cdm_query_limit)
@@ -135,7 +143,7 @@ async def fetch_cdms(settings: Settings | None = None) -> list[Conjunction]:
     newest = _newest_creation_date(records)
     if newest:
         await write_sync_marker(CDM_MARKER_SCOPE, newest)
-    log.info("ingest.cdm", since=since_iso, fetched=len(records), kept=len(conjunctions))
+    log.info("ingest.cdm", since=since.isoformat(), fetched=len(records), kept=len(conjunctions))
     return conjunctions
 
 

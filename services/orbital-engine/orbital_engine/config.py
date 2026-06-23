@@ -114,6 +114,17 @@ class Settings(BaseSettings):
     # last one. Cap per-query rows in dev; None (no limit) for the full enclave feed.
     cdm_ingest_interval_sec: int = 86400
     cdm_query_limit: int | None = 500
+    # Lower bound (days before now) clamped onto the CDM CREATED watermark each
+    # fetch. Space-Track's recommended daily CDM pattern is "/CREATED/>now-1/":
+    # pull only RECENT messages. Without this clamp, a stale/ancient watermark plus
+    # a bounded per-fetch limit crawls forward only `cdm_query_limit` rows per run
+    # and falls ever further behind the high-volume feed (18 SDS publishes
+    # thousands of CDMs/day), so every batch is weeks old (past TCA) and the panel
+    # shows nothing current. Clamping `since` up to now-this keeps ingestion inside
+    # a recent window — it self-heals a stuck watermark in a single fetch — while
+    # staying at one request per cdm_ingest_interval (well under the 3/day CDM cap).
+    # >= the ingest interval so a single missed daily run cannot open a gap.
+    cdm_lookback_days: float = 2.0
 
     # --- Trust-calibrated severity tiers (Stage 4 / roadmap O4) ---
     # Analyst-tunable cut points: a conjunction is HIGH/MOD if it breaches the

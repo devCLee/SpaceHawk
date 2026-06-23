@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from orbital_engine.config import Settings
@@ -13,6 +15,11 @@ from orbital_engine.domain.conjunction import (
 )
 from orbital_engine.ingestion import cdm as cdm_mod
 from orbital_engine.ingestion.cdm import fetch_cdms, normalize_cdm
+
+
+def _naive_utc_now() -> datetime:
+    """Naive UTC now, matching the watermark format fetch_cdms compares against."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 # A recorded cdm_public record: ISS vs a catalogued debris piece, close & risky.
 CDM_HIGH = {
@@ -130,9 +137,76 @@ async def test_fetch_cdms_normalizes_and_advances_watermark(
 
     monkeypatch.setattr(spacetrack, "SpaceTrackClient", lambda settings: fake)
 
-    conjunctions = await fetch_cdms(Settings(spacetrack_identity="u", spacetrack_password="p"))
+    conjunctions = await fetch_cdms(
+        Settings(spacetrack_identity="u", spacetrack_password="p", cdm_lookback_days=2.0)
+    )
 
     assert {c.id for c in conjunctions} == {"CDM:123456", "CDM:123458"}
     assert fake.closed is True
-    assert fake.queried_since is None  # first run: no watermark
+    # First run has no watermark, so `since` is clamped to the recent horizon
+    # (now - cdm_lookback_days) rather than None — we never fetch the whole feed.
+    horizon = _naive_utc_now() - timedelta(days=2.0)
+    assert fake.queried_since is not None
+    assert abs((fake.queried_since - horizon).total_seconds()) < 60
     assert marker[cdm_mod.CDM_MARKER_SCOPE] == "2026-06-04 06:00:00"
+
+
+async def test_fetch_cdms_clamps_stale_watermark_to_recent_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ancient watermark must not trap ingestion in weeks-old CDMs.
+
+    Regression for "근접 분석 shows May only": the watermark was stuck weeks back,
+    so each fetch re-pulled stale (past-TCA) messages. fetch_cdms now clamps the
+    lower bound up to ~now - cdm_lookback_days, self-healing in a single fetch.
+    """
+    marker = {cdm_mod.CDM_MARKER_SCOPE: "2026-01-01 00:00:00"}  # ancient watermark
+
+    async def fake_read(scope: str):
+        return marker.get(scope)
+
+    async def fake_write(scope: str, ts: str):
+        marker[scope] = ts
+
+    monkeypatch.setattr(cdm_mod, "read_sync_marker", fake_read)
+    monkeypatch.setattr(cdm_mod, "write_sync_marker", fake_write)
+
+    fake = _FakeClient([CDM_HIGH])
+    from orbital_engine.ingestion import spacetrack
+
+    monkeypatch.setattr(spacetrack, "SpaceTrackClient", lambda settings: fake)
+
+    await fetch_cdms(
+        Settings(spacetrack_identity="u", spacetrack_password="p", cdm_lookback_days=2.0)
+    )
+
+    horizon = _naive_utc_now() - timedelta(days=2.0)
+    assert fake.queried_since is not None
+    assert abs((fake.queried_since - horizon).total_seconds()) < 60  # not 2026-01-01
+
+
+async def test_fetch_cdms_keeps_fresh_watermark(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A recent watermark wins over the horizon, so a healthy feed stays incremental."""
+    recent = _naive_utc_now() - timedelta(hours=1)
+    marker = {cdm_mod.CDM_MARKER_SCOPE: recent.strftime("%Y-%m-%d %H:%M:%S")}
+
+    async def fake_read(scope: str):
+        return marker.get(scope)
+
+    async def fake_write(scope: str, ts: str):
+        marker[scope] = ts
+
+    monkeypatch.setattr(cdm_mod, "read_sync_marker", fake_read)
+    monkeypatch.setattr(cdm_mod, "write_sync_marker", fake_write)
+
+    fake = _FakeClient([CDM_HIGH])
+    from orbital_engine.ingestion import spacetrack
+
+    monkeypatch.setattr(spacetrack, "SpaceTrackClient", lambda settings: fake)
+
+    await fetch_cdms(
+        Settings(spacetrack_identity="u", spacetrack_password="p", cdm_lookback_days=2.0)
+    )
+
+    assert fake.queried_since is not None
+    assert abs((fake.queried_since - recent).total_seconds()) < 2  # watermark, not horizon

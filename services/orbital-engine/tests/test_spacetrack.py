@@ -79,7 +79,10 @@ def test_build_cdm_query_incremental_uses_created_watermark() -> None:
     # Space-Track API usage policy and got the account suspended.
     q = build_cdm_query(datetime(2024, 3, 10, 18, 0, 0))
     assert "CREATED/>2024-03-10 18:00:00" in q
-    assert "orderby/CREATED asc" in q
+    # Newest-first: a bounded fetch must return the most recent CDMs, not the
+    # oldest. Ascending + a row cap crawls forward and falls behind the high-
+    # volume feed, leaving the panel weeks stale (see build_cdm_query docstring).
+    assert "orderby/CREATED desc" in q
 
 
 def test_normalize_gp_maps_records_to_canonical() -> None:
