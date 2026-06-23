@@ -1,82 +1,137 @@
-"""Fill the daily-report HWPX template with payload data and chart images (T5).
+"""Fill the daily-report HWPX template with payload data, prose, and web images (R6).
 
-The LLM never touches XML. This module is the *only* place that knows how the
-:class:`~orbital_engine.reports.schemas.DailyReportPayload` (plus LLM prose and
-rendered chart PNGs) maps onto the OWPML template's table cells. Everything is
-driven by a declarative :data:`SLOTMAP`, so callers hand us typed data and get
-HWPX bytes back.
+The LLM and the web never touch XML. This module is the *only* place that knows
+how the :class:`~orbital_engine.reports.schemas.DailyReportPayload` (plus
+:class:`ReportProse` and :class:`ReportImages`) maps onto the real OWPML template
+``assets/daily_report.hwpx``. Callers hand us typed data and get HWPX bytes back.
 
-How the template is addressed
-=============================
-``python-hwpx`` exposes two label-based navigation primitives (verified against
-2.11.1):
+How the template is addressed (verified against python-hwpx 2.11.1)
+==================================================================
+The shipped template's tables use *repeated* column headers (``국가`` / ``통과 시점`` /
+``심각`` …), so label-addressing (``fill_by_path`` / ``find_cell_by_label``) is
+ambiguous and unusable here. Instead we address tables by **document-order index**
+— the order :func:`hwpx.tools.table_navigation._collect_document_tables` yields —
+and cells by ``(row, col)`` via ``HwpxOxmlTable.set_cell_text(r, c, text,
+logical=True)``.
 
-* ``fill_by_path({"<label> > <dir> > ...": value})`` — finds the *single* cell
-  whose text equals ``<label>`` (across all tables, whitespace-collapsed,
-  case-folded), walks the given directions (``up``/``down``/``left``/``right``),
-  and sets the destination cell's text. It returns
-  ``{"applied": [...], "failed": [...], "applied_count": int, "failed_count": int}``.
-  A label that matches zero or *more than one* cell is reported in ``failed``
-  with reason ``"label not found"`` / ``"ambiguous label"`` — it never guesses.
-
-* ``find_cell_by_label(label, direction)`` — returns
-  ``{"matches": [{"table_index", "label_cell", "target_cell"}, ...], "count": int}``
-  so we can locate the target cell for a chart image.
-
-Because both primitives key off *globally unique* label text, the template must
-carry a distinct anchor label next to (above/left of) every fill target. The
-shipped ``daily_report.hwpx`` does **not** yet (its tables use repeated column
-headers like ``국가`` / ``통과 시점`` and blank data cells); the slotmap below names
-the exact labels the user must add. See the T5 report / ``tests`` for the
-synthetic template that exercises this logic end-to-end.
+The real template (10 tables) maps to report sections as :data:`_TABLES` records.
+Every multi-row table ships with a header block + a *single* blank data row; the
+library exposes no row-append API, so :func:`_ensure_rows` clones that blank
+``<hp:tr>`` (rewriting each cell's ``rowAddr`` and clearing its text) and bumps the
+table element's ``rowCnt`` — that is the supported way to grow a table here. There
+is therefore **no fixed capacity cap**: N data items render N rows.
 
 Images
 ======
-A chart PNG is embedded in two steps (the paragraph-level ``add_picture`` takes a
-binary-item id, not raw bytes): ``doc.add_image(png, "png") -> "BIN0001"`` then
-``cell.paragraphs[0].add_picture(item_id, width=hwpunit, height=hwpunit)``. Sizes
-are HWPUNIT (1/7200 inch); :data:`_HWPUNIT_PER_MM` converts from millimetres.
+Globe snapshots (one per country activity section) and the two debris charts are
+supplied by the web as PNG bytes. Each is embedded in two steps: ``doc.add_image(
+png, "png") -> item_id`` then ``cell.paragraphs[0].add_picture(item_id,
+width=hwpunit, height=hwpunit)`` (HWPUNIT = 1/7200 inch). Images are *optional*:
+a missing globe / density / heatmap leaves its anchor blank and is logged, never
+fatal.
+
+Prose
+=====
+§6 일일 분석 내용 and §7 대응 작전 추진 내용 are not tables — they are top-level
+section paragraphs. We append fresh paragraphs after each heading via
+``doc.add_paragraph`` so the narrative renders inline under the right heading.
 
 Failure policy (CRITICAL)
 =========================
-A half-filled report is worse than no report. Every targeted slot must apply:
-:func:`fill_daily_report` raises :class:`FillError` listing the offenders if
-``fill_by_path`` reports any failure, if any expected text slot was not applied,
-or if any chart anchor does not resolve to exactly one cell / fails to embed.
+A half-filled report is worse than no report. :func:`fill_daily_report` is
+fail-closed on **data** structure: if the template does not expose the tables /
+cells the data needs (wrong table count, an out-of-range cell), it raises
+:class:`FillError` listing exactly what failed. Missing *images* never fail.
 """
 
 from __future__ import annotations
 
+import copy
 import io
-from collections.abc import Mapping
+import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import datetime
 from importlib import resources
 
 from hwpx import HwpxDocument
 from hwpx.oxml import HwpxOxmlTable
 from hwpx.tools.table_navigation import _collect_document_tables
 
-from orbital_engine.reports.schemas import DailyReportPayload
+from orbital_engine.reports.schemas import (
+    DailyReportPayload,
+    ReportCountry,
+    ReportImages,
+    ReportProse,
+)
 
-# HWPUNIT is 1/7200 inch; convert millimetres for human-friendly chart sizing.
+logger = logging.getLogger(__name__)
+
+# lxml namespace for the OWPML paragraph schema (table/row/cell elements).
+_HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+
+# HWPUNIT is 1/7200 inch; convert millimetres for human-friendly image sizing.
 _HWPUNIT_PER_MM = 7200.0 / 25.4
 
-# Default chart box inside a template cell (mm). Sized to the A4 content column.
-_CHART_WIDTH_MM = 150.0
-_CHART_HEIGHT_MM = 95.0
+# Default globe / debris image box inside a template cell (mm).
+_GLOBE_WIDTH_MM = 150.0
+_GLOBE_HEIGHT_MM = 90.0
+_DEBRIS_WIDTH_MM = 78.0
+_DEBRIS_HEIGHT_MM = 70.0
 
 # The default template ships as a package asset so the Celery worker finds it
 # regardless of CWD (loaded via importlib.resources, never a relative path).
 _TEMPLATE_PACKAGE = "orbital_engine.reports.assets"
 _TEMPLATE_RESOURCE = "daily_report.hwpx"
 
+# --------------------------------------------------------------------------- #
+# Template layout (document-order table index -> section), confirmed by STEP-1
+# introspection of the real assets/daily_report.hwpx (10 tables):
+#
+#   [0] 1x1  cover (title + date)            -> not filled here (static cover)
+#   [1] 2x6  §1 관심목록 등록 위성 현황         국가|LEO|MEO|GEO|HEO|합계   (hdr row 0)
+#   [2] 4x4  §2 북한 위성 활동                  pass tbl; globe img r1; data r3
+#   [3] 4x4  §3 중국 위성 활동                  (same shape)
+#   [4] 4x4  §3 러시아 위성 활동                (same shape)
+#   [5] 4x4  §3 일본 위성 활동                  (same shape)
+#   [6] 2x6  §4 근접 및 충돌 현황              위성명|객체명|시각|거리|확률|구분 (hdr row 0)
+#   [7] 2x4  §5a 충돌 위험도                   심각|높음|보통|낮음           (hdr row 0)
+#   [8] 2x2  §5b 잔해 밀도 + 히트맵           density img r1c0 / heatmap r1c1
+#   [9] 2x7  §5c 고위험 잔해 현황              국가|잔해명|위험등급|RCS|고도|주기|근/원 (hdr 0)
+# --------------------------------------------------------------------------- #
+_WATCHLIST_TABLE = 1
+_CONJUNCTION_TABLE = 6
+_RISK_COUNT_TABLE = 7
+_DEBRIS_IMAGE_TABLE = 8
+_HIGH_RISK_TABLE = 9
+
+# Country activity tables in NK/CN/RU/JP order; image cell at (row 1, col 0),
+# first data row at index 3.
+_COUNTRY_TABLES: dict[ReportCountry, int] = {
+    ReportCountry.NORTH_KOREA: 2,
+    ReportCountry.CHINA: 3,
+    ReportCountry.RUSSIA: 4,
+    ReportCountry.JAPAN: 5,
+}
+_COUNTRY_IMAGE_CELL = (1, 0)
+_COUNTRY_DATA_ROW = 3
+
+# Heading text of the two prose sections (top-level section paragraphs). The
+# leading char is a Hancom dingbat bullet ( / ); we match on the
+# trailing Korean phrase so the bullet variant does not matter.
+_ANALYSIS_HEADING = "일일 분석 내용"
+_RESPONSE_HEADING = "대응 작전 추진 내용"
+
+# The smallest table count a real daily-report template must have.
+_MIN_TABLES = 10
+
 
 class FillError(Exception):
-    """A report slot could not be filled; the report must not ship half-filled.
+    """A report data slot could not be filled; the report must not ship half-filled.
 
     Carries the list of offending slot/anchor descriptions so the caller can log
-    exactly what went wrong (missing label, ambiguous label, failed embed, ...).
+    exactly what went wrong (template too small, cell out of range, ...). Missing
+    *images* never raise — they are best-effort and web-supplied.
     """
 
     def __init__(self, message: str, *, slots: list[str] | None = None) -> None:
@@ -87,107 +142,66 @@ class FillError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
-class ChartSlot:
-    """Where a chart PNG goes: the unique anchor label and the step to its cell.
+class _ImageBox:
+    """Target cell + render size (mm) for one embedded picture."""
 
-    ``label`` must match exactly one cell in the template; ``direction`` (one of
-    ``up``/``down``/``left``/``right``) walks from that label cell to the image
-    cell. ``chart_key`` selects the PNG from the ``charts`` mapping.
-    """
-
-    chart_key: str
-    label: str
-    direction: str = "down"
-    width_mm: float = _CHART_WIDTH_MM
-    height_mm: float = _CHART_HEIGHT_MM
-
-
-@dataclass(frozen=True, slots=True)
-class SlotMap:
-    """The declarative template contract: text paths + chart anchors.
-
-    ``text_paths`` maps a logical slot name to a ``fill_by_path`` path string
-    (``"<label> > <dir> > ..."``). ``charts`` lists the image anchors. The two
-    namespaces are independent; both must fully apply or :func:`fill_daily_report`
-    raises.
-    """
-
-    text_paths: Mapping[str, str]
-    charts: tuple[ChartSlot, ...]
+    table_index: int
+    row: int
+    col: int
+    width_mm: float
+    height_mm: float
 
 
 # --------------------------------------------------------------------------- #
-# The daily-report slotmap.
-#
-# These are the UNIQUE anchor labels the template must contain. The shipped
-# daily_report.hwpx does not have them yet (its tables repeat column headers and
-# leave data cells blank); add a distinct label cell next to each target before
-# this default slotmap can fill the real template. Until then, callers pass their
-# own SlotMap (the tests build a synthetic template that carries these labels).
+# value formatting (pure, deterministic)
 # --------------------------------------------------------------------------- #
-SLOTMAP = SlotMap(
-    text_paths={
-        # Cover / header.
-        "report_date": "보고일자 > right",
-        # §1 surveillance totals (single summary cell next to a unique label).
-        "surveillance_total": "감시위성 합계 > right",
-        # §2 top conjunction (most severe pair) — single-row summary.
-        "top_conjunction_pair": "최우선 근접 위성 > right",
-        "top_conjunction_miss_km": "최우선 근접 거리 > right",
-        # §5 country breakdown leader.
-        "top_country": "최다 보유국 > right",
-        # Prose sections (LLM output).
-        "prose_overview": "개요 본문 > down",
-        "prose_analysis": "분석내용 본문 > down",
-        "prose_outlook": "향후추진 본문 > down",
-    },
-    charts=(
-        ChartSlot("altitude_decay", "고도 변화 도표", "down"),
-        ChartSlot("longitude_date", "경도-일자 도표", "down"),
-        ChartSlot("relative_position", "상대위치 도표", "down"),
-        ChartSlot("orbit_3d", "3D 궤도 도표", "down"),
-    ),
-)
 
 
-def _derive_text_values(payload: DailyReportPayload, prose: Mapping[str, str]) -> dict[str, str]:
-    """Compute the string value for every text slot in :data:`SLOTMAP`.
-
-    Pure and deterministic. Summaries pick the single most relevant record (most
-    severe conjunction, largest country bucket) so each maps to one template cell.
-    Empty sections still yield a value ("정보 없음"), never a missing slot.
-    """
-    values: dict[str, str] = {}
-
-    values["report_date"] = _format_date(payload.report_date)
-
-    surveillance_total = sum(row.count for row in payload.surveillance_categories)
-    values["surveillance_total"] = str(surveillance_total)
-
-    if payload.conjunctions:
-        top = min(payload.conjunctions, key=lambda c: c.miss_distance_km)
-        values["top_conjunction_pair"] = f"{top.primary_name} / {top.secondary_name}"
-        values["top_conjunction_miss_km"] = f"{top.miss_distance_km:.3f}"
-    else:
-        values["top_conjunction_pair"] = "정보 없음"
-        values["top_conjunction_miss_km"] = "정보 없음"
-
-    if payload.country_breakdown:
-        leader = max(payload.country_breakdown, key=lambda c: c.count)
-        values["top_country"] = leader.owner_name or leader.owner_code
-    else:
-        values["top_country"] = "정보 없음"
-
-    values["prose_overview"] = prose.get("개요", "").strip() or "정보 없음"
-    values["prose_analysis"] = prose.get("분석내용", "").strip() or "정보 없음"
-    values["prose_outlook"] = prose.get("향후추진", "").strip() or "정보 없음"
-
-    return values
+def _fmt_dt(value: datetime | None) -> str:
+    """Render a UTC datetime as ``YYYY-MM-DD HH:MMZ`` (empty for None)."""
+    if value is None:
+        return ""
+    return f"{value:%Y-%m-%d %H:%M}Z"
 
 
-def _format_date(value: date) -> str:
-    """Render the report date as ``YYYY. MM. DD.`` (the template's date style)."""
-    return f"{value.year}. {value.month:02d}. {value.day:02d}."
+def _fmt_num(value: float | None, digits: int = 2) -> str:
+    """Render a float with ``digits`` decimals (empty for None)."""
+    if value is None:
+        return ""
+    return f"{value:.{digits}f}"
+
+
+def _fmt_prob(value: float | None) -> str:
+    """Render a collision probability in scientific notation (empty for None)."""
+    if value is None:
+        return ""
+    return f"{value:.2e}"
+
+
+def _fmt_rcs(value: str | float | None) -> str:
+    """Render an RCS size (class string or numeric area) (empty for None)."""
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _fmt_apsides(perigee: float | None, apogee: float | None) -> str:
+    """Render ``perigee/apogee`` km, omitting absent sides (empty if both None)."""
+    if perigee is None and apogee is None:
+        return ""
+    return f"{_fmt_num(perigee)}/{_fmt_num(apogee)}"
+
+
+def _country_label(code: str, name: str | None) -> str:
+    """Render a country cell as the resolved name, falling back to the code."""
+    return name or code
+
+
+# --------------------------------------------------------------------------- #
+# table / row primitives
+# --------------------------------------------------------------------------- #
 
 
 def _load_default_template() -> bytes:
@@ -195,153 +209,344 @@ def _load_default_template() -> bytes:
     return resources.files(_TEMPLATE_PACKAGE).joinpath(_TEMPLATE_RESOURCE).read_bytes()
 
 
-def _fill_text_slots(
-    doc: HwpxDocument,
-    slotmap: SlotMap,
-    values: Mapping[str, str],
-) -> None:
-    """Apply every text slot in one batch; raise FillError on any miss.
-
-    Builds the ``{path: value}`` mapping from the slotmap, runs ``fill_by_path``,
-    then verifies the library reported zero failures AND that every requested path
-    actually landed in ``applied`` (defence in depth against a future library that
-    silently drops a path).
-    """
-    if not slotmap.text_paths:
-        return
-
-    mappings: dict[str, str] = {}
-    path_to_slot: dict[str, str] = {}
-    for slot_name, path in slotmap.text_paths.items():
-        if slot_name not in values:
-            raise FillError("no value derived for text slot", slots=[slot_name])
-        mappings[path] = values[slot_name]
-        path_to_slot[path] = slot_name
-
-    result = doc.fill_by_path(mappings)
-
-    failures: list[str] = []
-    for failure in result["failed"]:
-        path = failure["path"]
-        slot_name = path_to_slot.get(path, path)
-        failures.append(f"{slot_name} [{path!r}: {failure['reason']}]")
-
-    applied_paths = {entry["path"] for entry in result["applied"]}
-    for path, slot_name in path_to_slot.items():
-        if path not in applied_paths and path not in {f["path"] for f in result["failed"]}:
-            failures.append(f"{slot_name} [{path!r}: not applied]")
-
-    if failures:
-        raise FillError("text slot(s) failed to fill", slots=failures)
-
-
-def _embed_charts(
-    doc: HwpxDocument,
-    slotmap: SlotMap,
-    charts: Mapping[str, bytes],
-) -> None:
-    """Embed each chart PNG into its anchor cell; raise FillError on any miss.
-
-    For every :class:`ChartSlot` the anchor label must resolve to exactly one
-    cell (``find_cell_by_label`` ``count == 1``); the PNG is added to the document
-    and inserted into that cell's first paragraph as an inline picture. A missing
-    chart key, an absent/ambiguous anchor, or an embed exception all raise.
-    """
-    if not slotmap.charts:
-        return
-
-    failures: list[str] = []
-
-    for slot in slotmap.charts:
-        if slot.chart_key not in charts:
-            failures.append(f"{slot.chart_key} [no PNG supplied]")
-            continue
-
-        search = doc.find_cell_by_label(slot.label, slot.direction)
-        if search["count"] != 1:
-            failures.append(
-                f"{slot.chart_key} [anchor {slot.label!r}: {search['count']} matches, want 1]"
-            )
-            continue
-
-        match = search["matches"][0]
-        target = match["target_cell"]
-        try:
-            _insert_picture(doc, match["table_index"], target["row"], target["col"], slot, charts)
-        except FillError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - any embed failure must surface as FillError
-            failures.append(f"{slot.chart_key} [embed failed: {exc}]")
-
-    if failures:
-        raise FillError("chart(s) failed to embed", slots=failures)
-
-
-def _insert_picture(
-    doc: HwpxDocument,
-    table_index: int,
-    row: int,
-    col: int,
-    slot: ChartSlot,
-    charts: Mapping[str, bytes],
-) -> None:
-    """Add the PNG to the package and anchor it in the (table, row, col) cell."""
-    table = _table_at(doc, table_index)
-    cell = table.cell(row, col)
-    paragraphs = list(cell.paragraphs)
-    if not paragraphs:
-        raise FillError("chart anchor cell has no paragraph", slots=[slot.chart_key])
-
-    item_id = doc.add_image(charts[slot.chart_key], "png")
-    paragraphs[0].add_picture(
-        item_id,
-        width=int(slot.width_mm * _HWPUNIT_PER_MM),
-        height=int(slot.height_mm * _HWPUNIT_PER_MM),
-    )
+def _read_template(template_path: str) -> bytes:
+    """Read an explicit template path as bytes (test / override hook)."""
+    with open(template_path, "rb") as handle:
+        return handle.read()
 
 
 def _table_at(doc: HwpxDocument, table_index: int) -> HwpxOxmlTable:
     """Return the live OXML table at ``table_index`` (document order).
 
-    Reuses the library's own collector so the index matches ``get_table_map`` /
-    ``find_cell_by_label`` exactly (it recurses into nested tables in the same
-    order the search primitives do).
+    Raises :class:`FillError` if the template has fewer tables than expected, so
+    a structurally wrong template fails closed rather than mis-filling.
     """
     indexed = _collect_document_tables(doc)
     if table_index >= len(indexed):
-        raise FillError("chart anchor table out of range", slots=[str(table_index)])
+        raise FillError(
+            "template table missing (structure mismatch)",
+            slots=[f"table[{table_index}] of {len(indexed)}"],
+        )
     return indexed[table_index].table
+
+
+def _ensure_rows(doc: HwpxDocument, table_index: int, data_row: int, n_rows: int) -> HwpxOxmlTable:
+    """Grow the table so it has exactly ``n_rows`` data rows below ``data_row``.
+
+    The template ships one blank data row at index ``data_row``; the library has
+    no row-append API, so we deep-copy that ``<hp:tr>`` (rewriting each cell's
+    ``rowAddr`` and clearing its text), insert it after the last row, and bump the
+    table element's ``rowCnt``. No capacity cap: N items -> N rows. Returns the
+    table re-resolved against the grown element.
+    """
+    table = _table_at(doc, table_index)
+    existing_rows = table.element.findall(f"{_HP}tr")
+    if data_row >= len(existing_rows):
+        raise FillError(
+            "template data row missing (structure mismatch)",
+            slots=[f"table[{table_index}] data row {data_row}"],
+        )
+
+    target_total = data_row + max(n_rows, 1)
+    src_tr = existing_rows[data_row]
+    last_tr = existing_rows[-1]
+    current_index = len(existing_rows)
+    while current_index < target_total:
+        new_tr = copy.deepcopy(src_tr)
+        for cell in new_tr.findall(f"{_HP}tc"):
+            addr = cell.find(f"{_HP}cellAddr")
+            if addr is not None:
+                addr.set("rowAddr", str(current_index))
+            for text_node in cell.findall(f".//{_HP}t"):
+                text_node.text = ""
+        last_tr.addnext(new_tr)
+        last_tr = new_tr
+        current_index += 1
+
+    table.element.set("rowCnt", str(max(target_total, len(existing_rows))))
+    # Re-resolve so the cell grid reflects the appended rows.
+    return _table_at(doc, table_index)
+
+
+def _set_cell(table: HwpxOxmlTable, row: int, col: int, value: str, *, where: str) -> None:
+    """Set one cell's text, raising FillError (with ``where``) if unaddressable."""
+    try:
+        table.set_cell_text(row, col, value, logical=True)
+    except (IndexError, ValueError, KeyError) as exc:
+        raise FillError("cell not addressable (structure mismatch)", slots=[f"{where}: {exc}"]) from exc
+
+
+def _fill_rows(
+    doc: HwpxDocument,
+    table_index: int,
+    data_row: int,
+    rows: Sequence[Sequence[str]],
+    *,
+    section: str,
+) -> None:
+    """Clone/grow the table to hold ``rows`` and write each row's cells.
+
+    Empty ``rows`` leaves the single blank template row untouched. Every cell
+    write is fail-closed (out-of-range -> FillError tagged with ``section``).
+    """
+    if not rows:
+        return
+    table = _ensure_rows(doc, table_index, data_row, len(rows))
+    for offset, values in enumerate(rows):
+        r = data_row + offset
+        for c, value in enumerate(values):
+            _set_cell(table, r, c, value, where=f"{section} r{r}c{c}")
+
+
+# --------------------------------------------------------------------------- #
+# section builders (payload -> list[list[str]])
+# --------------------------------------------------------------------------- #
+
+
+def _watchlist_rows(payload: DailyReportPayload) -> list[list[str]]:
+    """§1 rows: one per country plus the grand-total row (if present)."""
+    rows: list[list[str]] = []
+    for entry in payload.watchlist_matrix:
+        rows.append(
+            [
+                _country_label(entry.country_code, entry.country_name),
+                str(entry.leo),
+                str(entry.meo),
+                str(entry.geo),
+                str(entry.heo),
+                str(entry.total),
+            ]
+        )
+    if payload.watchlist_total is not None:
+        total = payload.watchlist_total
+        rows.append(
+            [
+                _country_label(total.country_code, total.country_name),
+                str(total.leo),
+                str(total.meo),
+                str(total.geo),
+                str(total.heo),
+                str(total.total),
+            ]
+        )
+    return rows
+
+
+def _pass_rows(activity_passes: Sequence) -> list[list[str]]:
+    """§2/§3 rows for one country: 통과 시점 | 최근접 시각/거리 | 방위/고도 | 비고."""
+    rows: list[list[str]] = []
+    for p in activity_passes:
+        closest = _fmt_dt(p.closest_time)
+        distance = _fmt_num(p.closest_distance_km)
+        closest_cell = f"{closest} / {distance} km" if (closest or distance) else ""
+        az = _fmt_num(p.azimuth_deg, 1)
+        el = _fmt_num(p.elevation_deg, 1)
+        az_el = f"{az} / {el}" if (az or el) else ""
+        rows.append([_fmt_dt(p.pass_time), closest_cell, az_el, p.remarks or ""])
+    return rows
+
+
+def _conjunction_rows(payload: DailyReportPayload) -> list[list[str]]:
+    """§4 rows: 위성명 | 객체명 | 최근접 시각 | 거리 | 충돌 확률 | 위험 구분."""
+    return [
+        [
+            row.satellite_name,
+            row.object_name,
+            _fmt_dt(row.tca),
+            _fmt_num(row.distance_km, 3),
+            _fmt_prob(row.probability),
+            row.risk_category,
+        ]
+        for row in payload.conjunctions
+    ]
+
+
+def _high_risk_rows(payload: DailyReportPayload) -> list[list[str]]:
+    """§5c rows: 국가 | 잔해명 | 위험등급 | RCS | 평균 고도 | 주기 | 근/원지점."""
+    return [
+        [
+            _country_label(row.country_code, row.country_name),
+            row.debris_name,
+            row.risk_grade,
+            _fmt_rcs(row.rcs_size),
+            _fmt_num(row.mean_altitude_km),
+            _fmt_num(row.period_min),
+            _fmt_apsides(row.perigee_km, row.apogee_km),
+        ]
+        for row in payload.high_risk_debris
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# fillers
+# --------------------------------------------------------------------------- #
+
+
+def _fill_tables(doc: HwpxDocument, payload: DailyReportPayload) -> None:
+    """Fill every data table (fail-closed on structure)."""
+    _fill_rows(
+        doc, _WATCHLIST_TABLE, 1, _watchlist_rows(payload), section="watchlist"
+    )
+
+    activity_by_country = {a.country_code: a for a in payload.country_activity}
+    for country, table_index in _COUNTRY_TABLES.items():
+        activity = activity_by_country.get(country.value)
+        passes = activity.passes if activity is not None else []
+        _fill_rows(
+            doc,
+            table_index,
+            _COUNTRY_DATA_ROW,
+            _pass_rows(passes),
+            section=f"passes[{country.value}]",
+        )
+
+    _fill_rows(
+        doc, _CONJUNCTION_TABLE, 1, _conjunction_rows(payload), section="conjunctions"
+    )
+
+    counts = payload.debris_risk_counts
+    risk_table = _table_at(doc, _RISK_COUNT_TABLE)
+    for col, value in enumerate(
+        (counts.critical, counts.high, counts.moderate, counts.low)
+    ):
+        _set_cell(risk_table, 1, col, str(value), where=f"risk_counts c{col}")
+
+    _fill_rows(
+        doc, _HIGH_RISK_TABLE, 1, _high_risk_rows(payload), section="high_risk_debris"
+    )
+
+
+def _embed_image(doc: HwpxDocument, png: bytes, box: _ImageBox, *, what: str) -> None:
+    """Embed one PNG into ``box``'s cell. Logs and skips on any embed problem."""
+    try:
+        table = _table_at(doc, box.table_index)
+        cell = table.cell(box.row, box.col)
+        paragraphs = list(cell.paragraphs)
+        if not paragraphs:
+            logger.warning("image anchor %s has no paragraph; skipping", what)
+            return
+        item_id = doc.add_image(png, "png")
+        paragraphs[0].add_picture(
+            item_id,
+            width=int(box.width_mm * _HWPUNIT_PER_MM),
+            height=int(box.height_mm * _HWPUNIT_PER_MM),
+        )
+    except Exception:  # noqa: BLE001 - images are best-effort; never fail the report
+        logger.warning("failed to embed image %s; leaving anchor blank", what, exc_info=True)
+
+
+def _embed_images(doc: HwpxDocument, images: ReportImages) -> None:
+    """Embed the web-supplied globe / debris images; log (never raise) on misses."""
+    for country, table_index in _COUNTRY_TABLES.items():
+        png = images.country_globes.get(country.value)
+        if png is None:
+            logger.info("no globe snapshot supplied for %s; anchor left blank", country.value)
+            continue
+        row, col = _COUNTRY_IMAGE_CELL
+        _embed_image(
+            doc,
+            png,
+            _ImageBox(table_index, row, col, _GLOBE_WIDTH_MM, _GLOBE_HEIGHT_MM),
+            what=f"globe[{country.value}]",
+        )
+
+    if images.debris_density is None:
+        logger.info("no debris-density image supplied; anchor left blank")
+    else:
+        _embed_image(
+            doc,
+            images.debris_density,
+            _ImageBox(_DEBRIS_IMAGE_TABLE, 1, 0, _DEBRIS_WIDTH_MM, _DEBRIS_HEIGHT_MM),
+            what="debris_density",
+        )
+
+    if images.debris_heatmap is None:
+        logger.info("no debris-heatmap image supplied; anchor left blank")
+    else:
+        _embed_image(
+            doc,
+            images.debris_heatmap,
+            _ImageBox(_DEBRIS_IMAGE_TABLE, 1, 1, _DEBRIS_WIDTH_MM, _DEBRIS_HEIGHT_MM),
+            what="debris_heatmap",
+        )
+
+
+def _insert_after_heading(doc: HwpxDocument, heading: str, lines: Sequence[str]) -> None:
+    """Append ``lines`` as new paragraphs directly after the section ``heading``.
+
+    Locates the top-level paragraph whose text ends with ``heading`` (the bullet
+    glyph prefix is ignored) and inserts a fresh paragraph per line right after it
+    so the prose renders under the correct section. Raises FillError if the
+    heading paragraph is absent (the template is structurally wrong).
+    """
+    paragraphs = list(doc.paragraphs)
+    anchor_el = None
+    for para in paragraphs:
+        text = (para.text or "").strip()
+        if text.endswith(heading):
+            anchor_el = para.element
+            break
+    if anchor_el is None:
+        raise FillError("prose heading missing (structure mismatch)", slots=[heading])
+
+    # Insert in order: each new paragraph goes right after the previous one.
+    cursor = anchor_el
+    for line in lines:
+        new_para = doc.add_paragraph(line)
+        cursor.addnext(new_para.element)
+        cursor = new_para.element
+
+
+def _fill_prose(doc: HwpxDocument, prose: ReportProse) -> None:
+    """Insert §6 분석 내용 (detail + cause/forecast) and §7 대응 작전 항목."""
+    analysis_lines: list[str] = []
+    for index, item in enumerate(prose.analysis_items, start=1):
+        analysis_lines.append(f"{index}. 상세 분석 내용: {item.detail}")
+        analysis_lines.append(f"   원인 및 예상 분석: {item.cause_forecast}")
+    _insert_after_heading(doc, _ANALYSIS_HEADING, analysis_lines)
+
+    response_lines = [f"{index}. {op}" for index, op in enumerate(prose.response_ops, start=1)]
+    _insert_after_heading(doc, _RESPONSE_HEADING, response_lines)
+
+
+# --------------------------------------------------------------------------- #
+# public entry point
+# --------------------------------------------------------------------------- #
 
 
 def fill_daily_report(
     payload: DailyReportPayload,
-    prose: Mapping[str, str],
-    charts: Mapping[str, bytes],
+    prose: ReportProse,
+    images: ReportImages,
     *,
     template_path: str | None = None,
-    slotmap: SlotMap = SLOTMAP,
 ) -> bytes:
-    """Fill the template with ``payload`` + ``prose`` + ``charts`` → HWPX bytes.
+    """Fill the daily-report template with ``payload`` + ``prose`` + ``images``.
 
-    ``prose`` maps section names (개요 / 분석내용 / 향후추진) to LLM-written text;
-    ``charts`` maps chart keys (see :data:`SLOTMAP`) to PNG bytes. ``template_path``
-    overrides the bundled asset (the default is loaded CWD-independently). Raises
-    :class:`FillError` if any text slot or chart anchor cannot be filled — never
-    returns a partially filled report.
+    Returns the filled HWPX as bytes. Data tables and prose headings are
+    fail-closed: if the template cannot expose a required table / cell / heading,
+    :class:`FillError` is raised listing exactly what was missing — never a
+    partially filled report. Web-supplied ``images`` are best-effort: a missing
+    globe / density / heatmap leaves its anchor blank and is logged, not raised.
+
+    ``template_path`` overrides the bundled asset (loaded CWD-independently for
+    Celery-worker safety).
     """
     template_bytes = (
         _load_default_template() if template_path is None else _read_template(template_path)
     )
     doc = HwpxDocument.open(io.BytesIO(template_bytes))
 
-    values = _derive_text_values(payload, prose)
-    _fill_text_slots(doc, slotmap, values)
-    _embed_charts(doc, slotmap, charts)
+    # Fail closed early if the template is structurally too small.
+    indexed = _collect_document_tables(doc)
+    if len(indexed) < _MIN_TABLES:
+        raise FillError(
+            "template has too few tables (structure mismatch)",
+            slots=[f"{len(indexed)} tables, need >= {_MIN_TABLES}"],
+        )
+
+    _fill_tables(doc, payload)
+    _fill_prose(doc, prose)
+    _embed_images(doc, images)
 
     return doc.to_bytes()
-
-
-def _read_template(template_path: str) -> bytes:
-    """Read an explicit template path as bytes (test / override hook)."""
-    with open(template_path, "rb") as handle:
-        return handle.read()

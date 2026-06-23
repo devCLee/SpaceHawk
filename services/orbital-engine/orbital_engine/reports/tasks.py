@@ -2,8 +2,11 @@
 
 This is the integration seam that wires the report modules
 (:mod:`~orbital_engine.reports.assembler` → :mod:`~.sanitize` → :mod:`~.narrative`
-→ :mod:`~.charts` → :mod:`~.hwpx_filler` → :mod:`~.validate`) behind a persisted
-:class:`~orbital_engine.reports.models.ReportJob` and a Celery task.
+→ :mod:`~.hwpx_filler` → :mod:`~.validate`) behind a persisted
+:class:`~orbital_engine.reports.models.ReportJob` and a Celery task. Report
+*images* (country globes + the two debris charts) are no longer rendered here —
+they are SUPPLIED BY THE WEB at create time, persisted on the job row, and handed
+to :func:`~orbital_engine.reports.hwpx_filler.fill_daily_report` during the run.
 
 Async-in-Celery pattern (mirrored from ``orbital_engine.scheduler.tasks`` — the
 ingest tasks are thin sync wrappers that drive an async runner via
@@ -16,10 +19,10 @@ it is returned unchanged and NO task is enqueued, so a repeated request never
 duplicates work even under a race (the unique index is the source of truth).
 
 Injectable pipeline: every stage that needs the outside world (the LLM client,
-and the chart/fill/validate callables) is supplied through :class:`ReportPipeline`
+and the prose/fill/validate callables) is supplied through :class:`ReportPipeline`
 with production defaults, so tests can run the full orchestration with a fake LLM
-client and a fillable synthetic template instead of a live provider / the bundled
-template (which intentionally raises ``FillError`` until its anchor labels land).
+client (driving the real narrative path) and the bundled — now fillable (R6) —
+template.
 
 Secrets: the LLM api key is never logged. Failures log only the stage/reason.
 """
@@ -41,13 +44,18 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.db import get_engine
-from orbital_engine.reports import charts as charts_mod
 from orbital_engine.reports.assembler import assemble_daily
 from orbital_engine.reports.hwpx_filler import fill_daily_report
-from orbital_engine.reports.models import ReportJob, ReportStatus, report_job
+from orbital_engine.reports.models import (
+    ReportJob,
+    ReportStatus,
+    deserialize_images,
+    report_job,
+    serialize_images,
+)
 from orbital_engine.reports.narrative import write_report_prose
 from orbital_engine.reports.sanitize import to_llm_facts
-from orbital_engine.reports.schemas import DailyReportPayload
+from orbital_engine.reports.schemas import DailyReportPayload, ReportImages, ReportProse
 from orbital_engine.reports.validate import validate_hwpx
 
 logger = logging.getLogger(__name__)
@@ -89,36 +97,20 @@ def compute_idempotency_key(
 # --------------------------------------------------------------------------- #
 
 
-def _default_charts(payload: DailyReportPayload) -> dict[str, bytes]:
-    """Render the chart PNGs for the report from the payload.
-
-    Only ``altitude_decay`` is payload-fed; the other three kinds carry no payload
-    data, so they render labeled placeholder PNGs (the renderers do this for empty
-    input) — the report has a chart in every anchor without inventing data.
-    """
-    return {
-        "altitude_decay": charts_mod.render_chart("altitude_decay", payload.time_series),
-        "longitude_date": charts_mod.render_chart("longitude_date", [], []),
-        "relative_position": charts_mod.render_chart("relative_position", [], []),
-        "orbit_3d": charts_mod.render_chart("orbit_3d", [], [], []),
-    }
-
-
 @dataclass(frozen=True, slots=True)
 class ReportPipeline:
     """The pipeline stages, each injectable for tests; defaults are production.
 
     ``prose_fn`` and ``fill_fn`` are the two seams tests override: ``prose_fn`` to
-    avoid a live LLM, ``fill_fn`` to use a fillable synthetic template instead of
-    the bundled one (which raises ``FillError`` until its anchors are added).
-    ``llm_client`` is forwarded to the default ``prose_fn`` so a fake client can
-    drive the real narrative path when only the provider needs faking.
+    avoid a live LLM (or forwarded a fake ``llm_client`` so the real narrative
+    path runs over a faked provider), ``fill_fn`` to use a synthetic template if
+    desired. ``fill_fn`` is called as ``fill_fn(payload, prose, images)`` — the
+    web-supplied :class:`ReportImages` flow in from the persisted job row.
     """
 
     assemble_fn: Callable[..., Any] = assemble_daily
     sanitize_fn: Callable[[DailyReportPayload], Any] = to_llm_facts
-    prose_fn: Callable[..., dict[str, str]] = write_report_prose
-    charts_fn: Callable[[DailyReportPayload], dict[str, bytes]] = _default_charts
+    prose_fn: Callable[..., ReportProse] = write_report_prose
     fill_fn: Callable[..., bytes] = fill_daily_report
     validate_fn: Callable[[bytes], None] = validate_hwpx
     llm_client: Any | None = None
@@ -144,6 +136,7 @@ async def create_report_job(
     filters: Mapping[str, Any] | None,
     conn: _Conn,
     *,
+    images: ReportImages | None = None,
     enqueue: Callable[[str], Any] | None = None,
 ) -> ReportJob:
     """Idempotently create (or return) the job for this request, enqueuing once.
@@ -154,12 +147,20 @@ async def create_report_job(
     tests). If the key already existed, the existing job is returned unchanged and
     nothing is enqueued — no duplicate row, no re-enqueue.
 
+    Images: the web-supplied :class:`ReportImages` are persisted on the row (as
+    base64 JSONB via :func:`~orbital_engine.reports.models.serialize_images`) so
+    the image-less Celery task can rebuild them. Images are NOT part of the
+    idempotency key (same date = same report); on a repeat create, the supplied
+    images REFRESH the stored set so a later/better render wins. A create with no
+    images stores NULL and does not clobber an existing set.
+
     ``conn`` is an injected async connection (caller-owned), mirroring
     ``assemble_daily``. The caller is responsible for the surrounding transaction.
     """
     key = compute_idempotency_key(report_type, report_date, filters)
     now = datetime.now(UTC)
     job_id = uuid.uuid4().hex
+    stored_images = serialize_images(images)
 
     stmt = (
         pg_insert(report_job)
@@ -169,6 +170,7 @@ async def create_report_job(
             report_type=report_type,
             report_date=report_date,
             filters_json=dict(filters) if filters else None,
+            input_images=stored_images,
             status=ReportStatus.PENDING,
             error_reason=None,
             result=None,
@@ -180,6 +182,15 @@ async def create_report_job(
     )
     result = await conn.execute(stmt)
     inserted_id = result.scalar_one_or_none()
+
+    # Refresh images on a repeat create (only when new ones were supplied) so a
+    # better/later web render replaces an earlier one; never clobber with NULL.
+    if inserted_id is None and stored_images is not None:
+        await conn.execute(
+            update(report_job)
+            .where(report_job.c.idempotency_key == key)
+            .values(input_images=stored_images, updated_at=now)
+        )
 
     job = await _fetch_by_key(conn, key)
     if job is None:  # pragma: no cover - INSERT or pre-existing row guarantees one
@@ -224,9 +235,10 @@ async def _load_job(conn: _Conn, job_id: str) -> ReportJob | None:
 async def _run(job_id: str, *, pipeline: ReportPipeline | None = None) -> ReportStatus:
     """Execute the full pipeline for ``job_id``; returns the terminal status.
 
-    Loads the job and marks it RUNNING, then runs assemble → sanitize → prose →
-    charts → fill → validate. On success the validated HWPX is stored and the job
-    is DONE. On ANY stage exception the job is FAILED with ``error_reason`` and NO
+    Loads the job (including its persisted web-supplied images) and marks it
+    RUNNING, then runs assemble → sanitize → prose → fill (with the loaded
+    images) → validate. On success the validated HWPX is stored and the job is
+    DONE. On ANY stage exception the job is FAILED with ``error_reason`` and NO
     partial output is stored (the failure UPDATE only touches status/error).
     """
     pipeline = pipeline or ReportPipeline()
@@ -238,11 +250,12 @@ async def _run(job_id: str, *, pipeline: ReportPipeline | None = None) -> Report
             raise RuntimeError(f"report_job {job_id} not found")
         await _set_status(conn, job_id, ReportStatus.RUNNING)
         report_date = job.report_date
+        images = deserialize_images(job.input_images)
 
     try:
         async with get_engine().connect() as conn:
             payload = await pipeline.assemble_fn(report_date, conn, settings=settings)
-        data = _build_hwpx(payload, pipeline, settings)
+        data = _build_hwpx(payload, images, pipeline, settings)
         pipeline.validate_fn(data)
     except Exception as exc:  # noqa: BLE001 - any stage failure is a job failure
         reason = f"{type(exc).__name__}: {exc}"
@@ -259,14 +272,20 @@ async def _run(job_id: str, *, pipeline: ReportPipeline | None = None) -> Report
 
 def _build_hwpx(
     payload: DailyReportPayload,
+    images: ReportImages,
     pipeline: ReportPipeline,
     settings: Settings,
 ) -> bytes:
-    """Sanitize → prose → charts → fill, returning the (unvalidated) HWPX bytes."""
+    """Sanitize → prose → fill, returning the (unvalidated) HWPX bytes.
+
+    ``images`` is the web-supplied :class:`ReportImages` loaded off the job row;
+    it is handed straight to ``fill_fn(payload, prose, images)`` so the globe /
+    debris snapshots land in the document (missing images are best-effort and
+    never fail the fill).
+    """
     sanitize_result = pipeline.sanitize_fn(payload)
     prose = pipeline.prose_fn(sanitize_result, client=pipeline.llm_client, settings=settings)
-    rendered = pipeline.charts_fn(payload)
-    return pipeline.fill_fn(payload, prose, rendered)
+    return pipeline.fill_fn(payload, prose, images)
 
 
 # Registered lazily so importing this module does not require a configured broker

@@ -5,6 +5,10 @@ anonymized subset built by :func:`to_llm_facts`. The critical test extends the
 payload with a brand-new sensitive-looking field and asserts it cannot appear in
 the serialized facts — because the sanitizer constructs ``LLMFacts`` from scratch
 (allowlist), not by stripping known-bad keys (denylist).
+
+Country codes/names (NK/CN/RU/JP + owner codes) are the PUBLIC subject of the
+report and are intentionally ALLOWED through; only individual object identities
+(satellites, conjunction objects, debris) are tokenized.
 """
 
 from __future__ import annotations
@@ -16,15 +20,12 @@ from typing import Any
 from orbital_engine.reports.sanitize import LLMFacts, SanitizeResult, to_llm_facts
 from orbital_engine.reports.schemas import (
     ConjunctionRow,
-    CountryBreakdownEntry,
+    CountryActivity,
     DailyReportPayload,
-    ManeuverDataStatus,
-    ManeuverEntry,
-    ReentryEntry,
-    SurveillanceCategoryCount,
-    SurveillanceObjectRow,
-    TimeSeriesPoint,
-    TimeSeriesSeries,
+    DebrisRiskCounts,
+    HighRiskDebrisRow,
+    SatellitePass,
+    WatchlistRow,
 )
 
 REPORT_DATE = date(2026, 6, 20)
@@ -32,97 +33,70 @@ DAY_START = datetime(2026, 6, 20, tzinfo=UTC)
 
 # Sensitive strings seeded into the payload; none may survive into the facts.
 SENSITIVE_STRINGS = [
-    "ISS (ZARYA)",  # object_name
-    "KEYHOLE 11",  # object_name
-    "US",  # owner_code
-    "PRC",  # owner_code
-    "미국",  # owner_name
-    "중국",  # owner_name
-    "SH:CAT:000025544",  # raw object_id
-    "1998-067A",  # raw object_id
-    "SCR:A:B:20260620T1200",  # raw conjunction_id
+    "ISS (ZARYA)",  # satellite_name / conjunction primary_name
+    "KEYHOLE 11",  # satellite_name / conjunction secondary_name
+    "COSMOS DEB",  # debris_name
+    "SH:CAT:000025544",  # raw satellite_id
+    "1998-067A",  # raw satellite_id
+    "관심위성 비고 메모",  # free-text remarks
 ]
 
 
 def _populated_payload() -> DailyReportPayload:
-    oid_a = "SH:CAT:000025544"
-    oid_b = "1998-067A"
     return DailyReportPayload(
         report_date=REPORT_DATE,
-        surveillance_categories=[
-            SurveillanceCategoryCount(category="위성(탑재체)", count=2),
-            SurveillanceCategoryCount(category="파편", count=1),
+        watchlist_matrix=[
+            WatchlistRow(
+                country_code="PRK", country_name="북한", leo=3, meo=0, geo=0, heo=0, total=3
+            ),
+            WatchlistRow(
+                country_code="PRC", country_name="중국", leo=10, meo=2, geo=4, heo=1, total=17
+            ),
         ],
-        surveillance_objects=[
-            SurveillanceObjectRow(
-                object_id=oid_a,
-                norad_cat_id=25544,
-                object_name="ISS (ZARYA)",
-                owner_code="US",
-                owner_name="미국",
-                regime="LEO",
-                object_type="PAYLOAD",
+        watchlist_total=WatchlistRow(
+            country_code="TOTAL", country_name=None, leo=13, meo=2, geo=4, heo=1, total=20
+        ),
+        country_activity=[
+            CountryActivity(
+                country_code="NK",
+                country_name="북한",
+                passes=[
+                    SatellitePass(
+                        satellite_name="ISS (ZARYA)",
+                        satellite_id="SH:CAT:000025544",
+                        pass_time=DAY_START + timedelta(hours=2),
+                        closest_time=DAY_START + timedelta(hours=2, minutes=5),
+                        closest_distance_km=512.3,
+                        azimuth_deg=120.0,
+                        elevation_deg=42.0,
+                        remarks="관심위성 비고 메모",
+                    )
+                ],
             ),
-            SurveillanceObjectRow(
-                object_id=oid_b,
-                norad_cat_id=11111,
-                object_name="KEYHOLE 11",
-                owner_code="US",
-                owner_name="미국",
-                regime="LEO",
-                object_type="PAYLOAD",
-            ),
+            CountryActivity(country_code="CN", country_name="중국", passes=[]),
         ],
         conjunctions=[
             ConjunctionRow(
-                conjunction_id="SCR:A:B:20260620T1200",
-                primary_object_id=oid_a,
-                primary_name="ISS (ZARYA)",
-                secondary_object_id=oid_b,
-                secondary_name="KEYHOLE 11",
-                miss_distance_km=0.8,
-                probability=1e-3,
-                tca=DAY_START + timedelta(hours=12),
-                alert_level="HIGH",
-            )
-        ],
-        maneuvers=[
-            ManeuverEntry(
-                object_id=oid_a,
-                norad_cat_id=25544,
-                object_name="ISS (ZARYA)",
-                status=ManeuverDataStatus.PRESENT,
-                history_epochs=5,
-                classification="STATIONKEEP",
-                delta_v_m_s=1.4,
-                delta_sma_km=5.0,
-                epoch=DAY_START + timedelta(hours=3),
-            )
-        ],
-        reentries=[
-            ReentryEntry(
-                object_id=oid_b,
-                norad_cat_id=11111,
+                satellite_name="ISS (ZARYA)",
                 object_name="KEYHOLE 11",
-                owner_code="PRC",
-                predicted_window_start=DAY_START,
-                predicted_window_end=DAY_START + timedelta(days=1),
+                tca=DAY_START + timedelta(hours=12),
+                distance_km=0.8,
+                probability=1e-3,
+                risk_category="HIGH",
             )
         ],
-        country_breakdown=[
-            CountryBreakdownEntry(owner_code="US", owner_name="미국", count=2),
-            CountryBreakdownEntry(owner_code="PRC", owner_name="중국", count=1),
-        ],
-        time_series=[
-            TimeSeriesSeries(
-                object_id=oid_a,
-                object_name="ISS (ZARYA)",
-                points=[
-                    TimeSeriesPoint(epoch=DAY_START, apogee_km=420.0, perigee_km=410.0),
-                    TimeSeriesPoint(
-                        epoch=DAY_START + timedelta(hours=1), apogee_km=421.0, perigee_km=411.0
-                    ),
-                ],
+        debris_risk_counts=DebrisRiskCounts(critical=1, high=2, moderate=3, low=4),
+        high_risk_debris=[
+            HighRiskDebrisRow(
+                country_code="PRC",
+                country_name="중국",
+                debris_name="COSMOS DEB",
+                risk_grade="심각",
+                rcs_size="LARGE",
+                mean_altitude_km=780.0,
+                period_min=100.5,
+                perigee_km=760.0,
+                apogee_km=800.0,
             )
         ],
     )
@@ -132,36 +106,45 @@ def _populated_payload() -> DailyReportPayload:
 
 _SAFE_KEYS = {
     "report_date",
-    "categories",
-    "objects",
+    "watchlist",
+    "watchlist_total",
+    "country_activity",
     "conjunctions",
-    "maneuvers",
-    "reentries",
-    "country_breakdown",
-    "time_series",
-    # leaf facts
-    "category",
-    "count",
+    "debris_risk_counts",
+    "high_risk_debris",
+    # watchlist leaf
+    "country_code",
+    "country_name",
+    "leo",
+    "meo",
+    "geo",
+    "heo",
+    "total",
+    # country_activity leaf
+    "pass_count",
+    "passes",
     "token",
-    "regime",
-    "object_type",
+    "closest_distance_km",
+    "elevation_deg",
+    # conjunction leaf
     "primary_token",
     "secondary_token",
-    "miss_distance_km",
+    "distance_km",
     "probability",
     "tca",
-    "alert_level",
-    "status",
-    "history_epochs",
-    "classification",
-    "delta_v_m_s",
-    "delta_sma_km",
-    "epoch",
-    "predicted_window_start",
-    "predicted_window_end",
-    "points",
-    "apogee_km",
+    "risk_category",
+    # debris counts leaf
+    "critical",
+    "high",
+    "moderate",
+    "low",
+    # high-risk debris leaf
+    "risk_grade",
+    "rcs_size",
+    "mean_altitude_km",
+    "period_min",
     "perigee_km",
+    "apogee_km",
 }
 
 
@@ -188,38 +171,56 @@ def test_happy_path_preserves_safe_fields() -> None:
     assert isinstance(facts, LLMFacts)
     assert facts.report_date == REPORT_DATE
 
-    # §1 counts preserved verbatim.
-    assert {c.category: c.count for c in facts.categories} == {"위성(탑재체)": 2, "파편": 1}
-    assert len(facts.objects) == 2
-    assert facts.objects[0].regime == "LEO"
-    assert facts.objects[0].object_type == "PAYLOAD"
+    # §1 watchlist counts preserved verbatim (country IS allowed).
+    assert {w.country_code: w.total for w in facts.watchlist} == {"PRK": 3, "PRC": 17}
+    assert facts.watchlist[1].leo == 10
+    assert facts.watchlist[1].geo == 4
+    assert facts.watchlist_total is not None
+    assert facts.watchlist_total.country_code == "TOTAL"
+    assert facts.watchlist_total.total == 20
 
-    # §2 distances / probability / dates preserved.
+    # §2/§3 activity: pass_count + anonymized pass tokens with numeric fields.
+    nk = facts.country_activity[0]
+    assert nk.country_code == "NK"
+    assert nk.country_name == "북한"
+    assert nk.pass_count == 1
+    assert nk.passes[0].closest_distance_km == 512.3
+    assert nk.passes[0].elevation_deg == 42.0
+    assert facts.country_activity[1].pass_count == 0
+
+    # §4 distances / probability / dates / risk preserved.
     assert len(facts.conjunctions) == 1
     conj = facts.conjunctions[0]
-    assert conj.miss_distance_km == 0.8
+    assert conj.distance_km == 0.8
     assert conj.probability == 1e-3
     assert conj.tca == DAY_START + timedelta(hours=12)
-    assert conj.alert_level == "HIGH"
+    assert conj.risk_category == "HIGH"
 
-    # §3 maneuver magnitudes / status preserved.
-    mnv = facts.maneuvers[0]
-    assert mnv.status == "PRESENT"
-    assert mnv.history_epochs == 5
-    assert mnv.delta_v_m_s == 1.4
-    assert mnv.delta_sma_km == 5.0
-    assert mnv.classification == "STATIONKEEP"
+    # §5a counts preserved.
+    assert facts.debris_risk_counts.critical == 1
+    assert facts.debris_risk_counts.high == 2
+    assert facts.debris_risk_counts.moderate == 3
+    assert facts.debris_risk_counts.low == 4
 
-    # §4 window dates preserved.
-    assert facts.reentries[0].predicted_window_start == DAY_START
-    assert facts.reentries[0].predicted_window_end == DAY_START + timedelta(days=1)
+    # §5c high-risk debris: numeric + risk + country preserved.
+    d = facts.high_risk_debris[0]
+    assert d.risk_grade == "심각"
+    assert d.rcs_size == "LARGE"
+    assert d.mean_altitude_km == 780.0
+    assert d.perigee_km == 760.0
+    assert d.apogee_km == 800.0
+    assert d.country_code == "PRC"
+    assert d.country_name == "중국"
 
-    # §5 counts preserved.
-    assert sorted(c.count for c in facts.country_breakdown) == [1, 2]
 
-    # charts: numeric points preserved.
-    assert len(facts.time_series[0].points) == 2
-    assert facts.time_series[0].points[0].apogee_km == 420.0
+# --- Country codes ARE allowed (public subject) -----------------------------
+
+
+def test_country_codes_and_names_are_present() -> None:
+    blob = to_llm_facts(_populated_payload()).facts.model_dump_json()
+    # Report country codes + owner codes/names are the report's public subject.
+    for allowed in ("NK", "CN", "PRK", "PRC", "TOTAL", "북한", "중국"):
+        assert allowed in blob, f"allowed country token missing from facts: {allowed!r}"
 
 
 # --- Fail-closed: a NEW sensitive field must NOT leak [CRITICAL] -------------
@@ -231,11 +232,10 @@ def test_fail_closed_new_sensitive_field_is_excluded() -> None:
     """
     payload = _populated_payload()
 
-    # Inject a NEW, never-allowlisted sensitive field onto a real nested model
-    # instance (pydantic v2 keeps __pydantic_extra__-style attrs accessible; we
-    # set a plain attribute the sanitizer would have to *opt in* to copy).
-    payload.surveillance_objects[0].__dict__["classification_marking"] = "TS//SI"
-    payload.surveillance_objects[0].__dict__["unit_name"] = "고급분석단"
+    # Inject a NEW, never-allowlisted sensitive field onto real nested model
+    # instances (a plain attribute the sanitizer would have to *opt in* to copy).
+    payload.country_activity[0].passes[0].__dict__["classification_marking"] = "TS//SI"
+    payload.high_risk_debris[0].__dict__["unit_name"] = "고급분석단"
 
     result = to_llm_facts(payload)
     dumped = result.facts.model_dump()
@@ -264,24 +264,27 @@ def test_identities_anonymized_and_alias_map_round_trips() -> None:
     facts = result.facts
     alias = result.alias_map
 
-    # Objects carry opaque tokens, not raw ids.
-    tokens = {o.token for o in facts.objects}
-    assert tokens == {"OBJ-1", "OBJ-2"}
+    # The NK pass satellite is tokenized (by satellite_id).
+    pass_token = facts.country_activity[0].passes[0].token
+    assert pass_token == "OBJ-1"
+    assert alias[pass_token] == "SH:CAT:000025544"
 
-    # The same object id keeps one stable token across §1 / §3 / §2 / charts.
-    obj_a_token = facts.objects[0].token
-    assert facts.maneuvers[0].token == obj_a_token
-    assert facts.conjunctions[0].primary_token == obj_a_token
-    assert facts.time_series[0].token == obj_a_token
+    # The same satellite name reused in a conjunction keeps... a distinct token,
+    # because the pass keys on satellite_id and the conjunction keys on name.
+    conj = facts.conjunctions[0]
+    assert conj.primary_token.startswith("OBJ-")
+    assert conj.secondary_token.startswith("OBJ-")
+    assert alias[conj.primary_token] == "ISS (ZARYA)"
+    assert alias[conj.secondary_token] == "KEYHOLE 11"
 
-    # Owner codes anonymized under their own namespace.
-    owner_tokens = {c.token for c in facts.country_breakdown}
-    assert owner_tokens == {"OWN-1", "OWN-2"}
+    # Debris identity tokenized too.
+    debris_token = facts.high_risk_debris[0].token
+    assert debris_token.startswith("OBJ-")
+    assert alias[debris_token] == "COSMOS DEB"
 
-    # alias_map round-trips token -> original (de-anonymization of LLM prose).
-    assert alias[obj_a_token] == "SH:CAT:000025544"
-    assert alias[facts.objects[1].token] == "1998-067A"
-    assert {alias[t] for t in owner_tokens} == {"US", "PRC"}
+    # All tokens are distinct OBJ-N values.
+    all_tokens = {pass_token, conj.primary_token, conj.secondary_token, debris_token}
+    assert len(all_tokens) == 4
 
 
 # --- No-leak string scan ----------------------------------------------------
@@ -303,11 +306,12 @@ def test_empty_payload_yields_valid_empty_facts() -> None:
     facts = result.facts
     assert isinstance(facts, LLMFacts)
     assert facts.report_date == REPORT_DATE
-    assert facts.categories == []
-    assert facts.objects == []
+    assert facts.watchlist == []
+    assert facts.watchlist_total is None
+    assert facts.country_activity == []
     assert facts.conjunctions == []
-    assert facts.maneuvers == []
-    assert facts.reentries == []
-    assert facts.country_breakdown == []
-    assert facts.time_series == []
+    assert facts.high_risk_debris == []
+    # Default zeroed debris risk counts.
+    assert facts.debris_risk_counts.critical == 0
+    assert facts.debris_risk_counts.low == 0
     assert result.alias_map == {}

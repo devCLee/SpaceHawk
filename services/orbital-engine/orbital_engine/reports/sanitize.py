@@ -18,28 +18,35 @@ Allowlisted safe-field set (everything else is dropped)
 ------------------------------------------------------
 
     report_date .............. date
-    §1 categories ............ {category, count}                (counts only)
-    §1 objects ............... {token, regime, object_type}     (id anonymized)
-    §2 conjunctions .......... {primary_token, secondary_token, miss_distance_km,
-                                probability, tca, alert_level}  (ids anonymized)
-    §3 maneuvers ............. {token, status, history_epochs, classification,
-                                delta_v_m_s, delta_sma_km, epoch}  (id anonymized)
-    §4 reentries ............. {token, predicted_window_start, predicted_window_end}
-    §5 country_breakdown ..... {token, count}                   (owner anonymized)
-    charts (time_series) ..... {token, points:[{epoch, apogee_km, perigee_km}]}
+    watchlist (§1) ........... [{country_code, country_name, leo, meo, geo, heo,
+                                total}]  (country IS allowed — public subject)
+    watchlist_total (§1) ..... {country_code='TOTAL', leo, meo, geo, heo, total}
+    country_activity (§2/§3) . [{country_code, country_name, pass_count,
+                                passes:[{token, closest_distance_km,
+                                elevation_deg}]}]  (satellite identity → token)
+    conjunctions (§4) ........ [{primary_token, secondary_token, distance_km,
+                                probability, tca, risk_category}]  (ids → tokens)
+    debris_risk_counts (§5a) . {critical, high, moderate, low}
+    high_risk_debris (§5c) ... [{token, risk_grade, rcs_size, mean_altitude_km,
+                                period_min, perigee_km, apogee_km, country_code,
+                                country_name}]  (debris identity → token)
 
-EXCLUDED by construction (never copied across): raw object_id / norad_cat_id,
-object_name, owner_code, owner_name, primary_name / secondary_name, raw
-conjunction_id, and any future field.
+COUNTRY IS ALLOWED. The four report countries (NK/CN/RU/JP) and the owner
+country codes/names are the PUBLIC subject of the report, so they are copied
+verbatim and never tokenized. Only individual OBJECT identities are anonymized.
+
+EXCLUDED by construction (never copied across): satellite_name / object_name /
+debris_name, raw satellite_id / NORAD ids, conjunction primary/secondary names,
+free-text remarks, and any future field.
 
 Anonymization
 -------------
 
-Every real identity (object_id / NORAD / name, owner code, conjunction id) is
-replaced by an opaque, stable token ("OBJ-1", "OBJ-2", "OWN-1", "CDM-1", ...).
-The token -> original mapping is returned separately in
+Every individual object identity (satellite, conjunction primary/secondary,
+debris) is replaced by an opaque, stable token ("OBJ-1", "OBJ-2", ...). The
+token -> original mapping is returned separately in
 :attr:`SanitizeResult.alias_map` so the caller can de-anonymize the LLM's prose
-afterwards. The LLM only ever sees tokens.
+afterwards. The LLM only ever sees tokens for objects; country stays in clear.
 """
 
 from __future__ import annotations
@@ -52,113 +59,107 @@ from orbital_engine.reports.schemas import DailyReportPayload
 
 
 class _Anonymizer:
-    """Stable real-identity -> opaque-token mapper.
+    """Stable object-identity -> opaque-token mapper.
 
-    Keys are namespaced by prefix so the same string used as both an object id
-    and (hypothetically) an owner code never collides, and so tokens read
-    meaningfully in the prose ("OBJ-1" vs "OWN-1"). Re-requesting a key returns
-    the same token, so a satellite that appears in §1, §3 and the charts keeps
-    one stable token across the whole report.
+    Re-requesting a key returns the same token, so an object that appears in
+    both §2/§3 activity and a §4 conjunction keeps one stable token across the
+    whole report. Only object identities are tokenized; country is never a key.
     """
 
     def __init__(self) -> None:
-        self._by_prefix: dict[str, dict[str, str]] = {}
+        self._seen: dict[str, str] = {}
         self.alias_map: dict[str, str] = {}
 
-    def token(self, prefix: str, original: str) -> str:
-        seen = self._by_prefix.setdefault(prefix, {})
-        if original in seen:
-            return seen[original]
-        token = f"{prefix}-{len(seen) + 1}"
-        seen[original] = token
+    def token(self, original: str) -> str:
+        if original in self._seen:
+            return self._seen[original]
+        token = f"OBJ-{len(self._seen) + 1}"
+        self._seen[original] = token
         self.alias_map[token] = original
         return token
 
 
-class LLMCategoryFact(BaseModel):
-    """§1 — one functional-category count (no object identity)."""
+class LLMWatchlistRow(BaseModel):
+    """§1 — one country's watchlist counts by regime (country IS allowed)."""
 
-    category: str
-    count: int
+    country_code: str
+    country_name: str | None = None
+    leo: int
+    meo: int
+    geo: int
+    heo: int
+    total: int
 
 
-class LLMObjectFact(BaseModel):
-    """§1 — one notable object, identity reduced to an opaque token."""
+class LLMPassFact(BaseModel):
+    """§2/§3 — one peninsula pass; the satellite is an opaque token."""
 
     token: str
-    regime: str | None = None
-    object_type: str | None = None
+    closest_distance_km: float | None = None
+    elevation_deg: float | None = None
+
+
+class LLMCountryActivityFact(BaseModel):
+    """§2/§3 — one report country's activity (country allowed, sats tokenized)."""
+
+    country_code: str
+    country_name: str
+    pass_count: int
+    passes: list[LLMPassFact] = Field(default_factory=list)
 
 
 class LLMConjunctionFact(BaseModel):
-    """§2 — one close approach; both objects are opaque tokens."""
+    """§4 — one close approach; both objects are opaque tokens."""
 
     primary_token: str
     secondary_token: str
-    miss_distance_km: float
+    distance_km: float
     probability: float | None = None
     tca: datetime
-    alert_level: str
+    risk_category: str
 
 
-class LLMManeuverFact(BaseModel):
-    """§3 — one maneuver-analysis result, identity reduced to a token."""
+class LLMDebrisRiskCounts(BaseModel):
+    """§5a — object counts per risk level (purely numeric)."""
 
-    token: str
-    status: str
-    history_epochs: int
-    classification: str | None = None
-    delta_v_m_s: float | None = None
-    delta_sma_km: float | None = None
-    epoch: datetime | None = None
+    critical: int
+    high: int
+    moderate: int
+    low: int
 
 
-class LLMReentryFact(BaseModel):
-    """§4 — one predicted re-entry, identity reduced to a token."""
+class LLMHighRiskDebrisFact(BaseModel):
+    """§5c — one high-risk debris object; identity tokenized, country allowed."""
 
     token: str
-    predicted_window_start: datetime
-    predicted_window_end: datetime
-
-
-class LLMCountryFact(BaseModel):
-    """§5 — one owner/country bucket; the owner is an opaque token."""
-
-    token: str
-    count: int
-
-
-class LLMTimeSeriesPoint(BaseModel):
-    """One altitude sample (purely numeric)."""
-
-    epoch: datetime
-    apogee_km: float | None = None
+    risk_grade: str
+    rcs_size: str | float | None = None
+    mean_altitude_km: float | None = None
+    period_min: float | None = None
     perigee_km: float | None = None
-
-
-class LLMTimeSeriesFact(BaseModel):
-    """One per-object altitude series, identity reduced to a token."""
-
-    token: str
-    points: list[LLMTimeSeriesPoint] = Field(default_factory=list)
+    apogee_km: float | None = None
+    country_code: str
+    country_name: str | None = None
 
 
 class LLMFacts(BaseModel):
     """The ONLY data structure that may be serialized into the LLM prompt.
 
     Built field-by-field from an allowlist (see module docstring): it carries
-    counts, distances/altitudes in km, probabilities, dates, regime/type
-    categories, status enums and anonymized tokens — and nothing else.
+    counts, distances/altitudes in km, probabilities, dates, regime categories,
+    risk tiers, country codes/names (allowed) and anonymized object tokens — and
+    nothing else.
     """
 
     report_date: date
-    categories: list[LLMCategoryFact] = Field(default_factory=list)
-    objects: list[LLMObjectFact] = Field(default_factory=list)
+    watchlist: list[LLMWatchlistRow] = Field(default_factory=list)
+    watchlist_total: LLMWatchlistRow | None = None
+    country_activity: list[LLMCountryActivityFact] = Field(default_factory=list)
     conjunctions: list[LLMConjunctionFact] = Field(default_factory=list)
-    maneuvers: list[LLMManeuverFact] = Field(default_factory=list)
-    reentries: list[LLMReentryFact] = Field(default_factory=list)
-    country_breakdown: list[LLMCountryFact] = Field(default_factory=list)
-    time_series: list[LLMTimeSeriesFact] = Field(default_factory=list)
+    debris_risk_counts: LLMDebrisRiskCounts = Field(
+        default_factory=lambda: LLMDebrisRiskCounts(critical=0, high=0, moderate=0, low=0)
+    )
+    high_risk_debris: list[LLMHighRiskDebrisFact] = Field(default_factory=list)
 
 
 class SanitizeResult(BaseModel):
@@ -168,90 +169,94 @@ class SanitizeResult(BaseModel):
     alias_map: dict[str, str] = Field(default_factory=dict)
 
 
+def _watchlist_row(row: object) -> LLMWatchlistRow:
+    """Copy the allowlisted watchlist fields off a payload ``WatchlistRow``."""
+    return LLMWatchlistRow(
+        country_code=row.country_code,  # type: ignore[attr-defined]
+        country_name=row.country_name,  # type: ignore[attr-defined]
+        leo=row.leo,  # type: ignore[attr-defined]
+        meo=row.meo,  # type: ignore[attr-defined]
+        geo=row.geo,  # type: ignore[attr-defined]
+        heo=row.heo,  # type: ignore[attr-defined]
+        total=row.total,  # type: ignore[attr-defined]
+    )
+
+
 def to_llm_facts(payload: DailyReportPayload) -> SanitizeResult:
     """Build the LLM-safe :class:`LLMFacts` from ``payload`` (allowlist).
 
     Each safe field is read explicitly off the payload and placed into a freshly
-    constructed ``LLMFacts``; nothing is copied wholesale. Real identities become
-    opaque tokens, with the token -> original mapping returned in
-    :attr:`SanitizeResult.alias_map` for later de-anonymization of the prose.
+    constructed ``LLMFacts``; nothing is copied wholesale. Country codes/names
+    are copied verbatim (allowed); individual object identities (satellites,
+    conjunction objects, debris) become opaque ``OBJ-N`` tokens, with the
+    token -> original mapping returned in :attr:`SanitizeResult.alias_map` for
+    later de-anonymization of the prose.
     """
     anon = _Anonymizer()
 
-    categories = [
-        LLMCategoryFact(category=c.category, count=c.count)
-        for c in payload.surveillance_categories
-    ]
+    watchlist = [_watchlist_row(r) for r in payload.watchlist_matrix]
+    watchlist_total = (
+        _watchlist_row(payload.watchlist_total) if payload.watchlist_total is not None else None
+    )
 
-    objects = [
-        LLMObjectFact(
-            token=anon.token("OBJ", o.object_id),
-            regime=o.regime,
-            object_type=o.object_type,
+    country_activity = [
+        LLMCountryActivityFact(
+            country_code=ca.country_code,
+            country_name=ca.country_name,
+            pass_count=len(ca.passes),
+            passes=[
+                LLMPassFact(
+                    token=anon.token(p.satellite_id),
+                    closest_distance_km=p.closest_distance_km,
+                    elevation_deg=p.elevation_deg,
+                )
+                for p in ca.passes
+            ],
         )
-        for o in payload.surveillance_objects
+        for ca in payload.country_activity
     ]
 
     conjunctions = [
         LLMConjunctionFact(
-            primary_token=anon.token("OBJ", c.primary_object_id),
-            secondary_token=anon.token("OBJ", c.secondary_object_id),
-            miss_distance_km=c.miss_distance_km,
+            primary_token=anon.token(c.satellite_name),
+            secondary_token=anon.token(c.object_name),
+            distance_km=c.distance_km,
             probability=c.probability,
             tca=c.tca,
-            alert_level=c.alert_level,
+            risk_category=c.risk_category,
         )
         for c in payload.conjunctions
     ]
 
-    maneuvers = [
-        LLMManeuverFact(
-            token=anon.token("OBJ", m.object_id),
-            status=m.status.value,
-            history_epochs=m.history_epochs,
-            classification=m.classification,
-            delta_v_m_s=m.delta_v_m_s,
-            delta_sma_km=m.delta_sma_km,
-            epoch=m.epoch,
-        )
-        for m in payload.maneuvers
-    ]
+    debris_risk_counts = LLMDebrisRiskCounts(
+        critical=payload.debris_risk_counts.critical,
+        high=payload.debris_risk_counts.high,
+        moderate=payload.debris_risk_counts.moderate,
+        low=payload.debris_risk_counts.low,
+    )
 
-    reentries = [
-        LLMReentryFact(
-            token=anon.token("OBJ", r.object_id),
-            predicted_window_start=r.predicted_window_start,
-            predicted_window_end=r.predicted_window_end,
+    high_risk_debris = [
+        LLMHighRiskDebrisFact(
+            token=anon.token(d.debris_name),
+            risk_grade=d.risk_grade,
+            rcs_size=d.rcs_size,
+            mean_altitude_km=d.mean_altitude_km,
+            period_min=d.period_min,
+            perigee_km=d.perigee_km,
+            apogee_km=d.apogee_km,
+            country_code=d.country_code,
+            country_name=d.country_name,
         )
-        for r in payload.reentries
-    ]
-
-    country_breakdown = [
-        LLMCountryFact(token=anon.token("OWN", c.owner_code), count=c.count)
-        for c in payload.country_breakdown
-    ]
-
-    time_series = [
-        LLMTimeSeriesFact(
-            token=anon.token("OBJ", s.object_id),
-            points=[
-                LLMTimeSeriesPoint(
-                    epoch=p.epoch, apogee_km=p.apogee_km, perigee_km=p.perigee_km
-                )
-                for p in s.points
-            ],
-        )
-        for s in payload.time_series
+        for d in payload.high_risk_debris
     ]
 
     facts = LLMFacts(
         report_date=payload.report_date,
-        categories=categories,
-        objects=objects,
+        watchlist=watchlist,
+        watchlist_total=watchlist_total,
+        country_activity=country_activity,
         conjunctions=conjunctions,
-        maneuvers=maneuvers,
-        reentries=reentries,
-        country_breakdown=country_breakdown,
-        time_series=time_series,
+        debris_risk_counts=debris_risk_counts,
+        high_risk_debris=high_risk_debris,
     )
     return SanitizeResult(facts=facts, alias_map=dict(anon.alias_map))

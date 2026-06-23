@@ -1,17 +1,19 @@
-"""Tests for the HWPX template filler (T5).
+"""Tests for the HWPX daily-report filler (R6).
 
-The shipped ``daily_report.hwpx`` lacks the unique anchor labels the filler needs
-(its tables repeat column headers and leave data cells blank), so these tests
-build a SYNTHETIC template in-process with :meth:`HwpxDocument.new` + ``add_table``
-carrying exactly the labels :data:`hwpx_filler.SLOTMAP` expects. That exercises
-the full fill + embed + raise-on-failure logic against a real OWPML document.
+The shipped ``assets/daily_report.hwpx`` is fully addressable by table index
+(STEP-1 introspection: 10 tables, one blank data row per multi-row table, prose
+in top-level section paragraphs), so these tests fill the REAL template and assert
+on the re-opened document. Covered:
 
-Covered:
-* happy path → valid HWPX bytes (PK zip header), every slot applied;
-* the returned bytes re-open as a valid HWPX (round-trip + ``validate().ok``);
-* a chart embed actually lands an image in the document;
-* an unknown / missing text slot → :class:`FillError` (never a silent pass);
-* a missing chart PNG and an ambiguous/absent anchor → :class:`FillError`.
+* multi-row fill (watchlist / 4 country passes / conjunctions / high-risk debris)
+  via row cloning — N items render N rows;
+* single-value cells (§5a risk counts) filled;
+* prose (§6 analysis items + §7 response ops) inserted under the right headings;
+* web-supplied images (globes / density / heatmap) embedded; missing images do
+  NOT fail;
+* [CRITICAL] a structurally wrong template (too few tables / missing data row /
+  missing prose heading) -> FillError;
+* output bytes re-open as a valid HWPX.
 """
 
 from __future__ import annotations
@@ -23,20 +25,21 @@ from datetime import UTC, date, datetime
 
 import pytest
 from hwpx import HwpxDocument
+from hwpx.tools.table_navigation import _collect_document_tables
 
 from orbital_engine.reports import hwpx_filler
-from orbital_engine.reports.hwpx_filler import (
-    SLOTMAP,
-    ChartSlot,
-    FillError,
-    SlotMap,
-    fill_daily_report,
-)
+from orbital_engine.reports.hwpx_filler import FillError, fill_daily_report
 from orbital_engine.reports.schemas import (
+    AnalysisItem,
     ConjunctionRow,
-    CountryBreakdownEntry,
+    CountryActivity,
     DailyReportPayload,
-    SurveillanceCategoryCount,
+    DebrisRiskCounts,
+    HighRiskDebrisRow,
+    ReportImages,
+    ReportProse,
+    SatellitePass,
+    WatchlistRow,
 )
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -44,16 +47,19 @@ PK_SIGNATURE = b"PK"
 
 
 # --------------------------------------------------------------------------- #
-# fixtures
+# helpers
 # --------------------------------------------------------------------------- #
 
 
 def _tiny_png() -> bytes:
-    """A minimal but valid 1x1 PNG (sidesteps a matplotlib dependency in tests)."""
+    """A minimal but valid 1x1 PNG (no matplotlib dependency in tests)."""
 
     def _chunk(tag: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(
-            ">I", zlib.crc32(tag + data) & 0xFFFFFFFF
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
         )
 
     ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
@@ -61,219 +67,370 @@ def _tiny_png() -> bytes:
     return PNG_SIGNATURE + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
 
 
-def _synthetic_template() -> bytes:
-    """Build an OWPML template whose cells carry the slotmap's unique labels.
-
-    Layout: a 2-row table per slot family. Text anchors put the label in the cell
-    left of / above the value cell; chart anchors put the label above an empty
-    cell that will hold the picture. Every label here is globally unique, so
-    ``fill_by_path`` / ``find_cell_by_label`` resolve to exactly one cell.
-    """
-    doc = HwpxDocument.new()
-
-    # Text slots reachable by "<label> > right": label in col0, value in col1.
-    right_labels = [
-        "보고일자",
-        "감시위성 합계",
-        "최우선 근접 위성",
-        "최우선 근접 거리",
-        "최다 보유국",
-    ]
-    for label in right_labels:
-        table = doc.add_table(1, 2)
-        table.set_cell_text(0, 0, label, logical=True)
-
-    # Prose slots reachable by "<label> > down": label in row0, body in row1.
-    for label in ["개요 본문", "분석내용 본문", "향후추진 본문"]:
-        table = doc.add_table(2, 1)
-        table.set_cell_text(0, 0, label, logical=True)
-
-    # Chart anchors reachable by "<label> > down": label in row0, image in row1.
-    for slot in SLOTMAP.charts:
-        table = doc.add_table(2, 1)
-        table.set_cell_text(0, 0, slot.label, logical=True)
-
-    return doc.to_bytes()
+def _reopen(out: bytes) -> HwpxDocument:
+    return HwpxDocument.open(io.BytesIO(out))
 
 
-@pytest.fixture
-def template_path(tmp_path) -> str:
-    path = tmp_path / "synthetic_template.hwpx"
-    path.write_bytes(_synthetic_template())
-    return str(path)
+def _table_dims(doc: HwpxDocument, index: int) -> tuple[int, int]:
+    table = _collect_document_tables(doc)[index].table
+    return table.row_count, table.column_count
+
+
+# --------------------------------------------------------------------------- #
+# fixtures
+# --------------------------------------------------------------------------- #
 
 
 @pytest.fixture
 def payload() -> DailyReportPayload:
     return DailyReportPayload(
         report_date=date(2026, 6, 22),
-        surveillance_categories=[
-            SurveillanceCategoryCount(category="recon", count=7),
-            SurveillanceCategoryCount(category="comms", count=5),
+        watchlist_matrix=[
+            WatchlistRow(
+                country_code="US", country_name="미국", leo=10, meo=1, geo=2, heo=0, total=13
+            ),
+            WatchlistRow(
+                country_code="CN", country_name="중국", leo=5, meo=0, geo=3, heo=1, total=9
+            ),
+        ],
+        watchlist_total=WatchlistRow(
+            country_code="TOTAL", country_name="합계", leo=15, meo=1, geo=5, heo=1, total=22
+        ),
+        country_activity=[
+            CountryActivity(
+                country_code="NK",
+                country_name="북한",
+                passes=[
+                    SatellitePass(
+                        satellite_name="KMS-4",
+                        satellite_id="41332",
+                        pass_time=datetime(2026, 6, 22, 3, 14, tzinfo=UTC),
+                        closest_time=datetime(2026, 6, 22, 3, 16, tzinfo=UTC),
+                        closest_distance_km=412.5,
+                        azimuth_deg=128.0,
+                        elevation_deg=42.0,
+                        remarks="첫 통과",
+                    ),
+                    SatellitePass(
+                        satellite_name="KMS-3",
+                        satellite_id="39026",
+                        pass_time=datetime(2026, 6, 22, 14, 2, tzinfo=UTC),
+                    ),
+                ],
+            ),
+            CountryActivity(
+                country_code="CN",
+                country_name="중국",
+                passes=[
+                    SatellitePass(
+                        satellite_name="YAOGAN-30",
+                        satellite_id="43000",
+                        pass_time=datetime(2026, 6, 22, 5, 0, tzinfo=UTC),
+                    )
+                ],
+            ),
         ],
         conjunctions=[
             ConjunctionRow(
-                conjunction_id="CDM-1",
-                primary_object_id="OBJ-A",
-                primary_name="KOMPSAT-5",
-                secondary_object_id="OBJ-B",
-                secondary_name="DEBRIS-9",
-                miss_distance_km=0.842,
-                probability=1e-4,
+                satellite_name="KOMPSAT-5",
+                object_name="DEBRIS-9",
                 tca=datetime(2026, 6, 22, 3, 14, tzinfo=UTC),
-                alert_level="HIGH",
+                distance_km=0.842,
+                probability=1e-4,
+                risk_category="높음",
             ),
             ConjunctionRow(
-                conjunction_id="CDM-2",
-                primary_object_id="OBJ-C",
-                primary_name="ARIRANG",
-                secondary_object_id="OBJ-D",
-                secondary_name="ROCKET BODY",
-                miss_distance_km=5.0,
-                probability=1e-6,
+                satellite_name="ARIRANG",
+                object_name="ROCKET BODY",
                 tca=datetime(2026, 6, 22, 9, 0, tzinfo=UTC),
-                alert_level="LOW",
+                distance_km=5.0,
+                probability=1e-6,
+                risk_category="낮음",
             ),
         ],
-        country_breakdown=[
-            CountryBreakdownEntry(owner_code="US", owner_name="미국", count=120),
-            CountryBreakdownEntry(owner_code="PRC", owner_name="중국", count=90),
+        debris_risk_counts=DebrisRiskCounts(critical=2, high=7, moderate=15, low=120),
+        high_risk_debris=[
+            HighRiskDebrisRow(
+                country_code="CIS",
+                country_name="러시아",
+                debris_name="COSMOS 1408 DEB",
+                risk_grade="심각",
+                rcs_size="LARGE",
+                mean_altitude_km=480.0,
+                period_min=94.2,
+                perigee_km=460.0,
+                apogee_km=500.0,
+            ),
+            HighRiskDebrisRow(
+                country_code="PRC",
+                country_name="중국",
+                debris_name="FENGYUN 1C DEB",
+                risk_grade="높음",
+                rcs_size=0.5,
+                mean_altitude_km=860.0,
+                period_min=102.0,
+                perigee_km=850.0,
+                apogee_km=870.0,
+            ),
         ],
     )
 
 
 @pytest.fixture
-def prose() -> dict[str, str]:
-    return {
-        "개요": "오늘의 우주 상황 개요.",
-        "분석내용": "근접 위험 분석 내용.",
-        "향후추진": "향후 추진 계획.",
-    }
+def prose() -> ReportProse:
+    return ReportProse(
+        analysis_items=[
+            AnalysisItem(
+                detail="북한 정찰위성 통과 식별.",
+                cause_forecast="궤도 유지 기동 없음, 추가 통과 예상.",
+            ),
+            AnalysisItem(
+                detail="고위험 잔해 1건 근접.",
+                cause_forecast="자연 감쇠로 위험 감소 예상.",
+            ),
+        ],
+        response_ops=[
+            "추적 레이더 자산 우선 배정.",
+            "근접 위성 운용사 통보.",
+        ],
+    )
 
 
 @pytest.fixture
-def charts() -> dict[str, bytes]:
+def images() -> ReportImages:
     png = _tiny_png()
-    return {slot.chart_key: png for slot in SLOTMAP.charts}
+    return ReportImages(
+        country_globes={"NK": png, "CN": png, "RU": png, "JP": png},
+        debris_density=png,
+        debris_heatmap=png,
+    )
 
 
 # --------------------------------------------------------------------------- #
-# happy path
+# happy path — valid output
 # --------------------------------------------------------------------------- #
 
 
-def test_fill_returns_valid_hwpx_bytes(template_path, payload, prose, charts) -> None:
-    out = fill_daily_report(payload, prose, charts, template_path=template_path)
+def test_fill_returns_valid_hwpx_bytes(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
 
     assert isinstance(out, bytes)
     assert out.startswith(PK_SIGNATURE)  # HWPX is a zip
     assert len(out) > len(PK_SIGNATURE)
 
 
-def test_output_reopens_as_valid_hwpx(template_path, payload, prose, charts) -> None:
-    out = fill_daily_report(payload, prose, charts, template_path=template_path)
+def test_output_reopens_as_valid_hwpx(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
 
-    reopened = HwpxDocument.open(io.BytesIO(out))
-    assert reopened.validate().ok
-
-
-def test_text_slots_actually_filled(template_path, payload, prose, charts) -> None:
-    out = fill_daily_report(payload, prose, charts, template_path=template_path)
-    text = HwpxDocument.open(io.BytesIO(out)).export_text()
-
-    # report_date formatted, the most-severe conjunction (0.842 km), the leader.
-    assert "2026. 06. 22." in text
-    assert "12" in text  # surveillance total 7 + 5
-    assert "KOMPSAT-5 / DEBRIS-9" in text
-    assert "0.842" in text
-    assert "미국" in text
-    assert "오늘의 우주 상황 개요." in text
+    assert _reopen(out).validate().ok
 
 
-def test_charts_embedded_into_document(template_path, payload, prose, charts) -> None:
-    out = fill_daily_report(payload, prose, charts, template_path=template_path)
-    reopened = HwpxDocument.open(io.BytesIO(out))
-
-    images = reopened.list_images()
-    assert len(images) == len(SLOTMAP.charts)
-    assert all(img["Format"] == "png" for img in images)
+# --------------------------------------------------------------------------- #
+# multi-row tables (row cloning — N items render N rows)
+# --------------------------------------------------------------------------- #
 
 
-def test_empty_sections_fill_with_placeholder(template_path, prose, charts) -> None:
+def test_watchlist_rows_cloned_and_filled(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+    table = _collect_document_tables(doc)[hwpx_filler._WATCHLIST_TABLE].table
+
+    # header (1) + 2 country rows + 1 total row = 4
+    assert table.row_count == 4
+    assert [table.cell(1, c).text for c in range(6)] == ["미국", "10", "1", "2", "0", "13"]
+    assert [table.cell(2, c).text for c in range(6)] == ["중국", "5", "0", "3", "1", "9"]
+    assert [table.cell(3, c).text for c in range(6)] == ["합계", "15", "1", "5", "1", "22"]
+
+
+def test_country_pass_rows_cloned(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+
+    nk_index = hwpx_filler._COUNTRY_TABLES[hwpx_filler.ReportCountry.NORTH_KOREA]
+    nk = _collect_document_tables(doc)[nk_index].table
+    # title(0) + image(1) + col-headers(2) + 2 pass rows = 5
+    assert nk.row_count == 5
+    text = doc.export_text()
+    assert "KMS-4" not in text  # satellite_name is not a column; sanity that we use pass_time
+    assert "2026-06-22 03:14Z" in text
+    assert "412.50 km" in text
+    assert "첫 통과" in text
+
+
+def test_conjunction_rows_filled(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+    table = _collect_document_tables(doc)[hwpx_filler._CONJUNCTION_TABLE].table
+
+    assert table.row_count == 3  # header + 2 rows
+    assert [table.cell(1, c).text for c in range(6)] == [
+        "KOMPSAT-5",
+        "DEBRIS-9",
+        "2026-06-22 03:14Z",
+        "0.842",
+        "1.00e-04",
+        "높음",
+    ]
+
+
+def test_high_risk_debris_rows_filled(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+    table = _collect_document_tables(doc)[hwpx_filler._HIGH_RISK_TABLE].table
+
+    assert table.row_count == 3  # header + 2 rows
+    assert [table.cell(1, c).text for c in range(7)] == [
+        "러시아",
+        "COSMOS 1408 DEB",
+        "심각",
+        "LARGE",
+        "480.00",
+        "94.20",
+        "460.00/500.00",
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# single-value cells (§5a risk counts)
+# --------------------------------------------------------------------------- #
+
+
+def test_risk_counts_filled(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+    table = _collect_document_tables(doc)[hwpx_filler._RISK_COUNT_TABLE].table
+
+    assert [table.cell(1, c).text for c in range(4)] == ["2", "7", "15", "120"]
+
+
+# --------------------------------------------------------------------------- #
+# prose (§6 / §7)
+# --------------------------------------------------------------------------- #
+
+
+def test_prose_inserted(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
+    text = _reopen(out).export_text()
+
+    assert "상세 분석 내용: 북한 정찰위성 통과 식별." in text
+    assert "원인 및 예상 분석: 궤도 유지 기동 없음, 추가 통과 예상." in text
+    assert "추적 레이더 자산 우선 배정." in text
+    assert "근접 위성 운용사 통보." in text
+
+
+# --------------------------------------------------------------------------- #
+# images
+# --------------------------------------------------------------------------- #
+
+
+def test_all_images_embedded(payload, prose, images) -> None:
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+
+    # 4 globes + density + heatmap = 6 images.
+    embedded = doc.list_images()
+    assert len(embedded) == 6
+    assert all(img["Format"] == "png" for img in embedded)
+
+
+def test_missing_images_do_not_fail(payload, prose) -> None:
+    # No images at all -> still a valid report, just no embedded pictures.
+    out = fill_daily_report(payload, prose, ReportImages())
+    doc = _reopen(out)
+
+    assert doc.validate().ok
+    assert doc.list_images() == []
+
+
+def test_partial_images_embed_only_supplied(payload, prose) -> None:
+    png = _tiny_png()
+    partial = ReportImages(country_globes={"NK": png}, debris_heatmap=png)
+    out = fill_daily_report(payload, prose, partial)
+    doc = _reopen(out)
+
+    assert len(doc.list_images()) == 2  # one globe + heatmap, density absent
+
+
+# --------------------------------------------------------------------------- #
+# empty payload still produces a valid report (every section empty-capable)
+# --------------------------------------------------------------------------- #
+
+
+def test_empty_payload_fills_validly(prose, images) -> None:
     empty = DailyReportPayload(report_date=date(2026, 6, 22))
-    out = fill_daily_report(empty, prose, charts, template_path=template_path)
-    text = HwpxDocument.open(io.BytesIO(out)).export_text()
+    out = fill_daily_report(empty, prose, images)
+    doc = _reopen(out)
 
-    assert "0" in text  # surveillance total
-    assert "정보 없음" in text  # no conjunctions / no country breakdown
+    assert doc.validate().ok
+    # The blank single data rows are left untouched (no clone needed).
+    assert _table_dims(doc, hwpx_filler._WATCHLIST_TABLE)[0] == 2
+    # Risk counts default to zero and are still written.
+    risk = _collect_document_tables(doc)[hwpx_filler._RISK_COUNT_TABLE].table
+    assert [risk.cell(1, c).text for c in range(4)] == ["0", "0", "0", "0"]
 
 
 # --------------------------------------------------------------------------- #
-# failure policy (CRITICAL) — never ship a half-filled report
+# failure policy (CRITICAL) — fail closed on a structurally wrong template
 # --------------------------------------------------------------------------- #
 
 
-def test_missing_text_label_raises(template_path, payload, prose, charts) -> None:
-    bad = SlotMap(
-        text_paths={**SLOTMAP.text_paths, "phantom": "존재하지 않는 라벨 > right"},
-        charts=SLOTMAP.charts,
-    )
-    with pytest.raises(FillError) as exc:
-        fill_daily_report(payload, prose, charts, template_path=template_path, slotmap=bad)
-    assert "phantom" in str(exc.value)
-
-
-def test_ambiguous_text_label_raises(payload, prose, charts, tmp_path) -> None:
-    # Two cells with the same label make fill_by_path refuse ("ambiguous label").
+def test_too_few_tables_raises(payload, prose, images, tmp_path) -> None:
+    # A document with no report tables can never hold the data -> FillError.
     doc = HwpxDocument.new()
-    for _ in range(2):
-        table = doc.add_table(1, 2)
-        table.set_cell_text(0, 0, "보고일자", logical=True)
-    path = tmp_path / "ambiguous.hwpx"
+    doc.add_table(2, 2)
+    path = tmp_path / "too_few.hwpx"
     path.write_bytes(doc.to_bytes())
 
-    only_date = SlotMap(text_paths={"report_date": "보고일자 > right"}, charts=())
     with pytest.raises(FillError) as exc:
-        fill_daily_report(payload, prose, charts, template_path=str(path), slotmap=only_date)
-    assert "report_date" in str(exc.value)
+        fill_daily_report(payload, prose, images, template_path=str(path))
+    assert "too few tables" in str(exc.value)
 
 
-def test_missing_chart_png_raises(template_path, payload, prose) -> None:
+def test_missing_prose_heading_raises(payload, prose, images, tmp_path) -> None:
+    # Take the real template (data tables intact) but strip the §6 heading text so
+    # only the prose insert can fail -> fail-closed on the missing heading.
+    doc = HwpxDocument.open(io.BytesIO(hwpx_filler._load_default_template()))
+    for para in doc.paragraphs:
+        if (para.text or "").strip().endswith(hwpx_filler._ANALYSIS_HEADING):
+            para.clear_text()
+    path = tmp_path / "no_heading.hwpx"
+    path.write_bytes(doc.to_bytes())
+
     with pytest.raises(FillError) as exc:
-        fill_daily_report(payload, prose, {}, template_path=template_path)
-    assert "altitude_decay" in str(exc.value)
+        fill_daily_report(payload, prose, images, template_path=str(path))
+    assert hwpx_filler._ANALYSIS_HEADING in str(exc.value)
 
 
-def test_absent_chart_anchor_raises(template_path, payload, prose, charts) -> None:
-    bad = SlotMap(
-        text_paths={},
-        charts=(ChartSlot("altitude_decay", "존재하지 않는 도표 라벨", "down"),),
-    )
-    with pytest.raises(FillError) as exc:
-        fill_daily_report(payload, prose, charts, template_path=template_path, slotmap=bad)
-    assert "altitude_decay" in str(exc.value)
+def test_data_cell_out_of_range_raises(payload, prose, images, tmp_path) -> None:
+    # Ten tables but the watchlist table is too narrow for its 6 columns ->
+    # a data-cell write is out of range and must fail closed.
+    doc = HwpxDocument.new()
+    for _ in range(hwpx_filler._MIN_TABLES):
+        doc.add_table(2, 2)  # only 2 columns, watchlist needs 6
+    path = tmp_path / "narrow.hwpx"
+    path.write_bytes(doc.to_bytes())
+
+    with pytest.raises(FillError):
+        fill_daily_report(payload, prose, images, template_path=str(path))
 
 
 def test_fill_error_lists_offending_slots() -> None:
-    err = FillError("text slot(s) failed to fill", slots=["a", "b"])
+    err = FillError("structure mismatch", slots=["a", "b"])
     assert err.slots == ["a", "b"]
     assert "a" in str(err) and "b" in str(err)
 
 
 # --------------------------------------------------------------------------- #
-# default-asset path (the bundled template currently lacks the labels)
+# default-asset path (the bundled real template fills end-to-end)
 # --------------------------------------------------------------------------- #
 
 
-def test_default_template_lacks_labels_raises(payload, prose, charts) -> None:
-    # Documents the user-facing blocker: the shipped daily_report.hwpx has none of
-    # the slotmap's unique anchor labels yet, so the default path must RAISE
-    # rather than silently produce an unfilled report.
-    with pytest.raises(FillError):
-        fill_daily_report(payload, prose, charts)
-
-
 def test_default_template_loads_via_resources() -> None:
-    # The asset is reachable CWD-independently (Celery worker safety).
     data = hwpx_filler._load_default_template()
     assert data.startswith(PK_SIGNATURE)
+
+
+def test_default_template_fills_end_to_end(payload, prose, images) -> None:
+    # The shipped daily_report.hwpx is fillable via index addressing (no labels).
+    out = fill_daily_report(payload, prose, images)
+    assert _reopen(out).validate().ok

@@ -7,6 +7,11 @@ the branch-coverage tests drive it with ``_FakeConn`` — a minimal stub matchin
 the ``await conn.execute(text, params)`` -> ``result.mappings()`` contract the
 ``repository`` module uses. A final test seeds the real schema when Postgres is up
 (mirrors ``test_gp_history``'s ``infra_up`` skip pattern).
+
+The §2/§3 pass tests use a real ISS TLE whose epoch (2024-070) sits on
+``PASS_DATE`` so ``predict_passes`` over that UTC day yields well-formed passes
+over 대전 KARI; the object is attributed to an NK/CN owner code so the assembler
+routes it into ``country_activity``.
 """
 
 from __future__ import annotations
@@ -20,11 +25,16 @@ from orbital_engine import db, state
 from orbital_engine.config import Settings
 from orbital_engine.domain.space_object import SpaceObject
 from orbital_engine.reports.assembler import assemble_daily
-from orbital_engine.reports.schemas import DailyReportPayload, ManeuverDataStatus
-from orbital_engine.repository import append_history, upsert_objects
+from orbital_engine.reports.schemas import DailyReportPayload, ReportCountry
 
 REPORT_DATE = date(2026, 6, 20)
 DAY_START = datetime(2026, 6, 20, tzinfo=UTC)
+
+# A real ISS element set (epoch 2024-070, 10 Mar 2024). Propagated over PASS_DATE
+# it makes several KARI passes above a 10-deg mask (verified: 4 passes).
+PASS_DATE = date(2024, 3, 10)
+ISS_L1 = "1 25544U 98067A   24070.51782407  .00006484  00000-0  12035-3 0  9993"
+ISS_L2 = "2 25544  51.6439  32.1281 0006008  76.8618  58.0505 15.50079139442263"
 
 
 # --- Fake connection --------------------------------------------------------
@@ -41,9 +51,10 @@ class _FakeResult:
 class _FakeConn:
     """Dispatches each query (by SQL substring) to a seeded row set.
 
-    ``tables`` keys: ``category_counts``, ``payloads``, ``conjunctions``,
-    ``reentries``, ``country_counts``, and ``history`` (object_id -> rows). The
-    history query is filtered by the bound ``oid`` param, matching the real SQL.
+    ``tables`` keys: ``watchlist`` (all live catalog rows), ``country`` (owner_code
+    -> object rows, returned for that country's ANY(:codes)), ``conjunctions``,
+    and ``debris``. The country query is filtered by the bound ``codes`` param,
+    matching the real ``country_code = ANY(:codes)`` SQL.
     """
 
     def __init__(self, tables: dict[str, Any]):
@@ -54,135 +65,193 @@ class _FakeConn:
         sql = str(statement)
         self.calls.append(sql)
         params = parameters or {}
-        if "GROUP BY object_type" in sql:
-            return _FakeResult(self.tables.get("category_counts", []))
-        if "object_type::text = 'PAYLOAD'" in sql:
-            return _FakeResult(self.tables.get("payloads", []))
+        if "country_code = ANY(:codes)" in sql:
+            by_code: dict[str, list[dict[str, Any]]] = self.tables.get("country", {})
+            rows: list[dict[str, Any]] = []
+            for code in params.get("codes", []):
+                rows.extend(by_code.get(code, []))
+            return _FakeResult(rows)
         if "FROM conjunction" in sql:
             return _FakeResult(self.tables.get("conjunctions", []))
-        if "FROM gp_history" in sql:
-            rows = self.tables.get("history", {}).get(params.get("oid"), [])
-            return _FakeResult(rows)
-        if "decay_date = :d" in sql:
-            return _FakeResult(self.tables.get("reentries", []))
-        if "GROUP BY owner_code" in sql:
-            return _FakeResult(self.tables.get("country_counts", []))
+        if "object_type::text = 'DEBRIS'" in sql:
+            return _FakeResult(self.tables.get("debris", []))
+        if "FROM space_object WHERE decay_date IS NULL" in sql:
+            return _FakeResult(self.tables.get("watchlist", []))
         raise AssertionError(f"unexpected query: {sql}")
 
 
-def _payload_row(object_id: str, name: str, **over: Any) -> dict[str, Any]:
+def _wl_row(owner_code: str | None, **over: Any) -> dict[str, Any]:
+    """One watchlist (live-catalog) row. Defaults to a LEO orbit."""
+    row = {
+        "owner_code": owner_code or "UNKNOWN",
+        "apoapsis_km": 420.0,
+        "periapsis_km": 410.0,
+        "period_min": 92.0,
+        "eccentricity": 0.0006,
+    }
+    row.update(over)
+    return row
+
+
+def _sat_row(object_id: str, name: str, l1: str, l2: str, **over: Any) -> dict[str, Any]:
     row = {
         "object_id": object_id,
         "norad_cat_id": 25544,
         "object_name": name,
-        "country_code": "US",
-        "object_type": "PAYLOAD",
-        "apoapsis_km": 420.0,
-        "periapsis_km": 410.0,
-        "period_min": 92.0,
+        "tle_line1": l1,
+        "tle_line2": l2,
     }
     row.update(over)
     return row
 
 
-def _hist_row(object_id: str, days: int, sma: float, **over: Any) -> dict[str, Any]:
-    # Mirrors the real gp_history projection: no object_name / norad_cat_id columns.
+def _debris_row(object_id: str, name: str, **over: Any) -> dict[str, Any]:
     row = {
         "object_id": object_id,
-        "epoch": DAY_START - timedelta(days=days),
-        "mean_motion": 15.5,
-        "eccentricity": 0.0006,
-        "inclination": 51.6,
-        "ra_of_asc_node": 32.0,
-        "semimajor_axis_km": sma,
-        "apoapsis_km": sma - 6378.0 + 10.0,
-        "periapsis_km": sma - 6378.0 - 10.0,
+        "object_name": name,
+        "country_code": "PRC",
+        "rcs_size": "LARGE",
+        "apoapsis_km": 850.0,  # primary LEO debris peak -> high density factor
+        "periapsis_km": 850.0,
+        "period_min": 102.0,
     }
     row.update(over)
     return row
 
 
-# --- Happy path -------------------------------------------------------------
+# --- §1 watchlist matrix ----------------------------------------------------
 
 
-async def test_happy_path_populates_every_section() -> None:
-    oid = "SH:CAT:000025544"
-    # >= 4 epochs with an injected +5 km step => detect_maneuvers flags one burn.
-    smas = [6790.0, 6789.9, 6789.8, 6794.8, 6794.7]
-    history = [_hist_row(oid, days=10 - i, sma=s) for i, s in enumerate(smas)]
+async def test_watchlist_matrix_groups_by_country_and_regime() -> None:
+    watchlist = [
+        _wl_row("PRC"),  # LEO
+        _wl_row("PRC", apoapsis_km=20200.0, periapsis_km=20180.0, period_min=718.0),  # MEO
+        _wl_row("CIS", apoapsis_km=35786.0, periapsis_km=35780.0, period_min=1436.0),  # GEO
+        _wl_row("CIS", eccentricity=0.7, apoapsis_km=39000.0, periapsis_km=600.0),  # HEO
+        _wl_row(None, apoapsis_km=None, periapsis_km=None, period_min=None),  # undeterminable
+    ]
+    conn = _FakeConn({"watchlist": watchlist})
+    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
+
+    by_code = {r.country_code: r for r in payload.watchlist_matrix}
+    assert by_code["PRC"].leo == 1 and by_code["PRC"].meo == 1 and by_code["PRC"].total == 2
+    assert by_code["PRC"].country_name == "중국"
+    assert by_code["CIS"].geo == 1 and by_code["CIS"].heo == 1 and by_code["CIS"].total == 2
+    # Undeterminable regime: counted in the row total, not in any regime column.
+    assert by_code["UNKNOWN"].total == 1
+    assert by_code["UNKNOWN"].leo == by_code["UNKNOWN"].meo == 0
+    assert by_code["UNKNOWN"].geo == by_code["UNKNOWN"].heo == 0
+    assert by_code["UNKNOWN"].country_name is None
+
+    total = payload.watchlist_total
+    assert total is not None and total.country_code == "TOTAL"
+    assert total.leo == 1 and total.meo == 1 and total.geo == 1 and total.heo == 1
+    assert total.total == 5  # every object counted, incl. the undeterminable one
+
+
+# --- §2/§3 country activity (passes) ----------------------------------------
+
+
+async def test_country_activity_yields_passes_for_nk_object() -> None:
+    nk_sat = _sat_row("SH:CAT:000025544", "KMS-4", ISS_L1, ISS_L2)
+    conn = _FakeConn({"country": {"PRK": [nk_sat]}})
+    payload = await assemble_daily(PASS_DATE, conn, settings=Settings())
+
+    by_country = {a.country_code: a for a in payload.country_activity}
+    # All four report countries are always present (empty where no passes).
+    assert set(by_country) == {c.value for c in ReportCountry}
+    nk = by_country[ReportCountry.NORTH_KOREA.value]
+    assert nk.country_name == "북한"
+    assert len(nk.passes) >= 1
+    p = nk.passes[0]
+    assert p.satellite_name == "KMS-4"
+    assert p.satellite_id == "25544"
+    assert p.elevation_deg is not None and p.elevation_deg >= 10.0  # mask honored
+    assert p.closest_distance_km is not None and p.closest_distance_km > 0.0
+    # Passes are sorted by pass_time and fall inside the report day.
+    times = [pp.pass_time for pp in nk.passes]
+    assert times == sorted(times)
+    day_start = datetime(PASS_DATE.year, PASS_DATE.month, PASS_DATE.day, tzinfo=UTC)
+    assert all(day_start <= t < day_start + timedelta(days=1) for t in times)
+    # The other report countries had no objects -> empty.
+    assert by_country[ReportCountry.JAPAN.value].passes == []
+
+
+async def test_country_activity_skips_objects_without_tle() -> None:
+    # A CN object missing its TLE lines is skipped gracefully (no crash, no pass).
+    no_tle = _sat_row("SH:CAT:000000001", "NO-TLE", ISS_L1, ISS_L2, tle_line1=None, tle_line2=None)
+    conn = _FakeConn({"country": {"PRC": [no_tle]}})
+    payload = await assemble_daily(PASS_DATE, conn, settings=Settings())
+    cn = next(a for a in payload.country_activity if a.country_code == ReportCountry.CHINA.value)
+    assert cn.passes == []
+
+
+# --- §4 conjunctions --------------------------------------------------------
+
+
+async def test_conjunctions_map_in_window() -> None:
     conn = _FakeConn(
         {
-            "category_counts": [
-                {"object_type": "PAYLOAD", "n": 2},
-                {"object_type": "DEBRIS", "n": 1},
-            ],
-            "payloads": [_payload_row(oid, "ISS (ZARYA)")],
             "conjunctions": [
                 {
-                    "id": "SCR:A:B:20260620T1200",
-                    "primary_object_id": "SH:CAT:000000001",
                     "primary_name": "SAT-A",
-                    "secondary_object_id": "SH:CAT:000000002",
-                    "secondary_name": "SAT-B",
+                    "secondary_name": "DEBRIS-B",
                     "miss_distance_km": 0.8,
                     "probability": 1e-3,
                     "tca": DAY_START + timedelta(hours=12),
                     "severity": "HIGH",
-                }
-            ],
-            "reentries": [
+                },
                 {
-                    "object_id": "SH:CAT:000099999",
-                    "norad_cat_id": 99999,
-                    "object_name": "OLD ROCKET",
-                    "country_code": "PRC",
-                }
-            ],
-            "country_counts": [
-                {"owner_code": "US", "n": 2},
-                {"owner_code": "UNKNOWN", "n": 1},
-            ],
-            "history": {oid: history},
+                    "primary_name": "SAT-C",
+                    "secondary_name": "SAT-D",
+                    "miss_distance_km": 4.2,
+                    "probability": None,  # missing Pc still renders
+                    "tca": DAY_START + timedelta(hours=3),
+                    "severity": "MOD",
+                },
+            ]
         }
     )
+    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
+    assert len(payload.conjunctions) == 2
+    first = payload.conjunctions[0]
+    assert first.satellite_name == "SAT-A" and first.object_name == "DEBRIS-B"
+    assert first.distance_km == 0.8 and first.probability == 1e-3
+    assert first.risk_category == "HIGH"
+    assert payload.conjunctions[1].probability is None
 
+
+# --- §5 debris risk ---------------------------------------------------------
+
+
+async def test_debris_risk_counts_and_high_risk_table() -> None:
+    debris = [
+        # 850 km + LARGE -> density 1.0, speed ~7.4 => high score (Critical).
+        _debris_row("SH:CAT:000000010", "FENGYUN-1C DEB", country_code="PRC"),
+        # 850 km + SMALL -> lower size factor => Medium-ish, not high-risk.
+        _debris_row("SH:CAT:000000011", "SMALL DEB", rcs_size="SMALL"),
+        # No apsides -> cannot score -> skipped entirely.
+        _debris_row("SH:CAT:000000012", "NO-ORBIT DEB", apoapsis_km=None, periapsis_km=None),
+    ]
+    conn = _FakeConn({"debris": debris})
     payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
 
-    assert isinstance(payload, DailyReportPayload)
-    assert payload.report_date == REPORT_DATE
-    # §1 categories: Korean names mapped, debris counted.
-    assert {c.category: c.count for c in payload.surveillance_categories} == {
-        "위성(탑재체)": 2,
-        "파편": 1,
-    }
-    # §1 notable object: owner resolved, regime LEO.
-    assert len(payload.surveillance_objects) == 1
-    obj = payload.surveillance_objects[0]
-    assert obj.owner_code == "US" and obj.owner_name == "미국"
-    assert obj.regime == "LEO"
-    # §2 conjunction in-window.
-    assert len(payload.conjunctions) == 1
-    assert payload.conjunctions[0].alert_level == "HIGH"
-    # §3 maneuver: sufficient history => PRESENT, a burn detected.
-    assert len(payload.maneuvers) == 1
-    mnv = payload.maneuvers[0]
-    assert mnv.status is ManeuverDataStatus.PRESENT
-    assert mnv.history_epochs == 5
-    assert mnv.delta_sma_km is not None and mnv.delta_sma_km > 4.9
-    assert mnv.classification is not None
-    assert mnv.epoch is not None
-    # §4 reentry window = the report day.
-    assert len(payload.reentries) == 1
-    assert payload.reentries[0].owner_code == "PRC"
-    assert payload.reentries[0].predicted_window_start == DAY_START
-    assert payload.reentries[0].predicted_window_end == DAY_START + timedelta(days=1)
-    # §5 country breakdown: unknown bucket resolves to no name.
-    codes = {c.owner_code: c.owner_name for c in payload.country_breakdown}
-    assert codes["US"] == "미국" and codes["UNKNOWN"] is None
-    # Charts: one series with all epochs.
-    assert len(payload.time_series) == 1
-    assert len(payload.time_series[0].points) == 5
-    assert payload.time_series[0].points[0].apogee_km is not None
+    counts = payload.debris_risk_counts
+    total = counts.critical + counts.high + counts.moderate + counts.low
+    assert total == 2  # the un-scorable row is excluded from the counts
+    assert counts.critical >= 1  # the LARGE 850 km fragment
+
+    assert len(payload.high_risk_debris) >= 1
+    top = payload.high_risk_debris[0]
+    assert top.debris_name == "FENGYUN-1C DEB"
+    assert top.country_code == "PRC" and top.country_name == "중국"
+    assert top.risk_grade in {"심각", "높음"}
+    assert top.rcs_size == "LARGE"
+    assert top.mean_altitude_km == 850.0
+    assert top.perigee_km == 850.0 and top.apogee_km == 850.0
+    assert top.period_min == 102.0
+    # The SMALL fragment is not in the high-risk (Critical/High) table.
+    assert all(r.debris_name != "SMALL DEB" for r in payload.high_risk_debris)
 
 
 # --- Empty day --------------------------------------------------------------
@@ -191,93 +260,62 @@ async def test_happy_path_populates_every_section() -> None:
 async def test_empty_day_yields_valid_empty_payload() -> None:
     conn = _FakeConn({})  # every query returns []
     payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
+    assert isinstance(payload, DailyReportPayload)
     assert payload.report_date == REPORT_DATE
-    assert payload.surveillance_categories == []
-    assert payload.surveillance_objects == []
+    assert payload.watchlist_matrix == []
+    # An empty catalog still yields a TOTAL row (all zeros).
+    assert payload.watchlist_total is not None
+    assert payload.watchlist_total.total == 0
+    # All four countries present, every section empty.
+    assert len(payload.country_activity) == len(ReportCountry)
+    assert all(a.passes == [] for a in payload.country_activity)
     assert payload.conjunctions == []
-    assert payload.maneuvers == []
-    assert payload.reentries == []
-    assert payload.country_breakdown == []
-    assert payload.time_series == []
+    assert payload.debris_risk_counts.critical == 0
+    assert payload.debris_risk_counts.low == 0
+    assert payload.high_risk_debris == []
 
 
-# --- Partial: insufficient history -----------------------------------------
-
-
-async def test_object_with_too_few_epochs_marked_insufficient() -> None:
-    oid = "SH:CAT:000025544"
-    history = [_hist_row(oid, days=3 - i, sma=6790.0) for i in range(3)]  # 3 < 4
-    conn = _FakeConn(
-        {
-            "payloads": [_payload_row(oid, "ISS (ZARYA)")],
-            "history": {oid: history},
-        }
-    )
-    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
-    assert len(payload.maneuvers) == 1
-    mnv = payload.maneuvers[0]
-    assert mnv.status is ManeuverDataStatus.INSUFFICIENT_HISTORY
-    assert mnv.history_epochs == 3
-    assert mnv.classification is None and mnv.delta_v_m_s is None and mnv.epoch is None
-
-
-async def test_sufficient_history_but_no_maneuver_flagged() -> None:
-    oid = "SH:CAT:000025544"
-    # 5 epochs of smooth drag: PRESENT but detect_maneuvers returns nothing.
-    history = [_hist_row(oid, days=5 - i, sma=6790.0 - 0.1 * i) for i in range(5)]
-    conn = _FakeConn({"payloads": [_payload_row(oid, "ISS")], "history": {oid: history}})
-    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
-    mnv = payload.maneuvers[0]
-    assert mnv.status is ManeuverDataStatus.PRESENT
-    assert mnv.classification is None and mnv.delta_sma_km is None and mnv.epoch is None
-
-
-# --- Regime + owner-name branches -------------------------------------------
+# --- Owner-name / regime branches -------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("apo", "peri", "period", "expected"),
+    ("apo", "peri", "period", "ecc", "expected"),
     [
-        (420.0, 410.0, 92.0, "LEO"),
-        (20200.0, 20180.0, 718.0, "MEO"),
-        (35786.0, 35780.0, 1436.0, "GEO"),
-        (35000.0, 500.0, 600.0, "HEO"),
-        (None, None, None, None),
+        (420.0, 410.0, 92.0, 0.0006, "LEO"),
+        (20200.0, 20180.0, 718.0, 0.001, "MEO"),
+        (35786.0, 35780.0, 1436.0, 0.0002, "GEO"),
+        (39000.0, 600.0, 690.0, 0.7, "HEO"),  # high eccentricity wins
+        (None, None, 1436.0, 0.0, "GEO"),  # period-only GEO fallback
+        (None, None, None, None, None),  # nothing derivable
     ],
 )
 async def test_regime_classification(
-    apo: float | None, peri: float | None, period: float | None, expected: str | None
+    apo: float | None,
+    peri: float | None,
+    period: float | None,
+    ecc: float | None,
+    expected: str | None,
 ) -> None:
-    oid = "SH:CAT:000000001"
-    conn = _FakeConn(
-        {"payloads": [_payload_row(oid, "X", apoapsis_km=apo, periapsis_km=peri, period_min=period)]}
-    )
+    row_in = _wl_row("PRC", apoapsis_km=apo, periapsis_km=peri, period_min=period, eccentricity=ecc)
+    conn = _FakeConn({"watchlist": [row_in]})
     payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
-    assert payload.surveillance_objects[0].regime == expected
+    row = payload.watchlist_matrix[0]
+    # Exactly the expected regime column is incremented (or none for None).
+    cols = {"LEO": row.leo, "MEO": row.meo, "GEO": row.geo, "HEO": row.heo}
+    if expected is None:
+        assert sum(cols.values()) == 0 and row.total == 1
+    else:
+        assert cols[expected] == 1 and sum(cols.values()) == 1
 
 
-async def test_unknown_owner_code_passes_through_without_name() -> None:
-    oid = "SH:CAT:000000001"
-    conn = _FakeConn({"payloads": [_payload_row(oid, "X", country_code="XYZ")]})
+async def test_unmapped_owner_code_passes_through_without_name() -> None:
+    conn = _FakeConn({"watchlist": [_wl_row("XYZ")]})
     payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
-    obj = payload.surveillance_objects[0]
-    assert obj.owner_code == "XYZ" and obj.owner_name is None
+    row = payload.watchlist_matrix[0]
+    assert row.country_code == "XYZ" and row.country_name is None
 
 
-async def test_null_country_code_yields_no_owner() -> None:
-    oid = "SH:CAT:000000001"
-    conn = _FakeConn({"payloads": [_payload_row(oid, "X", country_code=None)]})
-    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
-    assert payload.surveillance_objects[0].owner_name is None
-
-
-async def test_unmapped_object_type_category_falls_back_to_raw() -> None:
-    conn = _FakeConn({"category_counts": [{"object_type": "WIDGET", "n": 3}]})
-    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
-    assert payload.surveillance_categories[0].category == "WIDGET"
-
-
-# --- Future date ------------------------------------------------------------
+# --- Future / today date guard ----------------------------------------------
 
 
 async def test_future_date_raises_value_error() -> None:
@@ -308,8 +346,8 @@ _RT_OBJ = SpaceObject.model_validate(
         "OBJECT_ID": "1998-067A",
         "NORAD_CAT_ID": 25544,
         "OBJECT_TYPE": "PAYLOAD",
-        "COUNTRY_CODE": "US",
-        "EPOCH": "2026-06-19T12:00:00",
+        "COUNTRY_CODE": "PRC",
+        "EPOCH": "2024-03-10T12:25:00",
         "MEAN_MOTION": 15.50079139,
         "ECCENTRICITY": 0.0006008,
         "INCLINATION": 51.6439,
@@ -318,30 +356,29 @@ _RT_OBJ = SpaceObject.model_validate(
         "MEAN_ANOMALY": 58.0505,
         "APOAPSIS": 420.0,
         "PERIAPSIS": 410.0,
+        "TLE_LINE1": ISS_L1,
+        "TLE_LINE2": ISS_L2,
     }
 )
 
 
 async def test_assemble_daily_round_trip(infra_up: bool) -> None:
     # Proves every query in assemble_daily runs against the REAL migrated schema
-    # (the column-name bug the fake conn could not catch) and yields a valid,
-    # internally-consistent payload. The seeded object guarantees >= 1 payload row,
-    # but a populated dev catalog may push it past the notable-object LIMIT, so we
-    # assert structural validity rather than its presence in the top-N.
+    # (column-name / ANY(:codes) bugs the fake conn cannot catch) and yields a
+    # valid, internally-consistent payload.
+    from orbital_engine.repository import upsert_objects
+
     await upsert_objects([_RT_OBJ])
-    await append_history([_RT_OBJ])
     async with db.get_engine().connect() as conn:
-        payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
+        payload = await assemble_daily(PASS_DATE, conn, settings=Settings())
 
     assert isinstance(payload, DailyReportPayload)
-    assert payload.report_date == REPORT_DATE
-    # One maneuver entry + one chart series per notable object.
-    assert len(payload.maneuvers) == len(payload.surveillance_objects)
-    assert len(payload.time_series) == len(payload.surveillance_objects)
-    # The catalog has payloads, so the §1 category table is non-empty.
-    assert any(c.count > 0 for c in payload.surveillance_categories)
-    # Every maneuver entry is one of the two valid statuses (no crash on partial
-    # history): real catalog objects mostly have < 4 epochs => "정보 없음".
-    assert all(m.status in ManeuverDataStatus for m in payload.maneuvers)
+    assert payload.report_date == PASS_DATE
+    # The catalog has at least the seeded PRC object => non-empty watchlist.
+    assert payload.watchlist_total is not None and payload.watchlist_total.total >= 1
+    assert len(payload.country_activity) == len(ReportCountry)
+    # Risk counts are internally consistent (non-negative ints).
+    c = payload.debris_risk_counts
+    assert min(c.critical, c.high, c.moderate, c.low) >= 0
     await db.dispose()
     await state.close()

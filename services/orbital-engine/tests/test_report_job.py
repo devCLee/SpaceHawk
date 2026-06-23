@@ -1,25 +1,30 @@
-"""Async report-job orchestration: idempotency + pipeline run (HWPX T7).
+"""Async report-job orchestration: idempotency + pipeline run (HWPX R7).
 
-The pure logic (idempotency key, create-or-return dedup, and the assemble→…→fill
-orchestration) is tested WITHOUT live infra:
+The pure logic (idempotency key, create-or-return dedup, image persistence, and
+the assemble→sanitize→prose→fill orchestration) is tested WITHOUT live infra:
 
 * ``compute_idempotency_key`` — a plain function, tested directly.
 * ``create_report_job`` — driven against a small in-memory fake connection that
   emulates the ``report_job`` unique-key semantics (INSERT … ON CONFLICT DO
-  NOTHING + SELECT-by-key), so the dedup + enqueue-once contract is covered with
-  no Postgres.
+  NOTHING + the image-refresh UPDATE + SELECT-by-key), so the dedup +
+  enqueue-once + image-persistence contracts are covered with no Postgres.
 * the success / stage-failure runs exercise ``_build_hwpx`` with an injected fake
-  LLM client (no live provider) and a fillable SYNTHETIC template (the bundled
-  one intentionally raises ``FillError``), proving DONE bytes pass ``validate_hwpx``
-  and that a stage exception surfaces as a failure with a reason and no output.
+  LLM client (no live provider, but the REAL ``write_report_prose`` guard runs)
+  and the REAL bundled template (fillable since R6), proving DONE bytes pass
+  ``validate_hwpx`` (with a web-supplied globe image embedded) and that a stage
+  exception surfaces with no output.
+* image (de)serialization round-trips ``ReportImages`` through the stored shape.
 
-An infra-gated round-trip (real Postgres) covers ``create_report_job`` end to end
-when infra is available; it is skipped otherwise, mirroring ``test_gp_history``.
+An infra-gated round-trip (real Postgres) covers ``create_report_job`` + ``_run``
+end to end when infra is available; it is skipped otherwise, mirroring
+``test_gp_history``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import io
+import struct
+import zlib
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -31,18 +36,135 @@ from sqlalchemy.sql.selectable import Select
 
 from orbital_engine import db
 from orbital_engine.reports import tasks
-from orbital_engine.reports.hwpx_filler import SLOTMAP, fill_daily_report
-from orbital_engine.reports.models import ReportJob, ReportStatus
-from orbital_engine.reports.narrative import SectionError
+from orbital_engine.reports.models import (
+    ReportJob,
+    ReportStatus,
+    deserialize_images,
+    serialize_images,
+)
+from orbital_engine.reports.narrative import SectionError, write_report_prose
 from orbital_engine.reports.schemas import (
     ConjunctionRow,
-    CountryBreakdownEntry,
+    CountryActivity,
     DailyReportPayload,
-    SurveillanceCategoryCount,
+    DebrisRiskCounts,
+    HighRiskDebrisRow,
+    ReportImages,
+    ReportProse,
+    SatellitePass,
+    WatchlistRow,
 )
 from orbital_engine.reports.validate import validate_hwpx
 
 PK_SIGNATURE = b"PK"
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+# --------------------------------------------------------------------------- #
+# tiny fixtures
+# --------------------------------------------------------------------------- #
+
+
+def _tiny_png() -> bytes:
+    """A minimal but valid 1x1 PNG (no matplotlib dependency in tests)."""
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    idat = zlib.compress(b"\x00\xff\xff\xff")
+    return PNG_SIGNATURE + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+
+
+def _payload() -> DailyReportPayload:
+    """A small but representative payload (every section non-empty)."""
+    return DailyReportPayload(
+        report_date=date(2026, 6, 22),
+        watchlist_matrix=[
+            WatchlistRow(country_code="US", country_name="미국", leo=10, meo=1, geo=2, heo=0, total=13),
+        ],
+        watchlist_total=WatchlistRow(
+            country_code="TOTAL", country_name="합계", leo=10, meo=1, geo=2, heo=0, total=13
+        ),
+        country_activity=[
+            CountryActivity(
+                country_code="NK",
+                country_name="북한",
+                passes=[
+                    SatellitePass(
+                        satellite_name="KMS-4",
+                        satellite_id="41332",
+                        pass_time=datetime(2026, 6, 22, 3, 14, tzinfo=UTC),
+                        closest_distance_km=412.5,
+                        elevation_deg=42.0,
+                    ),
+                ],
+            ),
+        ],
+        conjunctions=[
+            ConjunctionRow(
+                satellite_name="KOMPSAT-5",
+                object_name="DEBRIS-9",
+                tca=datetime(2026, 6, 22, 3, 14, tzinfo=UTC),
+                distance_km=0.842,
+                probability=1e-4,
+                risk_category="HIGH",
+            ),
+        ],
+        debris_risk_counts=DebrisRiskCounts(critical=1, high=2, moderate=3, low=4),
+        high_risk_debris=[
+            HighRiskDebrisRow(
+                country_code="PRC",
+                country_name="중국",
+                debris_name="CZ-2C DEB",
+                risk_grade="심각",
+                rcs_size="LARGE",
+                mean_altitude_km=812.0,
+                period_min=101.0,
+                perigee_km=800.0,
+                apogee_km=824.0,
+            ),
+        ],
+    )
+
+
+def _images() -> ReportImages:
+    """Web-supplied images: one globe snapshot (the NK section)."""
+    return ReportImages(country_globes={"NK": _tiny_png()})
+
+
+class _FakeLLMClient:
+    """Stand-in OpenAI-compatible client: returns clean tokenized Korean prose.
+
+    Tokenized + digit-free so the narrative no-numerals guard passes; the real
+    ``write_report_prose`` runs unchanged over it (only the provider is faked).
+    """
+
+    def __init__(self) -> None:
+        self.chat = self
+        self.completions = self
+
+    def create(self, *, model: str, messages: list[dict[str, str]]) -> Any:
+        text = (
+            '{"analysis_items": [{"detail": "여러 객체에 대한 정성적 분석 결과입니다.", '
+            '"cause_forecast": "OBJ-A 관련 동향으로 인한 영향으로 분석됩니다."}], '
+            '"response_ops": ["대응 작전을 지속 추진합니다."]}'
+        )
+        message = type("Msg", (), {"content": text})()
+        choice = type("Choice", (), {"message": message})()
+        return type("Resp", (), {"choices": [choice]})()
+
+
+def _pipeline(**overrides: Any) -> tasks.ReportPipeline:
+    """A pipeline wired to the fake LLM client over the REAL narrative path."""
+    base: dict[str, Any] = {"prose_fn": write_report_prose, "llm_client": _FakeLLMClient()}
+    base.update(overrides)
+    return tasks.ReportPipeline(**base)
 
 
 # --------------------------------------------------------------------------- #
@@ -66,6 +188,33 @@ def test_idempotency_key_distinguishes_inputs() -> None:
     assert base != tasks.compute_idempotency_key("daily", d, {"country": "US"})
     # None and {} both mean "no filters".
     assert base == tasks.compute_idempotency_key("daily", d, {})
+
+
+# --------------------------------------------------------------------------- #
+# image (de)serialization
+# --------------------------------------------------------------------------- #
+
+
+def test_serialize_images_roundtrip() -> None:
+    png = _tiny_png()
+    images = ReportImages(country_globes={"NK": png, "CN": png}, debris_density=png)
+    stored = serialize_images(images)
+
+    assert stored is not None
+    assert isinstance(stored["country_globes"]["NK"], str)  # base64 ASCII, JSON-safe
+    assert stored["debris_heatmap"] is None
+
+    back = deserialize_images(stored)
+    assert back.country_globes == {"NK": png, "CN": png}
+    assert back.debris_density == png
+    assert back.debris_heatmap is None
+
+
+def test_serialize_images_empty_is_none_and_deserialize_none_is_empty() -> None:
+    assert serialize_images(None) is None
+    assert serialize_images(ReportImages()) is None  # nothing supplied → NULL column
+    empty = deserialize_images(None)
+    assert empty.country_globes == {} and empty.debris_density is None
 
 
 # --------------------------------------------------------------------------- #
@@ -94,6 +243,8 @@ class _FakeConn:
     Backed by a dict keyed on ``idempotency_key`` so a second INSERT with a
     duplicate key is a no-op (returns no inserted id) and the SELECT returns the
     first-written row — the real ON CONFLICT DO NOTHING + unique-index behavior.
+    The image-refresh UPDATE (issued on a repeat create with new images) patches
+    the stored row's ``input_images`` in place.
     """
 
     def __init__(self) -> None:
@@ -107,10 +258,15 @@ class _FakeConn:
                 return _FakeResult([], scalar=None)  # conflict → DO NOTHING
             self.by_key[key] = dict(params)
             return _FakeResult([], scalar=params["id"])
+        if isinstance(statement, dml.Update):
+            compiled = statement.compile(dialect=postgresql.dialect())
+            key = compiled.params.get("idempotency_key_1")
+            row = self.by_key.get(key)
+            if row is not None:
+                row["input_images"] = compiled.params.get("input_images")
+            return _FakeResult([])
         if isinstance(statement, Select):
-            key = statement.compile(dialect=postgresql.dialect()).params.get(
-                "idempotency_key_1"
-            )
+            key = statement.compile(dialect=postgresql.dialect()).params.get("idempotency_key_1")
             row = self.by_key.get(key)
             return _FakeResult([row] if row else [])
         raise AssertionError(f"unexpected statement: {type(statement)}")
@@ -146,104 +302,78 @@ async def test_create_report_job_distinct_inputs_create_distinct_jobs() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# pipeline orchestration (no live LLM, no un-fillable bundled template)
+# image persistence: create stores images; load rebuilds ReportImages
 # --------------------------------------------------------------------------- #
 
 
-def _payload() -> DailyReportPayload:
-    return DailyReportPayload(
-        report_date=date(2026, 6, 22),
-        surveillance_categories=[
-            SurveillanceCategoryCount(category="위성(탑재체)", count=7),
-        ],
-        conjunctions=[
-            ConjunctionRow(
-                conjunction_id="CDM-1",
-                primary_object_id="OBJ-A",
-                primary_name="KOMPSAT-5",
-                secondary_object_id="OBJ-B",
-                secondary_name="DEBRIS-9",
-                miss_distance_km=0.842,
-                probability=1e-4,
-                tca=datetime(2026, 6, 22, 3, 14, tzinfo=UTC),
-                alert_level="HIGH",
-            ),
-        ],
-        country_breakdown=[
-            CountryBreakdownEntry(owner_code="US", owner_name="미국", count=120),
-        ],
+async def test_create_report_job_persists_images() -> None:
+    conn = _FakeConn()
+    enqueued: list[str] = []
+    images = _images()
+
+    job = await tasks.create_report_job(
+        "daily", date(2026, 6, 22), None, conn, images=images, enqueue=enqueued.append
     )
 
-
-def _synthetic_template_bytes() -> bytes:
-    """A fillable template carrying every SLOTMAP anchor (mirrors test_hwpx_filler)."""
-    doc = HwpxDocument.new()
-    for label in ["보고일자", "감시위성 합계", "최우선 근접 위성", "최우선 근접 거리", "최다 보유국"]:
-        table = doc.add_table(1, 2)
-        table.set_cell_text(0, 0, label, logical=True)
-    for label in ["개요 본문", "분석내용 본문", "향후추진 본문"]:
-        table = doc.add_table(2, 1)
-        table.set_cell_text(0, 0, label, logical=True)
-    for slot in SLOTMAP.charts:
-        table = doc.add_table(2, 1)
-        table.set_cell_text(0, 0, slot.label, logical=True)
-    return doc.to_bytes()
+    # Stored as base64 JSONB on the row, and the loaded job carries that shape.
+    assert job.input_images is not None
+    assert isinstance(job.input_images["country_globes"]["NK"], str)
+    # _run loads it back into a ReportImages identical to what the web supplied.
+    loaded = deserialize_images(job.input_images)
+    assert loaded.country_globes == images.country_globes
 
 
-class _FakeLLMClient:
-    """Stand-in OpenAI-compatible client: returns clean tokenized Korean prose.
-
-    Tokenized + digit-free so the narrative no-numerals guard passes; the real
-    ``write_report_prose`` runs unchanged over it (only the provider is faked).
-    """
-
-    def __init__(self) -> None:
-        self.chat = self
-        self.completions = self
-
-    def create(self, *, model: str, messages: list[dict[str, str]]) -> Any:
-        text = "여러 객체에 대한 정성적 분석 결과입니다. OBJ-A 관련 동향을 서술합니다."
-        message = type("Msg", (), {"content": text})()
-        choice = type("Choice", (), {"message": message})()
-        return type("Resp", (), {"choices": [choice]})()
-
-
-def _fillable_fill(template_bytes: bytes):
-    def _fill(payload: Any, prose: Mapping[str, str], charts: Mapping[str, bytes], **_: Any) -> bytes:
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix=".hwpx", delete=False) as fh:
-            fh.write(template_bytes)
-            path = fh.name
-        return fill_daily_report(payload, prose, charts, template_path=path)
-
-    return _fill
-
-
-def test_build_hwpx_success_passes_validation() -> None:
-    pipeline = tasks.ReportPipeline(
-        prose_fn=tasks.write_report_prose,
-        fill_fn=_fillable_fill(_synthetic_template_bytes()),
-        llm_client=_FakeLLMClient(),
+async def test_create_report_job_without_images_stores_null() -> None:
+    conn = _FakeConn()
+    job = await tasks.create_report_job(
+        "daily", date(2026, 6, 22), None, conn, enqueue=lambda _jid: None
     )
-    # write_report_prose needs sleep=no-op? it defaults to time.sleep but never
-    # sleeps on success (no retries), so the fake client returns immediately.
-    data = tasks._build_hwpx(_payload(), pipeline, pipeline.settings)
+    assert job.input_images is None
+    assert deserialize_images(job.input_images).country_globes == {}
+
+
+async def test_repeat_create_refreshes_images_only_when_supplied() -> None:
+    conn = _FakeConn()
+    enqueued: list[str] = []
+    d = date(2026, 6, 22)
+
+    # First create with no images → NULL stored, enqueued once.
+    await tasks.create_report_job("daily", d, None, conn, enqueue=enqueued.append)
+    # Repeat create WITH images → same job, no re-enqueue, but images refreshed.
+    refreshed = await tasks.create_report_job(
+        "daily", d, None, conn, images=_images(), enqueue=enqueued.append
+    )
+
+    assert len(conn.by_key) == 1
+    assert len(enqueued) == 1  # never re-enqueued
+    assert refreshed.input_images is not None
+    assert "NK" in refreshed.input_images["country_globes"]
+
+
+# --------------------------------------------------------------------------- #
+# pipeline orchestration (no live LLM; REAL fillable template)
+# --------------------------------------------------------------------------- #
+
+
+def test_build_hwpx_success_embeds_image_and_passes_validation() -> None:
+    pipeline = _pipeline()
+    data = tasks._build_hwpx(_payload(), _images(), pipeline, pipeline.settings)
 
     assert data.startswith(PK_SIGNATURE)
     validate_hwpx(data)  # raises on any defect
 
+    # The supplied globe PNG was embedded (reopen lists exactly the one image).
+    reopened = HwpxDocument.open(io.BytesIO(data))
+    assert len(reopened.list_images()) == 1, "expected the web-supplied globe image to be embedded"
+
 
 def test_build_hwpx_stage_failure_propagates() -> None:
-    def _boom(*_: Any, **__: Any) -> dict[str, str]:
+    def _boom(*_: Any, **__: Any) -> ReportProse:
         raise SectionError("provider exhausted")
 
-    pipeline = tasks.ReportPipeline(
-        prose_fn=_boom,
-        fill_fn=_fillable_fill(_synthetic_template_bytes()),
-    )
+    pipeline = tasks.ReportPipeline(prose_fn=_boom)
     with pytest.raises(SectionError):
-        tasks._build_hwpx(_payload(), pipeline, pipeline.settings)
+        tasks._build_hwpx(_payload(), _images(), pipeline, pipeline.settings)
 
 
 # --------------------------------------------------------------------------- #
@@ -269,17 +399,41 @@ async def test_create_report_job_roundtrip(infra_up: bool) -> None:
     enqueued: list[str] = []
     async with db.get_engine().begin() as conn:
         job = await tasks.create_report_job(
-            "daily", date(2026, 6, 22), {"k": "v"}, conn, enqueue=enqueued.append
+            "daily", date(2026, 6, 22), {"k": "v"}, conn, images=_images(), enqueue=enqueued.append
         )
         # second call inside the same tx: same key → returns the existing row, no enqueue.
         again = await tasks.create_report_job(
-            "daily", date(2026, 6, 22), {"k": "v"}, conn, enqueue=enqueued.append
+            "daily", date(2026, 6, 22), {"k": "v"}, conn, images=_images(), enqueue=enqueued.append
         )
 
     assert isinstance(job, ReportJob)
     assert again.id == job.id
     assert enqueued == [job.id]
     assert job.status is ReportStatus.PENDING
+    # Images persisted on the row and reload into a ReportImages.
+    assert deserialize_images(job.input_images).country_globes == _images().country_globes
+
+    await _delete_job(job.id)
+    await db.dispose()
+
+
+async def test_run_pipeline_to_done(infra_up: bool) -> None:
+    """End-to-end ``_run`` against real infra + REAL template: job → DONE, valid HWPX."""
+    enqueued: list[str] = []
+    async with db.get_engine().begin() as conn:
+        job = await tasks.create_report_job(
+            "daily", date(2026, 6, 22), None, conn, images=_images(), enqueue=enqueued.append
+        )
+
+    status = await tasks._run(job.id, pipeline=_pipeline())
+    assert status is ReportStatus.DONE
+
+    async with db.get_engine().connect() as conn:
+        done = await tasks._load_job(conn, job.id)
+    assert done is not None
+    assert done.status is ReportStatus.DONE
+    assert done.result is not None and done.result.startswith(PK_SIGNATURE)
+    validate_hwpx(done.result)  # stored bytes pass the gate
 
     await _delete_job(job.id)
     await db.dispose()

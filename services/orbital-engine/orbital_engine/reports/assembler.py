@@ -12,10 +12,12 @@ the engine's read primitive ``get_engine().connect()`` used throughout
 lightweight fake that satisfies ``await conn.execute(text, params)`` →
 ``result.mappings()``.
 
-Maneuver analysis reuses the pure detector in ``orbital_engine.maneuver``: for
-each surveillance object we count its gp_history epochs; below
-``maneuver_min_history_points`` the object is marked ``INSUFFICIENT_HISTORY``
-("정보 없음"), otherwise the detector runs over the fetched history.
+Satellite passes (§2/§3) reuse the pure geometry compute in
+``orbital_engine.reports.passes`` (R2): for each report-country object with a
+usable TLE the assembler calls ``predict_passes(...)`` over the report day from
+the 대전 KARI ground station and maps each :class:`~orbital_engine.reports.passes.PassGeometry`
+onto a :class:`SatellitePass`. Debris risk (§5) reuses
+``orbital_engine.debris_risk`` (``risk_score`` / ``risk_level``).
 """
 
 from __future__ import annotations
@@ -25,53 +27,80 @@ from typing import Any, Protocol
 
 from sqlalchemy import text
 
-from orbital_engine.config import Settings, get_settings
-from orbital_engine.maneuver import detect_maneuvers
+from orbital_engine.config import Settings
+from orbital_engine.debris_risk import circular_speed_km_s, risk_level, risk_score
+from orbital_engine.reports.passes import KARI, predict_passes
 from orbital_engine.reports.schemas import (
     ConjunctionRow,
-    CountryBreakdownEntry,
+    CountryActivity,
     DailyReportPayload,
-    ManeuverDataStatus,
-    ManeuverEntry,
-    ReentryEntry,
-    SurveillanceCategoryCount,
-    SurveillanceObjectRow,
-    TimeSeriesPoint,
-    TimeSeriesSeries,
+    DebrisRiskCounts,
+    HighRiskDebrisRow,
+    ReportCountry,
+    SatellitePass,
+    WatchlistRow,
 )
 
-# Cap notable surveillance objects (and their per-object follow-up queries) so a
-# full-catalog day stays bounded; the report only tables the most recent payloads.
-_SURVEILLANCE_LIMIT = 25
+# --- Cost controls (full-catalog days must stay bounded) ---------------------
+# §2/§3 pass computation is the only O(n) propagation in the assembler. We bound
+# it twice: (a) only consider the most-recently-tracked objects per country, and
+# (b) stop once enough passes have been collected. predict_passes itself samples
+# the day at _PASS_STEP_S so a single object is ~2880 SGP4 calls; capping objects
+# keeps the worst case predictable. Empty when no object yields a pass.
+_PASS_CANDIDATES_PER_COUNTRY = 40
+_PASS_MAX_PASSES_PER_COUNTRY = 25
+_PASS_STEP_S = 30.0
+# Elevation mask for "한반도 통과": 10 deg is a sensible operational horizon
+# (clears terrain/atmosphere clutter) while still catching meaningful overpasses.
+_PASS_MIN_ELEVATION_DEG = 10.0
 
-# Minimal engine-side owner-code -> name map. The authoritative COUNTRY_NAMES map
-# lives in the web tier (apps/web); the engine has no equivalent, so this covers
-# the codes that appear most in the catalog and passes the raw code through for the
-# rest (owner_name stays None) rather than inventing a full table. See report notes.
+# Cap the §5c high-risk debris table so a debris-heavy day stays tabular.
+_HIGH_RISK_DEBRIS_LIMIT = 25
+
+# Map each ReportCountry (NK/CN/RU/JP) -> the Space-Track owner code(s) that
+# appear in the catalog's ``country_code`` column. Codes taken verbatim from
+# apps/web/src/app/data/countries.ts (COUNTRY_NAMES / COUNTRY_ISO):
+#   China=PRC, Russia=CIS, Japan=JPN, North Korea=PRK. We keep RU as a Russia
+#   alias too (the engine's _OWNER_NAMES historically carried both CIS and RU).
+_REPORT_COUNTRY_OWNER_CODES: dict[ReportCountry, tuple[str, ...]] = {
+    ReportCountry.NORTH_KOREA: ("PRK",),
+    ReportCountry.CHINA: ("PRC",),
+    ReportCountry.RUSSIA: ("CIS", "RU"),
+    ReportCountry.JAPAN: ("JPN",),
+}
+
+_REPORT_COUNTRY_NAMES: dict[ReportCountry, str] = {
+    ReportCountry.NORTH_KOREA: "북한",
+    ReportCountry.CHINA: "중국",
+    ReportCountry.RUSSIA: "러시아",
+    ReportCountry.JAPAN: "일본",
+}
+
+# Minimal engine-side owner-code -> Korean name map (mirrors countries.ts subset).
+# Unmapped codes pass through as None (no invented names). See report notes.
 _OWNER_NAMES: dict[str, str] = {
     "US": "미국",
     "PRC": "중국",
     "CIS": "러시아",
     "RU": "러시아",
     "JPN": "일본",
+    "PRK": "북한",
     "ROK": "대한민국",
     "FR": "프랑스",
     "ESA": "유럽우주국",
     "IND": "인도",
     "UK": "영국",
-    "DPRK": "북한",
 }
 
-# space_object.object_type -> Korean functional category for the §1 집계 표. The
-# canonical catalog carries no finer functional tag (recon/통신/기술시험 would need
-# upstream enrichment), so the breakdown is by the object_type the schema holds.
-_CATEGORY_NAMES: dict[str, str] = {
-    "PAYLOAD": "위성(탑재체)",
-    "ROCKET BODY": "로켓 본체",
-    "DEBRIS": "파편",
-    "UNKNOWN": "미상",
-    "TBA": "미할당",
+# Risk-level (debris_risk.risk_level) -> DebrisRiskCounts field / §5c 위험등급.
+_RISK_KO: dict[str, str] = {
+    "Critical": "심각",
+    "High": "높음",
+    "Medium": "보통",
+    "Low": "낮음",
 }
+# Levels surfaced in the §5c high-risk table (Critical/High), highest first.
+_HIGH_RISK_LEVELS: tuple[str, ...] = ("Critical", "High")
 
 
 class _Conn(Protocol):
@@ -90,22 +119,47 @@ def _owner_name(code: str | None) -> str | None:
     return _OWNER_NAMES.get(code) if code else None
 
 
-def _regime(apogee_km: float | None, perigee_km: float | None, period_min: float | None) -> str | None:
-    """Coarse orbital regime from apsides / period (LEO / MEO / GEO / HEO)."""
-    if period_min is not None and 1400.0 <= period_min <= 1480.0:
+def _regime(
+    apoapsis_km: float | None,
+    periapsis_km: float | None,
+    period_min: float | None,
+    eccentricity: float | None,
+) -> str | None:
+    """Coarse orbital regime (LEO / MEO / GEO / HEO), or None when undeterminable.
+
+    Mirrors the web classifier in ``apps/web/src/app/utils/sgp4FromTle.ts``
+    (HEO when highly eccentric) combined with the apside thresholds in the R3
+    spec:
+      * HEO — eccentricity > 0.25 (highly elliptical), regardless of altitude;
+      * GEO — mean altitude within ~35786 ± 1500 km (geosynchronous shell);
+      * LEO — mean altitude < 2000 km;
+      * MEO — 2000 km <= mean altitude < GEO band.
+    Mean altitude = (apoapsis + periapsis) / 2. Returns None when neither the
+    apsides nor the period give an altitude.
+    """
+    if eccentricity is not None and eccentricity > 0.25:
+        return "HEO"
+    mean_alt: float | None = None
+    if apoapsis_km is not None and periapsis_km is not None:
+        mean_alt = (apoapsis_km + periapsis_km) / 2.0
+    elif period_min is not None and 1410.0 <= period_min <= 1450.0:
         return "GEO"
-    mean_alt = None
-    if apogee_km is not None and perigee_km is not None:
-        mean_alt = (apogee_km + perigee_km) / 2.0
-        if apogee_km - perigee_km > 5000.0:
-            return "HEO"
     if mean_alt is None:
         return None
+    if 34286.0 <= mean_alt <= 37286.0:
+        return "GEO"
     if mean_alt < 2000.0:
         return "LEO"
-    if mean_alt < 35000.0:
+    if mean_alt < 34286.0:
         return "MEO"
     return "GEO"
+
+
+def _mean_altitude_km(apoapsis_km: float | None, periapsis_km: float | None) -> float | None:
+    """Mean shell altitude [km] = (apoapsis + periapsis) / 2, or None."""
+    if apoapsis_km is None or periapsis_km is None:
+        return None
+    return (apoapsis_km + periapsis_km) / 2.0
 
 
 async def _rows(conn: _Conn, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -114,163 +168,218 @@ async def _rows(conn: _Conn, sql: str, params: dict[str, Any] | None = None) -> 
     return [dict(row) for row in result.mappings()]
 
 
-async def _surveillance(conn: _Conn) -> tuple[list[SurveillanceCategoryCount], list[SurveillanceObjectRow]]:
-    """§1 — category counts over the live catalog + the notable-object table."""
-    counts = await _rows(
+async def _watchlist(conn: _Conn) -> tuple[list[WatchlistRow], WatchlistRow]:
+    """§1 — ALL catalog objects grouped by owner country × regime, plus totals.
+
+    Counts are derived in Python (regime needs the eccentricity/apside logic the
+    SQL has no clean expression for). One pass over the live catalog; objects
+    with an undeterminable regime are tallied into the row total but not into any
+    regime column.
+    """
+    rows = await _rows(
         conn,
-        "SELECT object_type::text AS object_type, count(*) AS n FROM space_object "
-        "WHERE decay_date IS NULL GROUP BY object_type ORDER BY n DESC",
+        "SELECT coalesce(country_code, 'UNKNOWN') AS owner_code, "
+        "       apoapsis_km, periapsis_km, period_min, eccentricity "
+        "FROM space_object WHERE decay_date IS NULL",
     )
-    categories = [
-        SurveillanceCategoryCount(
-            category=_CATEGORY_NAMES.get(r["object_type"], r["object_type"] or "미상"),
-            count=int(r["n"]),
+
+    buckets: dict[str, dict[str, int]] = {}
+    grand = {"leo": 0, "meo": 0, "geo": 0, "heo": 0, "total": 0}
+    for r in rows:
+        code = r["owner_code"]
+        cell = buckets.setdefault(code, {"leo": 0, "meo": 0, "geo": 0, "heo": 0, "total": 0})
+        regime = _regime(r["apoapsis_km"], r["periapsis_km"], r["period_min"], r["eccentricity"])
+        cell["total"] += 1
+        grand["total"] += 1
+        if regime is not None:
+            key = regime.lower()
+            cell[key] += 1
+            grand[key] += 1
+
+    matrix = [
+        WatchlistRow(
+            country_code=code,
+            country_name=_owner_name(code),
+            leo=c["leo"],
+            meo=c["meo"],
+            geo=c["geo"],
+            heo=c["heo"],
+            total=c["total"],
         )
-        for r in counts
+        for code, c in sorted(buckets.items(), key=lambda kv: (-kv[1]["total"], kv[0]))
     ]
-    notable = await _rows(
+    total_row = WatchlistRow(
+        country_code="TOTAL",
+        country_name=None,
+        leo=grand["leo"],
+        meo=grand["meo"],
+        geo=grand["geo"],
+        heo=grand["heo"],
+        total=grand["total"],
+    )
+    return matrix, total_row
+
+
+async def _country_objects(conn: _Conn, owner_codes: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Catalog objects (with TLE lines) for one report country's owner code(s).
+
+    Bounded to the most-recently-tracked ``_PASS_CANDIDATES_PER_COUNTRY`` rows so
+    a full-catalog day stays predictable. Only rows carrying both TLE lines are
+    returned (objects without elements cannot be propagated and are skipped).
+    """
+    return await _rows(
         conn,
-        "SELECT object_id, norad_cat_id, object_name, country_code, object_type::text AS object_type, "
-        "       apoapsis_km, periapsis_km, period_min "
-        "FROM space_object WHERE decay_date IS NULL AND object_type::text = 'PAYLOAD' "
+        "SELECT object_id, norad_cat_id, object_name, tle_line1, tle_line2 "
+        "FROM space_object "
+        "WHERE decay_date IS NULL AND country_code = ANY(:codes) "
+        "AND tle_line1 IS NOT NULL AND tle_line2 IS NOT NULL "
         "ORDER BY epoch DESC LIMIT :lim",
-        {"lim": _SURVEILLANCE_LIMIT},
+        {"codes": list(owner_codes), "lim": _PASS_CANDIDATES_PER_COUNTRY},
     )
-    objects = [
-        SurveillanceObjectRow(
-            object_id=r["object_id"],
-            norad_cat_id=r["norad_cat_id"],
-            object_name=r["object_name"],
-            owner_code=r["country_code"],
-            owner_name=_owner_name(r["country_code"]),
-            regime=_regime(r["apoapsis_km"], r["periapsis_km"], r["period_min"]),
-            object_type=r["object_type"],
+
+
+def _passes_for_object(
+    obj: dict[str, Any], start: datetime, end: datetime
+) -> list[SatellitePass]:
+    """Map an object's peninsula passes over [start, end] onto SatellitePass rows."""
+    line1, line2 = obj.get("tle_line1"), obj.get("tle_line2")
+    if not line1 or not line2:
+        return []
+    geometries = predict_passes(
+        (line1, line2),
+        KARI,
+        start,
+        end,
+        step_s=_PASS_STEP_S,
+        min_elevation_deg=_PASS_MIN_ELEVATION_DEG,
+    )
+    name = obj.get("object_name") or obj["object_id"]
+    sat_id = str(obj.get("norad_cat_id") or obj["object_id"])
+    return [
+        SatellitePass(
+            satellite_name=name,
+            satellite_id=sat_id,
+            pass_time=g.aos,
+            closest_time=g.closest_time,
+            closest_distance_km=g.closest_distance_km,
+            azimuth_deg=g.azimuth_deg,
+            elevation_deg=g.elevation_deg,
         )
-        for r in notable
+        for g in geometries
     ]
-    return categories, objects
+
+
+async def _country_activity(
+    conn: _Conn, start: datetime, end: datetime
+) -> list[CountryActivity]:
+    """§2/§3 — peninsula passes per report country (북한 / 중·러·일)."""
+    activity: list[CountryActivity] = []
+    for country in ReportCountry:
+        objects = await _country_objects(conn, _REPORT_COUNTRY_OWNER_CODES[country])
+        passes: list[SatellitePass] = []
+        for obj in objects:
+            passes.extend(_passes_for_object(obj, start, end))
+            if len(passes) >= _PASS_MAX_PASSES_PER_COUNTRY:
+                passes = passes[:_PASS_MAX_PASSES_PER_COUNTRY]
+                break
+        passes.sort(key=lambda p: p.pass_time)
+        activity.append(
+            CountryActivity(
+                country_code=country.value,
+                country_name=_REPORT_COUNTRY_NAMES[country],
+                passes=passes,
+            )
+        )
+    return activity
 
 
 async def _conjunctions(conn: _Conn, start: datetime, end: datetime) -> list[ConjunctionRow]:
-    """§2 — close approaches whose TCA falls inside the report day."""
+    """§4 — close approaches whose TCA falls inside the report day."""
     rows = await _rows(
         conn,
-        "SELECT id, primary_object_id, primary_name, secondary_object_id, secondary_name, "
-        "       miss_distance_km, probability, tca, severity::text AS severity "
+        "SELECT primary_name, secondary_name, miss_distance_km, probability, tca, "
+        "       severity::text AS severity "
         "FROM conjunction WHERE tca >= :start AND tca < :end ORDER BY tca ASC",
         {"start": start, "end": end},
     )
     return [
         ConjunctionRow(
-            conjunction_id=r["id"],
-            primary_object_id=r["primary_object_id"],
-            primary_name=r["primary_name"],
-            secondary_object_id=r["secondary_object_id"],
-            secondary_name=r["secondary_name"],
-            miss_distance_km=float(r["miss_distance_km"]),
-            probability=float(r["probability"]) if r["probability"] is not None else None,
+            satellite_name=r["primary_name"],
+            object_name=r["secondary_name"],
             tca=r["tca"],
-            alert_level=r["severity"],
+            distance_km=float(r["miss_distance_km"]),
+            probability=float(r["probability"]) if r["probability"] is not None else None,
+            risk_category=r["severity"],
         )
         for r in rows
     ]
 
 
-async def _object_history(conn: _Conn, object_id: str, end: datetime) -> list[dict[str, Any]]:
-    """gp_history rows for one object up to the end of the report day (oldest-first).
-
-    Only real gp_history columns are selected (name/NORAD live on space_object, not
-    the hypertable); the pure detector tolerates their absence (it falls back to the
-    object id), and the report does not surface them from the maneuver record.
-    """
+async def _debris(conn: _Conn) -> list[dict[str, Any]]:
+    """§5 — live DEBRIS-class catalog rows with the fields the risk model needs."""
     return await _rows(
         conn,
-        "SELECT object_id, epoch, mean_motion, eccentricity, inclination, ra_of_asc_node, "
-        "       semimajor_axis_km, apoapsis_km, periapsis_km "
-        "FROM gp_history WHERE object_id = :oid AND epoch < :end ORDER BY epoch ASC",
-        {"oid": object_id, "end": end},
+        "SELECT object_id, object_name, country_code, rcs_size, "
+        "       apoapsis_km, periapsis_km, period_min "
+        "FROM space_object WHERE decay_date IS NULL AND object_type::text = 'DEBRIS'",
     )
 
 
-def _maneuver_entry(
-    row: SurveillanceObjectRow, history: list[dict[str, Any]], settings: Settings
-) -> ManeuverEntry:
-    """Fold one object's history into a §3 row, marking insufficient history."""
-    epochs = len(history)
-    if epochs < settings.maneuver_min_history_points:
-        return ManeuverEntry(
-            object_id=row.object_id,
-            norad_cat_id=row.norad_cat_id,
-            object_name=row.object_name,
-            status=ManeuverDataStatus.INSUFFICIENT_HISTORY,
-            history_epochs=epochs,
+def _debris_level(row: dict[str, Any]) -> str | None:
+    """Risk level (Critical/High/Medium/Low) for one debris row, or None.
+
+    Reuses ``debris_risk.risk_score`` / ``risk_level`` over the mean shell
+    altitude (apside-derived) and the circular-orbit speed at that altitude. A
+    row with no derivable altitude cannot be scored and is skipped.
+    """
+    mean_alt = _mean_altitude_km(row.get("apoapsis_km"), row.get("periapsis_km"))
+    if mean_alt is None:
+        return None
+    score = risk_score(mean_alt, circular_speed_km_s(mean_alt), row.get("rcs_size"))
+    return risk_level(score)
+
+
+async def _debris_risk(
+    conn: _Conn,
+) -> tuple[DebrisRiskCounts, list[HighRiskDebrisRow]]:
+    """§5a counts + §5c high-risk table from the live debris catalog."""
+    rows = await _debris(conn)
+    counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0}
+    scored: list[tuple[str, dict[str, Any]]] = []
+    field_for = {"Critical": "critical", "High": "high", "Medium": "moderate", "Low": "low"}
+    for row in rows:
+        level = _debris_level(row)
+        if level is None:
+            continue
+        counts[field_for[level]] += 1
+        if level in _HIGH_RISK_LEVELS:
+            scored.append((level, row))
+
+    # Highest grade first (Critical before High); cap the table length.
+    scored.sort(key=lambda lr: _HIGH_RISK_LEVELS.index(lr[0]))
+    high_risk = [
+        HighRiskDebrisRow(
+            country_code=row.get("country_code") or "UNKNOWN",
+            country_name=_owner_name(row.get("country_code")),
+            debris_name=row.get("object_name") or row["object_id"],
+            risk_grade=_RISK_KO[level],
+            rcs_size=row.get("rcs_size"),
+            mean_altitude_km=_mean_altitude_km(row.get("apoapsis_km"), row.get("periapsis_km")),
+            period_min=row.get("period_min"),
+            perigee_km=row.get("periapsis_km"),
+            apogee_km=row.get("apoapsis_km"),
         )
-    maneuvers = detect_maneuvers(history, settings)
-    latest = maneuvers[-1] if maneuvers else None
-    return ManeuverEntry(
-        object_id=row.object_id,
-        norad_cat_id=row.norad_cat_id,
-        object_name=row.object_name,
-        status=ManeuverDataStatus.PRESENT,
-        history_epochs=epochs,
-        classification=latest.maneuver_type if latest else None,
-        delta_v_m_s=latest.delta_v_m_s if latest else None,
-        delta_sma_km=latest.delta_sma_km if latest else None,
-        epoch=latest.epoch_after if latest else None,
-    )
-
-
-async def _reentries(conn: _Conn, report_date: date) -> list[ReentryEntry]:
-    """§4 — objects whose decay_date is the report day (day-resolution window)."""
-    rows = await _rows(
-        conn,
-        "SELECT object_id, norad_cat_id, object_name, country_code "
-        "FROM space_object WHERE decay_date = :d ORDER BY object_name",
-        {"d": report_date},
-    )
-    start = datetime(report_date.year, report_date.month, report_date.day, tzinfo=UTC)
-    end = start + timedelta(days=1)
-    return [
-        ReentryEntry(
-            object_id=r["object_id"],
-            norad_cat_id=r["norad_cat_id"],
-            object_name=r["object_name"],
-            owner_code=r["country_code"],
-            predicted_window_start=start,
-            predicted_window_end=end,
-        )
-        for r in rows
+        for level, row in scored[:_HIGH_RISK_DEBRIS_LIMIT]
     ]
-
-
-async def _country_breakdown(conn: _Conn) -> list[CountryBreakdownEntry]:
-    """§5 — live-catalog object counts grouped by owner/country code."""
-    rows = await _rows(
-        conn,
-        "SELECT coalesce(country_code, 'UNKNOWN') AS owner_code, count(*) AS n "
-        "FROM space_object WHERE decay_date IS NULL GROUP BY owner_code ORDER BY n DESC",
+    return (
+        DebrisRiskCounts(
+            critical=counts["critical"],
+            high=counts["high"],
+            moderate=counts["moderate"],
+            low=counts["low"],
+        ),
+        high_risk,
     )
-    return [
-        CountryBreakdownEntry(
-            owner_code=r["owner_code"],
-            owner_name=_owner_name(r["owner_code"]),
-            count=int(r["n"]),
-        )
-        for r in rows
-    ]
-
-
-def _time_series(row: SurveillanceObjectRow, history: list[dict[str, Any]]) -> TimeSeriesSeries:
-    """Per-object apogee/perigee series for the charts (reuses the fetched history)."""
-    points = [
-        TimeSeriesPoint(
-            epoch=h["epoch"],
-            apogee_km=float(h["apoapsis_km"]) if h.get("apoapsis_km") is not None else None,
-            perigee_km=float(h["periapsis_km"]) if h.get("periapsis_km") is not None else None,
-        )
-        for h in history
-    ]
-    return TimeSeriesSeries(object_id=row.object_id, object_name=row.object_name, points=points)
 
 
 async def assemble_daily(
@@ -279,38 +388,33 @@ async def assemble_daily(
     *,
     settings: Settings | None = None,
 ) -> DailyReportPayload:
-    """Assemble the deterministic payload for one day's space-situation report.
+    """Assemble the deterministic payload for one day's space-operations report.
 
     ``conn`` is an injected SQLAlchemy async connection (caller-owned). Raises
     ``ValueError`` for a future ``report_date``; any day with no data returns a
-    valid payload with empty sections. An object with fewer than
-    ``maneuver_min_history_points`` gp_history epochs is marked "정보 없음" rather
-    than crashing the maneuver pass.
+    valid payload with empty sections. Objects missing TLE lines are skipped in
+    the pass pass rather than crashing it.
+
+    ``settings`` is accepted for signature stability with the rest of the report
+    pipeline; the deterministic data assembly takes no tunables from it (the pass
+    mask / cost caps are module constants), so it is currently unused.
     """
-    settings = settings or get_settings()
+    _ = settings
     if report_date > datetime.now(UTC).date():
         raise ValueError(f"report_date {report_date.isoformat()} is in the future")
 
     start, end = _day_window(report_date)
-    categories, objects = await _surveillance(conn)
+    watchlist_matrix, watchlist_total = await _watchlist(conn)
+    country_activity = await _country_activity(conn, start, end)
     conjunctions = await _conjunctions(conn, start, end)
-    reentries = await _reentries(conn, report_date)
-    country_breakdown = await _country_breakdown(conn)
-
-    maneuvers: list[ManeuverEntry] = []
-    time_series: list[TimeSeriesSeries] = []
-    for row in objects:
-        history = await _object_history(conn, row.object_id, end)
-        maneuvers.append(_maneuver_entry(row, history, settings))
-        time_series.append(_time_series(row, history))
+    debris_risk_counts, high_risk_debris = await _debris_risk(conn)
 
     return DailyReportPayload(
         report_date=report_date,
-        surveillance_categories=categories,
-        surveillance_objects=objects,
+        watchlist_matrix=watchlist_matrix,
+        watchlist_total=watchlist_total,
+        country_activity=country_activity,
         conjunctions=conjunctions,
-        maneuvers=maneuvers,
-        reentries=reentries,
-        country_breakdown=country_breakdown,
-        time_series=time_series,
+        debris_risk_counts=debris_risk_counts,
+        high_risk_debris=high_risk_debris,
     )
