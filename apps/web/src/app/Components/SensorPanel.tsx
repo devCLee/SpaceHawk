@@ -111,7 +111,7 @@ export const SensorPanel: React.FunctionComponent = () => {
               {activeSensor.name} → {detail?.object_name ?? selectedId}
             </p>
             <div style={s.listItem}>
-              <span style={s.muted}>Az / El</span>
+              <span style={s.muted}>{t("sensor.azEl")} (Az / El)</span>
               <span>
                 {live
                   ? `${live.azimuthDeg.toFixed(1)}° / ${live.elevationDeg.toFixed(1)}°`
