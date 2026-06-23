@@ -73,13 +73,48 @@ export interface CaptureScene {
 
 const PNG_DATA_URL_PREFIX = "data:image/png;base64,";
 
+/** Longest-side ceiling (px) for an encoded capture. A full-resolution Cesium
+ *  globe canvas is viewport-sized and doubled on hi-DPI/4K displays, so its PNG
+ *  can exceed the engine's 4MB/image cap and get rejected (413) — which surfaces
+ *  as a generic "report request failed". Downscaling to this bound keeps each
+ *  PNG comfortably under the cap (and the upload small) while staying sharp
+ *  enough for an embedded report image. */
+const MAX_CAPTURE_DIM = 1600;
+
+/** Encode a canvas to a PNG data URL, downscaling so its longest side is at most
+ *  MAX_CAPTURE_DIM. Draws onto an offscreen 2D canvas at the scaled size when the
+ *  source is larger; falls back to a direct encode when oversized handling isn't
+ *  possible (no 2D context, e.g. jsdom) or the source is already small enough. */
+function toPngDataUrl(canvas: HTMLCanvasElement): string {
+  const longest = Math.max(canvas.width, canvas.height);
+  if (longest > MAX_CAPTURE_DIM) {
+    const scale = MAX_CAPTURE_DIM / longest;
+    const w = Math.max(1, Math.round(canvas.width * scale));
+    const h = Math.max(1, Math.round(canvas.height * scale));
+    try {
+      const off = document.createElement("canvas");
+      off.width = w;
+      off.height = h;
+      const ctx = off.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(canvas, 0, 0, w, h);
+        return off.toDataURL("image/png");
+      }
+    } catch {
+      // Fall through to a direct (full-size) encode on any downscale failure.
+    }
+  }
+  return canvas.toDataURL("image/png");
+}
+
 /** Convert a canvas to a base64 PNG (no `data:` prefix), or null if the canvas
- *  can't be encoded (zero-sized, tainted, or no 2D/WebGL buffer). Pure + sync. */
+ *  can't be encoded (zero-sized, tainted, or no 2D/WebGL buffer). Downscales
+ *  oversized captures so they stay under the engine's per-image size cap. */
 export function canvasToBase64Png(canvas: HTMLCanvasElement): string | null {
   if (canvas.width === 0 || canvas.height === 0) return null;
   let dataUrl: string;
   try {
-    dataUrl = canvas.toDataURL("image/png");
+    dataUrl = toPngDataUrl(canvas);
   } catch {
     // SecurityError on a cross-origin-tainted canvas, etc. Best-effort: skip it.
     return null;

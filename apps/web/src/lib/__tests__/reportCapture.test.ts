@@ -56,6 +56,74 @@ describe("canvasToBase64Png", () => {
       canvasToBase64Png(fakeCanvas({ dataUrl: "data:image/png;base64," }))
     ).toBeNull();
   });
+
+  it("encodes a small canvas directly (no offscreen downscale)", () => {
+    const create = vi.spyOn(document, "createElement");
+    const canvas = fakeCanvas({
+      width: 800,
+      height: 600,
+      dataUrl: "data:image/png;base64,U01BTEw", // SMALL
+    });
+    expect(canvasToBase64Png(canvas)).toBe("U01BTEw");
+    // Under the cap -> no offscreen canvas is created.
+    expect(create).not.toHaveBeenCalledWith("canvas");
+    create.mockRestore();
+  });
+
+  it("downscales an oversized canvas to the longest-side cap via a 2D context", () => {
+    const source = fakeCanvas({
+      width: 4000,
+      height: 2000,
+      dataUrl: "data:image/png;base64,RlVMTA", // would be the full-size encode
+    });
+    const offCtx = { drawImage: vi.fn() };
+    const off = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => offCtx),
+      toDataURL: vi.fn(() => "data:image/png;base64,U0NBTEVE"), // SCALED
+    };
+    const orig = document.createElement.bind(document);
+    const spy = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tag: string, ...rest: unknown[]) =>
+        tag === "canvas"
+          ? (off as unknown as HTMLCanvasElement)
+          : (orig as (t: string, ...r: unknown[]) => HTMLElement)(tag, ...rest)
+      );
+    const out = canvasToBase64Png(source);
+    expect(out).toBe("U0NBTEVE"); // came from the offscreen (downscaled) canvas
+    expect(off.width).toBe(1600); // 4000 * (1600/4000)
+    expect(off.height).toBe(800); // 2000 * 0.4
+    expect(offCtx.drawImage).toHaveBeenCalledWith(source, 0, 0, 1600, 800);
+    spy.mockRestore();
+  });
+
+  it("falls back to a direct encode when no 2D context is available", () => {
+    const source = fakeCanvas({
+      width: 4000,
+      height: 2000,
+      dataUrl: "data:image/png;base64,RlVMTA", // FULL
+    });
+    const off = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => null),
+      toDataURL: vi.fn(),
+    };
+    const orig = document.createElement.bind(document);
+    const spy = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tag: string, ...rest: unknown[]) =>
+        tag === "canvas"
+          ? (off as unknown as HTMLCanvasElement)
+          : (orig as (t: string, ...r: unknown[]) => HTMLElement)(tag, ...rest)
+      );
+    expect(canvasToBase64Png(source)).toBe("RlVMTA"); // direct source encode
+    expect(off.toDataURL).not.toHaveBeenCalled();
+    expect(source.toDataURL).toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });
 
 describe("captureScene", () => {
