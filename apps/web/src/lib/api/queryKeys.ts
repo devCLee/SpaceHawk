@@ -21,4 +21,6 @@ export const queryKeys = {
     ["maneuvers", "list", objectId ?? "all"] as const,
   // GET /api/maneuvers/baselines
   baselines: () => ["maneuvers", "baselines"] as const,
+  // GET /api/reports/{id} (HWPX report job status, polled)
+  reportJob: (jobId: string) => ["reports", "job", jobId] as const,
 };

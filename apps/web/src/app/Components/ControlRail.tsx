@@ -11,6 +11,7 @@ import SensorPanel from "./SensorPanel";
 import CollisionsPanel from "./CollisionsPanel";
 import DebrisPanel from "./DebrisPanel";
 import ManeuverPanel from "./ManeuverPanel";
+import ReportChatPanel from "./ReportChatPanel";
 import AlertCenter from "./AlertCenter";
 import {
   CountriesPanel,
@@ -52,6 +53,7 @@ export const ControlRail: React.FunctionComponent = () => {
       <CollisionsPanel />
       <DebrisPanel />
       <ManeuverPanel />
+      <ReportChatPanel />
       <AlertCenter />
       <WatchlistPanel />
     </div>

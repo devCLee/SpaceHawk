@@ -259,6 +259,25 @@ export const messages = {
   "debris.meanAltitude": "평균 고도",
   "debris.rcs": "RCS 크기",
 
+  // HWPX report chat panel (T9)
+  "report.title": "보고서 생성",
+  "report.placeholder": "예: 2026-01-07 일일 보고서 생성",
+  "report.send": "전송",
+  "report.intro": "일일 보고서를 요청하세요. 날짜를 생략하면 오늘 날짜로 생성됩니다.",
+  "report.you": "나",
+  "report.bot": "시스템",
+  "report.unrecognized":
+    "요청을 이해하지 못했습니다. \"2026-01-07 일일 보고서 생성\"처럼 입력하세요.",
+  "report.queued": "{date} 일일 보고서를 생성하고 있습니다…",
+  "report.pending": "대기 중…",
+  "report.running": "생성 중…",
+  "report.failed": "보고서 생성에 실패했습니다: {reason}",
+  "report.failed.noReason": "알 수 없는 오류",
+  "report.requestFailed": "보고서를 요청하지 못했습니다. 잠시 후 다시 시도하세요.",
+  "report.retry": "다시 시도",
+  "report.download": "HWPX 내려받기",
+  "report.ready": "{date} 일일 보고서가 준비되었습니다.",
+
   // Auth / admin guard / empty state
   "guard.signInRequired": "로그인이 필요합니다.",
   "guard.notFoundTitle": "404 — 페이지를 찾을 수 없음",

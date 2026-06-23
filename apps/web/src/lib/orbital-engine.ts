@@ -367,3 +367,68 @@ export async function fetchBaselines(): Promise<BaselinesResult> {
     return { available: false, baselines: [] };
   }
 }
+
+// --- HWPX reports (T9: async generate -> poll -> download) ---
+
+export type ReportType = "daily";
+export type ReportJobStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
+
+/** Engine `POST /reports` request body. `filters` is reserved for later slices. */
+export interface ReportRequest {
+  report_type: ReportType;
+  report_date: string; // YYYY-MM-DD
+  filters?: Record<string, unknown>;
+}
+
+/** Engine job descriptor (`POST /reports` 202 and `GET /reports/{id}`). */
+export interface ReportJob {
+  job_id: string;
+  status: ReportJobStatus;
+  download_url?: string | null;
+  error_reason?: string | null;
+}
+
+/** Result wrapper carrying the engine's HTTP status so the BFF route can map
+ *  engine 401/403/409 to a sensible same-origin response. */
+export interface EngineResult<T> {
+  ok: boolean;
+  status: number;
+  data: T | null;
+}
+
+/** Queue (or, idempotently, re-attach to) an HWPX report job. The engine returns
+ *  the SAME job for identical inputs, so a double-submit is harmless. */
+export async function createReport(
+  body: ReportRequest
+): Promise<EngineResult<ReportJob>> {
+  const res = await fetch(`${ENGINE_URL}/reports`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await engineAuthHeaders()) },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const data = res.ok ? ((await res.json()) as ReportJob) : null;
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** Poll one report job's status. */
+export async function fetchReportJob(
+  jobId: string
+): Promise<EngineResult<ReportJob>> {
+  const res = await fetch(
+    `${ENGINE_URL}/reports/${encodeURIComponent(jobId)}`,
+    { cache: "no-store", headers: await engineAuthHeaders() }
+  );
+  const data = res.ok ? ((await res.json()) as ReportJob) : null;
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** Fetch the raw download response (HWPX bytes) so the BFF can stream it through
+ *  with the engine's content-type and Content-Disposition intact. 409 until the
+ *  job is DONE. The caller owns the body. */
+export async function fetchReportDownload(jobId: string): Promise<Response> {
+  return fetch(`${ENGINE_URL}/reports/${encodeURIComponent(jobId)}/download`, {
+    cache: "no-store",
+    headers: await engineAuthHeaders(),
+  });
+}
