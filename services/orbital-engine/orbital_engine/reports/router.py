@@ -17,6 +17,8 @@ read under ``connect()``.
 
 from __future__ import annotations
 
+import base64
+import binascii
 from datetime import date
 from typing import Any
 
@@ -26,6 +28,7 @@ from sqlalchemy import select
 
 from orbital_engine.db import get_engine
 from orbital_engine.reports.models import ReportJob, ReportStatus, report_job
+from orbital_engine.reports.schemas import ReportCountry, ReportImages
 from orbital_engine.reports.tasks import create_report_job
 from orbital_engine.security.attributes import Action, DataDomain, Subject
 from orbital_engine.security.enforce import requires
@@ -34,6 +37,28 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 HWPX_MEDIA_TYPE = "application/vnd.hancom.hwpx"
 
+# Per-image decoded-size ceiling. The web supplies PNG snapshots (a globe view,
+# a debris chart, a heatmap); a few MB each is generous for those. A larger blob
+# is rejected (413) rather than persisted, so a malformed/oversized upload can't
+# bloat the job row.
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
+# The country codes the report tracks (§2 북한, §3 중/러/일). Unknown keys in the
+# request's country_globes map are ignored rather than rejected.
+_REPORT_COUNTRY_CODES = frozenset(c.value for c in ReportCountry)
+
+
+class ReportImagesRequest(BaseModel):
+    """Optional web-supplied report images as base64-encoded PNGs.
+
+    All fields optional so a no-image POST is valid. ``country_globes`` maps a
+    report-country code (NK/CN/RU/JP) to a base64 PNG; unknown keys are dropped.
+    """
+
+    country_globes: dict[str, str] = Field(default_factory=dict)
+    debris_density: str | None = None
+    debris_heatmap: str | None = None
+
 
 class CreateReportRequest(BaseModel):
     """Request body for a daily-report job."""
@@ -41,6 +66,48 @@ class CreateReportRequest(BaseModel):
     report_type: str = "daily"
     report_date: date
     filters: dict[str, Any] | None = None
+    images: ReportImagesRequest | None = None
+
+
+def _decode_image(b64: str, *, field: str) -> bytes:
+    """Decode one base64 PNG to bytes, enforcing validity + the size cap.
+
+    Invalid base64 → 422; a decoded blob over :data:`MAX_IMAGE_BYTES` → 413. The
+    field name is echoed so the client can tell which image was rejected.
+    """
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"invalid base64 for image '{field}'",
+        ) from exc
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"image '{field}' exceeds {MAX_IMAGE_BYTES} bytes",
+        )
+    return raw
+
+
+def _build_images(req: ReportImagesRequest | None) -> ReportImages | None:
+    """Decode the request's base64 images into a :class:`ReportImages`, or None.
+
+    Drops unknown country codes; returns ``None`` when nothing decodable remains
+    so a no-image (or empty) request stores NULL and never clobbers a prior set.
+    """
+    if req is None:
+        return None
+    globes = {
+        code: _decode_image(b64, field=f"country_globes.{code}")
+        for code, b64 in req.country_globes.items()
+        if code in _REPORT_COUNTRY_CODES
+    }
+    density = _decode_image(req.debris_density, field="debris_density") if req.debris_density else None
+    heatmap = _decode_image(req.debris_heatmap, field="debris_heatmap") if req.debris_heatmap else None
+    if not globes and density is None and heatmap is None:
+        return None
+    return ReportImages(country_globes=globes, debris_density=density, debris_heatmap=heatmap)
 
 
 class CreateReportResponse(BaseModel):
@@ -79,8 +146,11 @@ async def create_report(
     body: CreateReportRequest,
     _subject: Subject = Depends(requires(DataDomain.REPORTS, Action.QUERY)),
 ) -> CreateReportResponse:
+    images = _build_images(body.images)
     async with get_engine().begin() as conn:
-        job = await create_report_job(body.report_type, body.report_date, body.filters, conn)
+        job = await create_report_job(
+            body.report_type, body.report_date, body.filters, conn, images=images
+        )
     return CreateReportResponse(job_id=job.id, status=job.status)
 
 

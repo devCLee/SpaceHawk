@@ -11,6 +11,7 @@
 
 import React from "react";
 import type { Viewer } from "cesium";
+import { captureScene } from "@/lib/reportCapture";
 
 /** Online = Cesium Ion imagery/terrain; offline = bundled Natural Earth II. */
 export type GlobeMode = "offline" | "online";
@@ -36,6 +37,10 @@ interface GlobeControlsValue {
   toggleRoi: () => void;
   /** CesiumComponent registers its viewer on build and `null` on teardown. */
   registerViewer: (viewer: Viewer | null) => void;
+  /** Snapshot the current globe view as a base64 PNG (no data-URL prefix), or
+   *  null when no viewer is mounted / the canvas can't be encoded. Used by the
+   *  report capture (R8). Renders one frame first (Cesium clears its buffer). */
+  captureGlobe: () => string | null;
 }
 
 const GlobeControlsContext = React.createContext<GlobeControlsValue | null>(
@@ -155,6 +160,12 @@ export function GlobeControlsProvider({
     [applyScene]
   );
 
+  const captureGlobe = React.useCallback((): string | null => {
+    const viewer = viewerRef.current;
+    if (!viewer || viewer.isDestroyed()) return null;
+    return captureScene(viewer.scene);
+  }, []);
+
   const value = React.useMemo<GlobeControlsValue>(
     () => ({
       mode,
@@ -170,6 +181,7 @@ export function GlobeControlsProvider({
       roiVisible,
       toggleRoi,
       registerViewer,
+      captureGlobe,
     }),
     [
       mode,
@@ -184,6 +196,7 @@ export function GlobeControlsProvider({
       roiVisible,
       toggleRoi,
       registerViewer,
+      captureGlobe,
     ]
   );
 

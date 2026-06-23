@@ -13,11 +13,14 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReportChatPanel from "../ReportChatPanel";
+import { GlobeControlsProvider } from "../../context/GlobeControlsContext";
+import { DebrisLayerProvider } from "../../context/DebrisLayerContext";
 import { t } from "@/lib/i18n/t";
 
 // --- programmable fetch mock keyed on URL + method ---
 type Json = Record<string, unknown>;
 let postCalls: number;
+let postBodies: Json[]; // each POST /api/reports body, in order
 let statusResponses: Json[]; // consumed in order on each GET /api/reports/{id}
 let postResponse: Json;
 
@@ -34,6 +37,9 @@ function installFetch() {
     const method = (init?.method ?? "GET").toUpperCase();
     if (url === "/api/reports" && method === "POST") {
       postCalls += 1;
+      postBodies.push(
+        init?.body ? (JSON.parse(init.body as string) as Json) : {}
+      );
       return jsonResponse(postResponse, 202);
     }
     if (url.startsWith("/api/reports/") && method === "GET") {
@@ -50,7 +56,11 @@ function renderPanel() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <ReportChatPanel />
+      <GlobeControlsProvider>
+        <DebrisLayerProvider>
+          <ReportChatPanel />
+        </DebrisLayerProvider>
+      </GlobeControlsProvider>
     </QueryClientProvider>
   );
 }
@@ -68,6 +78,7 @@ function typeAndSend(text: string) {
 
 beforeEach(() => {
   postCalls = 0;
+  postBodies = [];
   postResponse = { job_id: "job-1", status: "PENDING" };
   statusResponses = [];
   installFetch();
@@ -92,6 +103,50 @@ describe("ReportChatPanel", () => {
       "/api/reports/job-1/download"
     );
     expect(postCalls).toBe(1);
+  });
+
+  it("omits the images field when no globe/heatmap is capturable", async () => {
+    // No Cesium viewer and no heatmap canvas are registered in the test env, so
+    // the panel captures nothing and the POST body carries no `images`.
+    statusResponses = [{ job_id: "job-1", status: "DONE", download_url: "/x" }];
+    renderPanel();
+    openPanel();
+
+    typeAndSend("generate daily report for 2026-01-07");
+
+    await screen.findByText(t("report.download"));
+    expect(postBodies).toHaveLength(1);
+    expect(postBodies[0]).not.toHaveProperty("images");
+    // Sanity: the request still carries the parsed intent.
+    expect(postBodies[0]).toMatchObject({
+      report_type: "daily",
+      report_date: "2026-01-07",
+    });
+  });
+
+  it("includes captured images in the POST body when a globe snapshot exists", async () => {
+    // Stub useGlobeControls.captureGlobe so the panel has a capturable image,
+    // exercising the images-included branch without a live Cesium viewer.
+    const globeB64 = "Zm9vYmFy"; // base64("foobar")
+    const ctx = await import("../../context/GlobeControlsContext");
+    const spy = vi
+      .spyOn(ctx, "useGlobeControls")
+      .mockReturnValue({
+        captureGlobe: () => globeB64,
+      } as unknown as ReturnType<typeof ctx.useGlobeControls>);
+
+    statusResponses = [{ job_id: "job-1", status: "DONE", download_url: "/x" }];
+    renderPanel();
+    openPanel();
+
+    typeAndSend("generate daily report for 2026-01-07");
+
+    await screen.findByText(t("report.download"));
+    expect(postBodies).toHaveLength(1);
+    expect(postBodies[0]).toMatchObject({
+      images: { country_globes: { NK: globeB64 } },
+    });
+    spy.mockRestore();
   });
 
   it("FAILED status shows the reason and a retry button", async () => {

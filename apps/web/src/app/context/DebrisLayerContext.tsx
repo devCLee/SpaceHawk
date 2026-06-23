@@ -10,6 +10,7 @@
 
 import React from "react";
 import type { DebrisRiskLevel } from "../data/visualization";
+import { canvasToBase64Png } from "@/lib/reportCapture";
 
 interface DebrisLayerContextValue {
   /** Whether the debris layer is drawn on the globe. */
@@ -23,6 +24,12 @@ interface DebrisLayerContextValue {
   hiddenRisks: DebrisRiskLevel[];
   isRiskHidden: (level: DebrisRiskLevel) => boolean;
   toggleRisk: (level: DebrisRiskLevel) => void;
+  /** DebrisHeatmap2D registers its <canvas> here while mounted (null on unmount)
+   *  so the report capture (R8) can snapshot the 2D heatmap when it's open. */
+  registerHeatmapCanvas: (canvas: HTMLCanvasElement | null) => void;
+  /** Snapshot the 2D heatmap as a base64 PNG (no data-URL prefix), or null when
+   *  the heatmap overlay is closed / not registered. */
+  captureHeatmap: () => string | null;
 }
 
 const DebrisLayerContext = React.createContext<DebrisLayerContextValue | null>(
@@ -37,6 +44,18 @@ export function DebrisLayerProvider({
   const [visible, setVisible] = React.useState(false);
   const [heatmap, setHeatmap] = React.useState(false);
   const [hiddenRisks, setHiddenRisks] = React.useState<DebrisRiskLevel[]>([]);
+  const heatmapCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
+
+  const registerHeatmapCanvas = React.useCallback(
+    (canvas: HTMLCanvasElement | null) => {
+      heatmapCanvasRef.current = canvas;
+    },
+    []
+  );
+  const captureHeatmap = React.useCallback((): string | null => {
+    const canvas = heatmapCanvasRef.current;
+    return canvas ? canvasToBase64Png(canvas) : null;
+  }, []);
 
   const value = React.useMemo<DebrisLayerContextValue>(
     () => ({
@@ -53,8 +72,10 @@ export function DebrisLayerProvider({
             ? prev.filter((l) => l !== level)
             : [...prev, level]
         ),
+      registerHeatmapCanvas,
+      captureHeatmap,
     }),
-    [visible, heatmap, hiddenRisks]
+    [visible, heatmap, hiddenRisks, registerHeatmapCanvas, captureHeatmap]
   );
 
   return (

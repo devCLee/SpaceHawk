@@ -17,7 +17,9 @@ import * as s from "./panelStyles";
 import { t } from "@/lib/i18n/t";
 import { parseReportIntent } from "@/lib/reportIntent";
 import { useCreateReport, useReportJob } from "@/lib/api/useReports";
-import type { ReportRequest } from "@/lib/orbital-engine";
+import type { ReportImagesRequest, ReportRequest } from "@/lib/orbital-engine";
+import { useGlobeControls } from "../context/GlobeControlsContext";
+import { useDebrisLayer } from "../context/DebrisLayerContext";
 
 interface ChatMessage {
   id: number;
@@ -41,6 +43,29 @@ export const ReportChatPanel: React.FunctionComponent = () => {
 
   const createReport = useCreateReport();
   const { data: job } = useReportJob(activeJob?.id ?? null);
+  const { captureGlobe } = useGlobeControls();
+  const { captureHeatmap } = useDebrisLayer();
+
+  // Best-effort report images (R8): snapshot whatever is on screen at submit time
+  // (the current globe view; the 2D heatmap if its overlay is open) into the
+  // engine's optional `images` shape. Returns undefined when nothing is
+  // capturable, so the POST simply omits images and still yields a valid report.
+  //
+  // Per-country globe snapshots (NK/CN/RU/JP) are NOT produced: the globe exposes
+  // no imperative camera-position-then-capture API, only the current viewer. We
+  // file the single current view under "NK" (the report's lead country) and leave
+  // true per-country capture as a follow-up needing that globe API — we do not
+  // fabricate four distinct snapshots from one view.
+  const captureImages = React.useCallback(():
+    | ReportImagesRequest
+    | undefined => {
+    const images: ReportImagesRequest = {};
+    const globe = captureGlobe();
+    if (globe) images.country_globes = { NK: globe };
+    const heatmap = captureHeatmap();
+    if (heatmap) images.debris_heatmap = heatmap;
+    return Object.keys(images).length > 0 ? images : undefined;
+  }, [captureGlobe, captureHeatmap]);
 
   const pushBot = React.useCallback((text: string) => {
     setMessages((prev) => [...prev, { id: nextMsgId++, role: "bot", text }]);
@@ -56,7 +81,9 @@ export const ReportChatPanel: React.FunctionComponent = () => {
     (request: ReportRequest) => {
       setLastRequest(request);
       pushBot(t("report.queued", { date: request.report_date }));
-      createReport.mutate(request, {
+      // Capture fresh at submit time so the snapshot reflects the live view.
+      const withImages: ReportRequest = { ...request, images: captureImages() };
+      createReport.mutate(withImages, {
         onSuccess: (created) => {
           setActiveJob({ id: created.job_id, date: request.report_date });
         },
@@ -65,7 +92,7 @@ export const ReportChatPanel: React.FunctionComponent = () => {
         },
       });
     },
-    [createReport, pushBot]
+    [createReport, pushBot, captureImages]
   );
 
   const handleSend = React.useCallback(() => {

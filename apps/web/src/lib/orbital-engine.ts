@@ -373,11 +373,22 @@ export async function fetchBaselines(): Promise<BaselinesResult> {
 export type ReportType = "daily";
 export type ReportJobStatus = "PENDING" | "RUNNING" | "DONE" | "FAILED";
 
+/** Optional web-supplied report images (R8): base64-encoded PNGs the engine
+ *  embeds in the HWPX. Every field is optional — a no-image request is valid. */
+export interface ReportImagesRequest {
+  /** Per-country 3D globe snapshots keyed by report-country code (NK/CN/RU/JP). */
+  country_globes?: Record<string, string>;
+  debris_density?: string;
+  debris_heatmap?: string;
+}
+
 /** Engine `POST /reports` request body. `filters` is reserved for later slices. */
 export interface ReportRequest {
   report_type: ReportType;
   report_date: string; // YYYY-MM-DD
   filters?: Record<string, unknown>;
+  /** Optional captured report images (R8), forwarded to the engine verbatim. */
+  images?: ReportImagesRequest;
 }
 
 /** Engine job descriptor (`POST /reports` 202 and `GET /reports/{id}`). */

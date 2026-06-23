@@ -90,9 +90,17 @@ interface Selected {
 }
 
 export const DebrisHeatmap2D: React.FunctionComponent = () => {
-  const { heatmap, setHeatmap } = useDebrisLayer();
+  const { heatmap, setHeatmap, registerHeatmapCanvas } = useDebrisLayer();
   const { data: debris } = useDebris();
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  // Expose the drawn heatmap canvas to the report capture (R8) while the overlay
+  // is open; clear it when the overlay closes (the canvas unmounts) so a stale
+  // canvas isn't read. `heatmap` gates the render below, so re-run on its change.
+  React.useEffect(() => {
+    registerHeatmapCanvas(heatmap ? canvasRef.current : null);
+    return () => registerHeatmapCanvas(null);
+  }, [heatmap, registerHeatmapCanvas]);
   const [grid, setGrid] = React.useState<Float32Array | null>(null);
   const [cells, setCells] = React.useState<Map<number, CellInfo>>(
     () => new Map()

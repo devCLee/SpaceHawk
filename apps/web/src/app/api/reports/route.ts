@@ -25,6 +25,9 @@ export async function POST(req: Request): Promise<Response> {
       report_type: "daily",
       report_date: body.report_date,
       filters: body.filters,
+      // Optional captured images (R8) forwarded verbatim; the engine decodes +
+      // validates them (size cap, base64) and treats their absence as image-less.
+      images: body.images,
     });
     if (!result.ok) {
       // Pass auth/validation failures through; collapse engine 5xx to 502.
