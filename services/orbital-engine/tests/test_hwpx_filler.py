@@ -319,6 +319,51 @@ def test_prose_inserted(payload, prose, images) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# cover date (table[0]) — dynamic from payload.report_date
+# --------------------------------------------------------------------------- #
+
+
+def _cover_text(doc: HwpxDocument) -> str:
+    return _collect_document_tables(doc)[hwpx_filler._COVER_TABLE].table.cell(0, 0).text
+
+
+def test_cover_date_is_dynamic(payload, prose, images) -> None:
+    # payload.report_date is 2026-06-22, which is a Monday -> 월.
+    out = fill_daily_report(payload, prose, images)
+    text = _cover_text(_reopen(out))
+
+    assert "2026. 06. 22. (월)" in text
+    # The stale template weekday (화) must be gone.
+    assert "(화)" not in text
+    # Title prefix is preserved untouched.
+    assert "[SpaceHawk] 일일 우주작전현황 보고" in text
+
+
+def test_cover_weekday_mapping(prose, images) -> None:
+    # 2026-06-24 is a Wednesday -> 수 (verifies the weekday map, not just one date).
+    payload = DailyReportPayload(report_date=date(2026, 6, 24))
+    out = fill_daily_report(payload, prose, images)
+    text = _cover_text(_reopen(out))
+
+    assert "2026. 06. 24. (수)" in text
+    assert "[SpaceHawk] 일일 우주작전현황 보고" in text
+
+
+def test_cover_missing_date_does_not_fail(payload, prose, images, tmp_path) -> None:
+    # Strip the cover date paragraph text: cover fill must warn, not raise.
+    doc = HwpxDocument.open(io.BytesIO(hwpx_filler._load_default_template()))
+    cover = _collect_document_tables(doc)[hwpx_filler._COVER_TABLE].table
+    for para in cover.cell(0, 0).paragraphs:
+        if hwpx_filler._COVER_DATE_RE.search(para.text or ""):
+            para.clear_text()
+    path = tmp_path / "no_cover_date.hwpx"
+    path.write_bytes(doc.to_bytes())
+
+    out = fill_daily_report(payload, prose, images, template_path=str(path))
+    assert _reopen(out).validate().ok
+
+
+# --------------------------------------------------------------------------- #
 # images
 # --------------------------------------------------------------------------- #
 

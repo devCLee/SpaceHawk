@@ -49,9 +49,10 @@ from __future__ import annotations
 import copy
 import io
 import logging
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from importlib import resources
 
 from hwpx import HwpxDocument
@@ -99,11 +100,19 @@ _TEMPLATE_RESOURCE = "daily_report.hwpx"
 #   [8] 2x2  §5b 잔해 밀도 + 히트맵           density img r1c0 / heatmap r1c1
 #   [9] 2x7  §5c 고위험 잔해 현황              국가|잔해명|위험등급|RCS|고도|주기|근/원 (hdr 0)
 # --------------------------------------------------------------------------- #
+_COVER_TABLE = 0
 _WATCHLIST_TABLE = 1
 _CONJUNCTION_TABLE = 6
 _RISK_COUNT_TABLE = 7
 _DEBRIS_IMAGE_TABLE = 8
 _HIGH_RISK_TABLE = 9
+
+# Cover (table[0], cell 0,0) holds the title on paragraph 0 and a bracketed date
+# string on paragraph 1, e.g. "[ 2026. 06. 22. (화) ]". We rewrite that one
+# paragraph; the title paragraph is preserved untouched. Korean weekday is indexed
+# by date.weekday() (Mon=0 .. Sun=6).
+_COVER_DATE_RE = re.compile(r"\[\s*\d{4}\.\s*\d{2}\.\s*\d{2}\.\s*\([월화수목금토일]\)\s*\]")
+_WEEKDAYS_KR = ("월", "화", "수", "목", "금", "토", "일")
 
 # Country activity tables in NK/CN/RU/JP order; image cell at (row 1, col 0),
 # first data row at index 3.
@@ -197,6 +206,11 @@ def _fmt_apsides(perigee: float | None, apogee: float | None) -> str:
 def _country_label(code: str, name: str | None) -> str:
     """Render a country cell as the resolved name, falling back to the code."""
     return name or code
+
+
+def _fmt_cover_date(value: date) -> str:
+    """Render a date Korean-style as ``YYYY. MM. DD. (요일)`` (no brackets)."""
+    return f"{value.year:04d}. {value.month:02d}. {value.day:02d}. ({_WEEKDAYS_KR[value.weekday()]})"
 
 
 # --------------------------------------------------------------------------- #
@@ -382,6 +396,30 @@ def _high_risk_rows(payload: DailyReportPayload) -> list[list[str]]:
 # --------------------------------------------------------------------------- #
 
 
+def _fill_cover(doc: HwpxDocument, report_date: date) -> None:
+    """Replace the cover's bracketed date with ``report_date`` (Korean-formatted).
+
+    The cover (table[0], cell 0,0) carries the title on one paragraph and a
+    ``[ YYYY. MM. DD. (요일) ]`` date on another. We rewrite only the paragraph
+    matching :data:`_COVER_DATE_RE`, preserving the title paragraph verbatim.
+
+    The cover is cosmetic: if the table / cell / date paragraph is absent, we log
+    a warning and continue (data tables remain fail-closed elsewhere).
+    """
+    replacement = f"[ {_fmt_cover_date(report_date)} ]"
+    try:
+        cover = _table_at(doc, _COVER_TABLE)
+        cell = cover.cell(0, 0)
+        for para in cell.paragraphs:
+            if _COVER_DATE_RE.search(para.text or ""):
+                para.text = replacement
+                return
+    except (FillError, IndexError, ValueError, KeyError) as exc:
+        logger.warning("cover date not filled (cover cell unreachable): %s", exc)
+        return
+    logger.warning("cover date pattern not found; cover date left unchanged")
+
+
 def _fill_tables(doc: HwpxDocument, payload: DailyReportPayload) -> None:
     """Fill every data table (fail-closed on structure)."""
     _fill_rows(
@@ -545,6 +583,7 @@ def fill_daily_report(
             slots=[f"{len(indexed)} tables, need >= {_MIN_TABLES}"],
         )
 
+    _fill_cover(doc, payload.report_date)
     _fill_tables(doc, payload)
     _fill_prose(doc, prose)
     _embed_images(doc, images)
