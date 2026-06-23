@@ -65,6 +65,21 @@ export const DebrisPanel: React.FunctionComponent = () => {
     () => density.reduce((m, b) => Math.max(m, b.count), 0),
     [density]
   );
+  // Histogram collapses to the 200–1700 km LEO core; expands to the full range.
+  const [densityOpen, setDensityOpen] = React.useState(false);
+  const shownDensity = React.useMemo(
+    () =>
+      densityOpen
+        ? density
+        : density.filter(
+            (b) => b.altitude_km >= 200 && b.altitude_km <= 1700
+          ),
+    [densityOpen, density]
+  );
+  const hasMoreShells = React.useMemo(
+    () => density.some((b) => b.altitude_km < 200 || b.altitude_km > 1700),
+    [density]
+  );
 
   const topRisk = React.useMemo(
     () =>
@@ -139,7 +154,7 @@ export const DebrisPanel: React.FunctionComponent = () => {
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 2 }}
               >
-                {density.map((b) => (
+                {shownDensity.map((b) => (
                   <div
                     key={b.altitude_km}
                     style={{ display: "flex", alignItems: "center", gap: 6 }}
@@ -186,6 +201,24 @@ export const DebrisPanel: React.FunctionComponent = () => {
                   </div>
                 ))}
               </div>
+              {hasMoreShells && (
+                <button
+                  type="button"
+                  onClick={() => setDensityOpen((o) => !o)}
+                  aria-expanded={densityOpen}
+                  style={{
+                    alignSelf: "flex-start",
+                    background: "none",
+                    border: "none",
+                    padding: "4px 0 0",
+                    cursor: "pointer",
+                    fontSize: 11,
+                    color: "rgba(0,180,220,0.9)",
+                  }}
+                >
+                  {densityOpen ? t("debris.density.less") : t("debris.density.more")}
+                </button>
+              )}
             </>
           )}
 
