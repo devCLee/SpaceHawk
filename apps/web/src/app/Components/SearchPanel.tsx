@@ -1,24 +1,25 @@
 "use client";
 
 // Catalog search (#9a) + parametric find-sat (#9b).
-//   - Text / NORAD / int'l-designator + type + country query → engine /catalog
-//     via the BFF (#9a).
-//   - Orbit-regime / inclination / period / eccentricity filters applied
-//     client-side over the result set, derived from each candidate's TLE (#9b).
+//   - Text / NORAD / int'l-designator + type + country query (#9a) and the
+//     orbit-regime / inclination / period / eccentricity filters (#9b) are ALL
+//     applied client-side over the shared globe catalog (useCatalog →
+//     /api/catalog/all). Searching the same in-memory list the globe renders
+//     guarantees every visualized object is findable — including snapshot-only
+//     objects (e.g. SKOR) that the live engine catalog may not carry.
 // Clicking a result selects it (shared context) → globe highlights + sidebar.
 
 import React from "react";
 import { useSelectedSatellite } from "../context/SelectedSatelliteContext";
-import { deriveOrbitParams, type OrbitRegime } from "../utils/sgp4FromTle";
-import { useApiQuery } from "@/lib/api/useApiQuery";
-import { queryKeys } from "@/lib/api/queryKeys";
-import type { CatalogObject, CatalogQuery } from "@/lib/orbital-engine";
+import { deriveOrbitParams, type OrbitRegime, type TleObject } from "../utils/sgp4FromTle";
+import { useCatalog } from "@/lib/api/useCatalog";
 import * as s from "./panelStyles";
 import { t } from "@/lib/i18n/t";
 import { objectTypeLabel } from "@/lib/i18n/enums";
 
+// Max rows rendered. The filtered set can be the full ~15k catalog (empty
+// query); cap the rendered list so we never mount thousands of <li>.
 const RESULT_LIMIT = 1000;
-const DEBOUNCE_MS = 300;
 
 const REGIMES: Array<OrbitRegime | ""> = ["", "LEO", "MEO", "GEO", "HEO"];
 const TYPES = ["", "PAYLOAD", "ROCKET BODY", "DEBRIS"];
@@ -27,6 +28,12 @@ function num(v: string): number | null {
   if (v.trim() === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Globe id derivation — must match CesiumComponent so a clicked result selects
+ *  the right point (entry.OBJECT_ID ?? entry.OBJECT_NAME). */
+function entryId(r: TleObject): string | null {
+  return r.OBJECT_ID ?? r.OBJECT_NAME ?? null;
 }
 
 export const SearchPanel: React.FunctionComponent = () => {
@@ -43,44 +50,32 @@ export const SearchPanel: React.FunctionComponent = () => {
   const [periodMax, setPeriodMax] = React.useState("");
   const [eccMax, setEccMax] = React.useState("");
 
-  // Debounce the server-side query inputs (text/type/country). setState lives
-  // in the timeout callback, not synchronously in the effect body.
-  const [debounced, setDebounced] = React.useState({
-    q: "",
-    objectType: "",
-    country: "",
-  });
-  React.useEffect(() => {
-    const handle = window.setTimeout(
-      () =>
-        setDebounced({
-          q: q.trim(),
-          objectType,
-          country: country.trim().toUpperCase(),
-        }),
-      DEBOUNCE_MS
-    );
-    return () => window.clearTimeout(handle);
-  }, [q, objectType, country]);
+  const { data: catalog = [], isLoading, isError } = useCatalog();
 
-  const params: CatalogQuery = {
-    limit: RESULT_LIMIT,
-    q: debounced.q || undefined,
-    object_type: debounced.objectType || undefined,
-    country_code: debounced.country || undefined,
-  };
+  // Stage 1 — cheap string filters (name / NORAD / int'l-designator, type,
+  // country) over the full catalog. Runs first so the expensive SGP4 parametric
+  // pass only sees the already-narrowed set.
+  const textFiltered = React.useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    const cc = country.trim().toUpperCase();
+    if (!qq && !objectType && !cc) return catalog;
+    return catalog.filter((r) => {
+      if (objectType && (r.OBJECT_TYPE ?? "") !== objectType) return false;
+      if (cc && (r.COUNTRY_CODE ?? "").toUpperCase() !== cc) return false;
+      if (qq) {
+        const name = (r.OBJECT_NAME ?? "").toLowerCase();
+        const norad = r.NORAD_CAT_ID != null ? String(r.NORAD_CAT_ID) : "";
+        const oid = (r.OBJECT_ID ?? "").toLowerCase();
+        if (!name.includes(qq) && !norad.includes(qq) && !oid.includes(qq))
+          return false;
+      }
+      return true;
+    });
+  }, [catalog, q, objectType, country]);
 
-  const {
-    data: results = [],
-    isLoading,
-    isError,
-  } = useApiQuery<CatalogObject[]>({
-    queryKey: queryKeys.catalog(params),
-    url: "/api/catalog",
-    options: { params, keepPreviousData: true },
-  });
-
-  // Client-side parametric filter over the results.
+  // Stage 2 — orbit-regime / inclination / period / eccentricity filters,
+  // derived from each candidate's TLE. SGP4 parse is costly, so it only runs
+  // when a parametric control is set, and only over the stage-1 survivors.
   const filtered = React.useMemo(() => {
     const iMin = num(inclMin);
     const iMax = num(inclMax);
@@ -94,11 +89,11 @@ export const SearchPanel: React.FunctionComponent = () => {
       pMin !== null ||
       pMax !== null ||
       eMax !== null;
-    if (!parametric) return results;
+    if (!parametric) return textFiltered;
 
-    return results.filter((r) => {
-      if (!r.tle_line1 || !r.tle_line2) return false;
-      const o = deriveOrbitParams(r.tle_line1, r.tle_line2);
+    return textFiltered.filter((r) => {
+      if (!r.TLE_LINE1 || !r.TLE_LINE2) return false;
+      const o = deriveOrbitParams(r.TLE_LINE1, r.TLE_LINE2);
       if (o === null) return false;
       if (regime !== "" && o.regime !== regime) return false;
       if (iMin !== null && o.inclinationDeg < iMin) return false;
@@ -108,7 +103,9 @@ export const SearchPanel: React.FunctionComponent = () => {
       if (eMax !== null && o.eccentricity > eMax) return false;
       return true;
     });
-  }, [results, regime, inclMin, inclMax, periodMin, periodMax, eccMax]);
+  }, [textFiltered, regime, inclMin, inclMax, periodMin, periodMax, eccMax]);
+
+  const shown = filtered.slice(0, RESULT_LIMIT);
 
   return (
     <div style={s.panel}>
@@ -178,22 +175,25 @@ export const SearchPanel: React.FunctionComponent = () => {
         )}
 
         <ul style={s.list}>
-          {filtered.map((r) => (
-            <li
-              key={r.object_id}
-              style={s.listItem}
-              onClick={() => setSelectedId(r.object_id)}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "rgba(255,255,255,0.08)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "transparent")
-              }
-            >
-              <span>{r.object_name}</span>
-              <span style={s.muted}>{r.norad_cat_id ?? ""}</span>
-            </li>
-          ))}
+          {shown.map((r, i) => {
+            const id = entryId(r);
+            return (
+              <li
+                key={id ?? `sat-${i}`}
+                style={s.listItem}
+                onClick={() => setSelectedId(id)}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "rgba(255,255,255,0.08)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                <span>{r.OBJECT_NAME ?? id ?? ""}</span>
+                <span style={s.muted}>{r.NORAD_CAT_ID ?? ""}</span>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>

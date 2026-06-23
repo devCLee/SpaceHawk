@@ -2,13 +2,9 @@
 // arrays/factories so related caches invalidate together. URLs are the
 // same-origin BFF paths the keys map to.
 
-import type { CatalogQuery } from "@/lib/orbital-engine";
-
 export const queryKeys = {
   // GET /api/catalog/all (full globe catalog, shared by the globe + filter panels)
   catalogAll: () => ["catalog", "all"] as const,
-  // GET /api/catalog
-  catalog: (query: CatalogQuery) => ["catalog", "list", query] as const,
   // GET /api/catalog/{id}
   catalogDetail: (objectId: string) =>
     ["catalog", "detail", objectId] as const,
