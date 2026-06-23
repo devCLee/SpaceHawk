@@ -117,6 +117,7 @@ def _payload() -> DailyReportPayload:
             ),
         ],
         debris_risk_counts=DebrisRiskCounts(critical=1, high=2, moderate=3, low=4),
+        debris_altitudes_km=[412.0, 800.0, 812.0, 824.0, 1420.0],
         high_risk_debris=[
             HighRiskDebrisRow(
                 country_code="PRC",
@@ -362,9 +363,56 @@ def test_build_hwpx_success_embeds_image_and_passes_validation() -> None:
     assert data.startswith(PK_SIGNATURE)
     validate_hwpx(data)  # raises on any defect
 
-    # The supplied globe PNG was embedded (reopen lists exactly the one image).
+    # Two images land: the web-supplied globe + the ENGINE-rendered §5b density
+    # chart (rendered from payload.debris_altitudes_km, not web-supplied).
     reopened = HwpxDocument.open(io.BytesIO(data))
-    assert len(reopened.list_images()) == 1, "expected the web-supplied globe image to be embedded"
+    assert len(reopened.list_images()) == 2, "expected globe + engine-rendered density image"
+
+
+def test_build_hwpx_renders_and_injects_density_chart() -> None:
+    # density_chart_fn is invoked with the payload's altitudes, and its PNG output
+    # is what reaches the filler as images.debris_density (engine-rendered).
+    sentinel = _tiny_png()
+    captured: dict[str, Any] = {}
+
+    def _fake_density(altitudes: Any) -> bytes:
+        captured["altitudes"] = list(altitudes)
+        return sentinel
+
+    embedded: dict[str, Any] = {}
+
+    def _capture_fill(_payload: Any, _prose: Any, images: ReportImages) -> bytes:
+        embedded["debris_density"] = images.debris_density
+        embedded["country_globes"] = dict(images.country_globes)
+        embedded["debris_heatmap"] = images.debris_heatmap
+        return PK_SIGNATURE + b"stub"
+
+    payload = _payload()
+    pipeline = _pipeline(density_chart_fn=_fake_density, fill_fn=_capture_fill)
+    tasks._build_hwpx(payload, _images(), pipeline, pipeline.settings)
+
+    assert captured["altitudes"] == payload.debris_altitudes_km
+    # Engine-rendered density reaches the filler; web globe is left untouched.
+    assert embedded["debris_density"] == sentinel
+    assert embedded["country_globes"] == _images().country_globes
+    assert embedded["debris_heatmap"] is None
+
+
+def test_engine_density_takes_precedence_over_web_supplied() -> None:
+    # A web-supplied debris_density is OVERWRITTEN by the engine render.
+    web_density = b"web-supplied-not-used"
+    engine_png = _tiny_png()
+    embedded: dict[str, Any] = {}
+
+    def _capture_fill(_payload: Any, _prose: Any, images: ReportImages) -> bytes:
+        embedded["debris_density"] = images.debris_density
+        return PK_SIGNATURE + b"stub"
+
+    images = ReportImages(country_globes={"NK": _tiny_png()}, debris_density=web_density)
+    pipeline = _pipeline(density_chart_fn=lambda _a: engine_png, fill_fn=_capture_fill)
+    tasks._build_hwpx(_payload(), images, pipeline, pipeline.settings)
+
+    assert embedded["debris_density"] == engine_png  # engine wins, not web_density
 
 
 def test_build_hwpx_stage_failure_propagates() -> None:

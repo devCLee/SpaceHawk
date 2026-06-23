@@ -172,6 +172,14 @@ class DailyReportPayload(BaseModel):
         default_factory=lambda: DebrisRiskCounts(critical=0, high=0, moderate=0, low=0)
     )
     high_risk_debris: list[HighRiskDebrisRow] = Field(default_factory=list)
+    debris_altitudes_km: list[float] = Field(
+        default_factory=list,
+        description=(
+            "Mean shell altitudes [km] of the §5 scored debris set, for the §5b "
+            "고도별 잔해 밀도 chart only. Same selection as debris_risk_counts. "
+            "Chart-only — deliberately NOT carried into the LLM facts (sanitize.py)."
+        ),
+    )
 
 
 # --- §6 / §7 LLM prose contract -----------------------------------------------

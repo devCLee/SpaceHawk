@@ -34,7 +34,7 @@ import hashlib
 import json
 import logging
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any, Protocol
@@ -45,6 +45,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.db import get_engine
 from orbital_engine.reports.assembler import assemble_daily
+from orbital_engine.reports.charts import render_debris_density
 from orbital_engine.reports.hwpx_filler import fill_daily_report
 from orbital_engine.reports.models import (
     ReportJob,
@@ -113,6 +114,7 @@ class ReportPipeline:
     prose_fn: Callable[..., ReportProse] = write_report_prose
     fill_fn: Callable[..., bytes] = fill_daily_report
     validate_fn: Callable[[bytes], None] = validate_hwpx
+    density_chart_fn: Callable[[Sequence[float]], bytes] = render_debris_density
     llm_client: Any | None = None
     settings: Settings = field(default_factory=get_settings)
 
@@ -276,13 +278,20 @@ def _build_hwpx(
     pipeline: ReportPipeline,
     settings: Settings,
 ) -> bytes:
-    """Sanitize → prose → fill, returning the (unvalidated) HWPX bytes.
+    """Render §5b density chart → sanitize → prose → fill, returning HWPX bytes.
 
-    ``images`` is the web-supplied :class:`ReportImages` loaded off the job row;
-    it is handed straight to ``fill_fn(payload, prose, images)`` so the globe /
-    debris snapshots land in the document (missing images are best-effort and
-    never fail the fill).
+    ``images`` is the web-supplied :class:`ReportImages` loaded off the job row.
+    The §5b 고도별 잔해 밀도 chart is rendered ENGINE-SIDE from the payload's scored
+    debris altitudes and overwrites ``images.debris_density`` — the engine render
+    takes precedence over any web-supplied density image so the chart always
+    matches the engine's own ``debris_risk_counts``. The web-supplied
+    ``country_globes`` and ``debris_heatmap`` are left untouched. The (possibly
+    refreshed) images are handed to ``fill_fn(payload, prose, images)``; missing
+    images are best-effort and never fail the fill.
     """
+    images = images.model_copy(
+        update={"debris_density": pipeline.density_chart_fn(payload.debris_altitudes_km)}
+    )
     sanitize_result = pipeline.sanitize_fn(payload)
     prose = pipeline.prose_fn(sanitize_result, client=pipeline.llm_client, settings=settings)
     return pipeline.fill_fn(payload, prose, images)

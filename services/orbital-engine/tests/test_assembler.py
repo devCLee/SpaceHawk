@@ -253,6 +253,10 @@ async def test_debris_risk_counts_and_high_risk_table() -> None:
     # The SMALL fragment is not in the high-risk (Critical/High) table.
     assert all(r.debris_name != "SMALL DEB" for r in payload.high_risk_debris)
 
+    # §5b altitude set: one mean altitude per SCORED row (same selection as the
+    # counts) — the two scorable rows at 850 km, and NOT the un-scorable one.
+    assert payload.debris_altitudes_km == [850.0, 850.0]
+
 
 # --- Empty day --------------------------------------------------------------
 
@@ -273,6 +277,7 @@ async def test_empty_day_yields_valid_empty_payload() -> None:
     assert payload.debris_risk_counts.critical == 0
     assert payload.debris_risk_counts.low == 0
     assert payload.high_risk_debris == []
+    assert payload.debris_altitudes_km == []
 
 
 # --- Owner-name / regime branches -------------------------------------------

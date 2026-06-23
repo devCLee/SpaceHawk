@@ -341,17 +341,26 @@ def _debris_level(row: dict[str, Any]) -> str | None:
 
 async def _debris_risk(
     conn: _Conn,
-) -> tuple[DebrisRiskCounts, list[HighRiskDebrisRow]]:
-    """§5a counts + §5c high-risk table from the live debris catalog."""
+) -> tuple[DebrisRiskCounts, list[HighRiskDebrisRow], list[float]]:
+    """§5a counts + §5c high-risk table + §5b altitude set from the live debris catalog.
+
+    The third return value is the mean shell altitude of every *scored* debris row
+    (those with a derivable altitude), feeding the §5b 고도별 잔해 밀도 chart. It is
+    the SAME selection counted in ``DebrisRiskCounts`` so the chart and counts agree.
+    """
     rows = await _debris(conn)
     counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0}
     scored: list[tuple[str, dict[str, Any]]] = []
+    altitudes: list[float] = []
     field_for = {"Critical": "critical", "High": "high", "Medium": "moderate", "Low": "low"}
     for row in rows:
         level = _debris_level(row)
         if level is None:
             continue
         counts[field_for[level]] += 1
+        mean_alt = _mean_altitude_km(row.get("apoapsis_km"), row.get("periapsis_km"))
+        if mean_alt is not None:
+            altitudes.append(mean_alt)
         if level in _HIGH_RISK_LEVELS:
             scored.append((level, row))
 
@@ -379,6 +388,7 @@ async def _debris_risk(
             low=counts["low"],
         ),
         high_risk,
+        altitudes,
     )
 
 
@@ -407,7 +417,7 @@ async def assemble_daily(
     watchlist_matrix, watchlist_total = await _watchlist(conn)
     country_activity = await _country_activity(conn, start, end)
     conjunctions = await _conjunctions(conn, start, end)
-    debris_risk_counts, high_risk_debris = await _debris_risk(conn)
+    debris_risk_counts, high_risk_debris, debris_altitudes = await _debris_risk(conn)
 
     return DailyReportPayload(
         report_date=report_date,
@@ -417,4 +427,5 @@ async def assemble_daily(
         conjunctions=conjunctions,
         debris_risk_counts=debris_risk_counts,
         high_risk_debris=high_risk_debris,
+        debris_altitudes_km=debris_altitudes,
     )

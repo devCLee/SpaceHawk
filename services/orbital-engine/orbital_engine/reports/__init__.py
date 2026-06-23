@@ -11,6 +11,7 @@ No network, LLM, or randomness lives in the data layer.
 """
 
 from orbital_engine.reports.assembler import assemble_daily
+from orbital_engine.reports.charts import render_debris_density
 from orbital_engine.reports.hwpx_filler import (
     FillError,
     fill_daily_report,
@@ -66,6 +67,7 @@ __all__ = [
     "assemble_daily",
     "fill_daily_report",
     "predict_passes",
+    "render_debris_density",
     "to_llm_facts",
     "write_report_prose",
 ]
