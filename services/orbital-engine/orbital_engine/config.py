@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from orbital_engine.domain.conjunction import TierThresholds
@@ -236,6 +237,30 @@ class Settings(BaseSettings):
 
     # The insecure development default; production must override it.
     _DEV_JWT_SECRET = "dev-insecure-change-me"
+
+    # --- Daily-report narrative LLM (HWPX pipeline T3) ---
+    # An OpenAI-COMPATIBLE client writes the report's Korean prose sections. The
+    # real provider is a free API (e.g. Gemini) reached via base_url; presence of
+    # the key gates live calls (eval/runtime). Unset in dev/CI => no live calls.
+    # The key is a secret: it is never logged. Env: REPORT_LLM_* (validation_alias
+    # bypasses the ORBITAL_ENGINE_ env_prefix so these map to the bare names; the
+    # AliasChoices also keeps the snake_case field name working for keyword init).
+    report_llm_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("REPORT_LLM_API_KEY", "report_llm_api_key")
+    )
+    report_llm_base_url: str | None = Field(
+        default=None, validation_alias=AliasChoices("REPORT_LLM_BASE_URL", "report_llm_base_url")
+    )
+    report_llm_model: str = Field(
+        default="gemini-2.0-flash",
+        validation_alias=AliasChoices("REPORT_LLM_MODEL", "report_llm_model"),
+    )
+    report_llm_timeout_s: float = Field(
+        default=30.0, validation_alias=AliasChoices("REPORT_LLM_TIMEOUT_S", "report_llm_timeout_s")
+    )
+    report_llm_max_retries: int = Field(
+        default=4, validation_alias=AliasChoices("REPORT_LLM_MAX_RETRIES", "report_llm_max_retries")
+    )
 
     def assert_secure_for_environment(self) -> None:
         """Fail fast on insecure session config in production (Stage 5 hardening).
