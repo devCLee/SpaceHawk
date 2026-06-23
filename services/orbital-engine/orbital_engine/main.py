@@ -22,6 +22,7 @@ from orbital_engine.pipeline import (
     run_rpo_loop,
     run_screening_loop,
 )
+from orbital_engine.reports import router as reports
 from orbital_engine.seed_maneuver import seed_demo_maneuver
 from orbital_engine.state import close as close_redis
 
@@ -91,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(conjunctions.router)
     app.include_router(debris.router)
     app.include_router(maneuvers.router)
+    app.include_router(reports.router)
     app.include_router(audit.router)
 
     log.info("app.startup", environment=settings.environment, version=settings.version)
