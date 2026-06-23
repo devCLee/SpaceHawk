@@ -409,9 +409,15 @@ async def query_conjunctions(
 ) -> list[dict[str, Any]]:
     """Return screened conjunctions, soonest time-of-closest-approach first.
 
+    Only events whose TCA is still in the future are returned: a conjunction
+    whose closest approach has already passed is not actionable, and a stale
+    batch of past-TCA rows (e.g. an old CDM pull) would otherwise sort ahead of
+    every fresh event under ``ORDER BY tca ASC`` and fill the ``limit`` window,
+    hiding current conjunctions from the panel.
+
     Optional filters narrow to an exact severity tier or a minimum Pc.
     """
-    clauses: list[str] = []
+    clauses: list[str] = ["tca >= now()"]
     params: dict[str, Any] = {}
     if severity:
         clauses.append("severity::text = :sev")

@@ -76,11 +76,17 @@ def build_cdm_query(since: datetime | None = None, *, limit: int | None = None) 
     the field ``fetch_cdms`` persists as its watermark (max ``CREATED``); filtering
     a different field (e.g. ``CREATION_DATE``) would re-pull the whole feed every
     call, the over-query that breaches the API usage policy.
+
+    Ordered ``CREATED desc`` so a bounded fetch (``limit``) returns the NEWEST
+    messages, not the oldest. Ascending + a row cap crawls forward only ``limit``
+    rows per run and falls progressively behind the high-volume feed, leaving the
+    panel weeks stale; descending keeps the watermark pinned to the present (see
+    ``fetch_cdms`` + ``Settings.cdm_lookback_days``).
     """
     parts = ["class", "cdm_public"]
     if since is not None:
         parts += ["CREATED", f">{_fmt(since)}"]
-    parts += ["orderby", "CREATED asc", "format", "json"]
+    parts += ["orderby", "CREATED desc", "format", "json"]
     if limit is not None:
         parts += ["limit", str(int(limit))]
     return f"{QUERY_PREFIX}/" + "/".join(parts)
