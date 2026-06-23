@@ -252,7 +252,7 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("REPORT_LLM_BASE_URL", "report_llm_base_url")
     )
     report_llm_model: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-flash-latest",
         validation_alias=AliasChoices("REPORT_LLM_MODEL", "report_llm_model"),
     )
     report_llm_timeout_s: float = Field(
