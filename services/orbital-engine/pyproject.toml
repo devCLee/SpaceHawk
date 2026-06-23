@@ -18,6 +18,10 @@ dependencies = [
     "celery[redis]>=5.3",
     "bcrypt>=4.1",
     "pyjwt>=2.8",
+    # HWPX report pipeline (feat/hwpx-report-pipeline)
+    "matplotlib>=3.8",
+    "python-hwpx>=0.1",
+    "openai>=1.30",
 ]
 
 [project.optional-dependencies]
