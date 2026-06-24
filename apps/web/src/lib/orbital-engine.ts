@@ -368,6 +368,56 @@ export async function fetchBaselines(): Promise<BaselinesResult> {
   }
 }
 
+// --- Watchlist (A1/A2: per-user object-of-interest list, server source of
+//     truth so the daily report reads the same picks via owner_username) ---
+
+/** Fetch the current user's watchlist (object_ids). Throws on a non-2xx so the
+ *  BFF route can map engine 401/403/5xx through. */
+export async function getWatchlist(): Promise<string[]> {
+  const res = await fetch(`${ENGINE_URL}/watchlist`, {
+    cache: "no-store",
+    headers: await engineAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`orbital-engine /watchlist failed: ${res.status}`);
+  }
+  return res.json() as Promise<string[]>;
+}
+
+/** Add one object_id to the current user's watchlist; returns the updated list.
+ *  Throws on a non-2xx. */
+export async function addWatchlist(objectId: string): Promise<string[]> {
+  const res = await fetch(`${ENGINE_URL}/watchlist`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await engineAuthHeaders()) },
+    body: JSON.stringify({ object_id: objectId }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`orbital-engine POST /watchlist failed: ${res.status}`);
+  }
+  return res.json() as Promise<string[]>;
+}
+
+/** Remove one object_id from the current user's watchlist; returns the updated
+ *  list. Throws on a non-2xx. */
+export async function removeWatchlist(objectId: string): Promise<string[]> {
+  const res = await fetch(
+    `${ENGINE_URL}/watchlist/${encodeURIComponent(objectId)}`,
+    {
+      method: "DELETE",
+      headers: await engineAuthHeaders(),
+      cache: "no-store",
+    }
+  );
+  if (!res.ok) {
+    throw new Error(
+      `orbital-engine DELETE /watchlist/${objectId} failed: ${res.status}`
+    );
+  }
+  return res.json() as Promise<string[]>;
+}
+
 // --- HWPX reports (T9: async generate -> poll -> download) ---
 
 export type ReportType = "daily";
