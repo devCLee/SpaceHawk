@@ -29,7 +29,6 @@ from orbital_engine.reports.narrative import (
     SectionError,
     write_report_prose,
 )
-from orbital_engine.reports.schemas import ReportProse
 from orbital_engine.reports.sanitize import (
     LLMConjunctionFact,
     LLMCountryActivityFact,
@@ -37,6 +36,7 @@ from orbital_engine.reports.sanitize import (
     LLMPassFact,
     SanitizeResult,
 )
+from orbital_engine.reports.schemas import ReportProse
 
 # --- fixtures: settings, facts, fake client -------------------------------
 
