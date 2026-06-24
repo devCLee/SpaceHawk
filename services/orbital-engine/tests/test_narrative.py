@@ -101,6 +101,12 @@ def _timeout_error() -> openai.APITimeoutError:
     return openai.APITimeoutError(request=httpx.Request("POST", "http://test"))
 
 
+def _server_error() -> openai.InternalServerError:
+    req = httpx.Request("POST", "http://test")
+    resp = httpx.Response(503, request=req)
+    return openai.InternalServerError("high demand", response=resp, body=None)
+
+
 class FakeCompletions:
     """Records calls and replays a scripted sequence of results/exceptions."""
 
@@ -174,6 +180,23 @@ def test_rate_limit_then_success_is_retried() -> None:
 
     assert "SH:CAT:000025544" in out.analysis_items[0].detail
     assert len(client.completions.calls) == 2  # one failed, one succeeded
+
+
+def test_server_error_503_then_success_is_retried() -> None:
+    # Gemini free-tier returns a transient 503 (InternalServerError) under load;
+    # it must be retried, not fail the whole report.
+    sr = _sanitize_result()
+    client = FakeClient([
+        _server_error(),
+        _ok_response(
+            _prose_json(detail="OBJ-1 객체 분석 결과입니다.", cause="원인 분석.", op="감시 유지.")
+        ),
+    ])
+
+    out = write_report_prose(sr, client=client, settings=_settings(), sleep=_noop_sleep)
+
+    assert "SH:CAT:000025544" in out.analysis_items[0].detail
+    assert len(client.completions.calls) == 2  # 503 retried, then succeeded
 
 
 def test_retry_exhausted_raises_section_error() -> None:

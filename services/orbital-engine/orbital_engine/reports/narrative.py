@@ -45,14 +45,17 @@ from orbital_engine.config import Settings, get_settings
 from orbital_engine.reports.sanitize import LLMFacts, SanitizeResult
 from orbital_engine.reports.schemas import AnalysisItem, ReportProse
 
-# Provider errors worth retrying: explicit rate-limit, plus the transient API
-# errors (timeout / connection). RateLimitError subclasses APIStatusError;
-# APITimeoutError / APIConnectionError subclass APIError. We catch the narrow
-# transient set, NOT every APIError (a 400 bad-request must not be retried).
+# Provider errors worth retrying: explicit rate-limit, transient connection/
+# timeout, and transient server-side 5xx. RateLimitError + InternalServerError
+# subclass APIStatusError; APITimeoutError / APIConnectionError subclass APIError.
+# InternalServerError covers the free-tier "503 high demand" (UNAVAILABLE) that
+# Gemini returns under load — transient, so retry it. We catch this narrow set,
+# NOT every APIError (a 400 bad-request must not be retried).
 _RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     openai.RateLimitError,
     openai.APITimeoutError,
     openai.APIConnectionError,
+    openai.InternalServerError,
 )
 
 # A "digit not inside an allowed token" — used by the no-numerals guard after the
