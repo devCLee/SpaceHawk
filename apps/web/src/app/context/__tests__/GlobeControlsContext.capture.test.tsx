@@ -88,6 +88,12 @@ function renderControls() {
   });
 }
 
+// CesiumComponent hands the cesium namespace to registerViewer; capture's
+// positionCamera builds destinations via cesium.Cartesian3.fromDegrees. Stub it.
+const FAKE_CESIUM = {
+  Cartesian3: { fromDegrees: (lon: number, lat: number, h: number) => ({ lon, lat, h }) },
+} as unknown as typeof import("cesium");
+
 beforeEach(() => {
   vi.useRealTimers();
 });
@@ -103,15 +109,45 @@ describe("GlobeControls per-country capture", () => {
     await act(async () => {
       expect(await result.current.captureCountryGlobe("NK")).toBeNull();
     });
-    expect(await act(() => result.current.captureAllCountryGlobes())).toEqual(
-      {}
-    );
+    // readyTimeoutMs:0 -> don't wait for a viewer that will never register.
+    expect(
+      await act(() =>
+        result.current.captureAllCountryGlobes({ readyTimeoutMs: 0 })
+      )
+    ).toEqual({});
+  });
+
+  it("waits for a late-registered viewer, then captures all four", async () => {
+    // The report can submit before Cesium mounts: no viewer at call time, but
+    // one registers during the readiness wait. Capture must pick it up (not
+    // silently return {}). The injected sleep registers the viewer on first poll.
+    const { viewer } = makeFakeViewer({
+      dataUrlFor: (n) => `data:image/png;base64,${btoa(`g${n}`)}`,
+    });
+    const { result } = renderControls();
+
+    let globes: Partial<Record<string, string>> = {};
+    await act(async () => {
+      let registered = false;
+      const sleep = async () => {
+        if (!registered) {
+          registered = true;
+          result.current.registerViewer(viewer, FAKE_CESIUM); // viewer arrives mid-wait
+        }
+      };
+      globes = await result.current.captureAllCountryGlobes({
+        readyTimeoutMs: 1000,
+        pollMs: 1,
+        sleep,
+      });
+    });
+    expect(Object.keys(globes).sort()).toEqual(["CN", "JP", "NK", "RU"]);
   });
 
   it("positions the camera over the country and returns the base64 snapshot", async () => {
     const { viewer, setView } = makeFakeViewer();
     const { result } = renderControls();
-    act(() => result.current.registerViewer(viewer));
+    act(() => result.current.registerViewer(viewer, FAKE_CESIUM));
 
     let out: string | null = null;
     await act(async () => {
@@ -128,7 +164,7 @@ describe("GlobeControls per-country capture", () => {
   it("restores the prior camera after capture (last setView is the saved state)", async () => {
     const { viewer, camera, setView } = makeFakeViewer();
     const { result } = renderControls();
-    act(() => result.current.registerViewer(viewer));
+    act(() => result.current.registerViewer(viewer, FAKE_CESIUM));
 
     await act(async () => {
       await result.current.captureCountryGlobe("CN");
@@ -151,7 +187,7 @@ describe("GlobeControls per-country capture", () => {
       dataUrlFor: (n) => `data:image/png;base64,${btoa(`f${n}`)}`,
     });
     const { result } = renderControls();
-    act(() => result.current.registerViewer(viewer));
+    act(() => result.current.registerViewer(viewer, FAKE_CESIUM));
 
     let globes: Partial<Record<string, string>> = {};
     await act(async () => {
@@ -167,7 +203,7 @@ describe("GlobeControls per-country capture", () => {
     // still resolve (snapshotting whatever is rendered) rather than hang.
     const { viewer } = makeFakeViewer({ tilesLoadedAfter: Number.POSITIVE_INFINITY });
     const { result } = renderControls();
-    act(() => result.current.registerViewer(viewer));
+    act(() => result.current.registerViewer(viewer, FAKE_CESIUM));
 
     let out: string | null = null;
     const start = Date.now();

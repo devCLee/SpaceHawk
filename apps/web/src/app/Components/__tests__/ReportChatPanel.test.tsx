@@ -13,9 +13,23 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReportChatPanel from "../ReportChatPanel";
-import { GlobeControlsProvider } from "../../context/GlobeControlsContext";
+import {
+  GlobeControlsProvider,
+  useGlobeControls,
+} from "../../context/GlobeControlsContext";
 import { DebrisLayerProvider } from "../../context/DebrisLayerContext";
 import { t } from "@/lib/i18n/t";
+
+// useGlobeControls is mocked so the panel's per-country globe capture is
+// deterministic + instant here. The real captureAllCountryGlobes now waits
+// (bounded) for a Cesium viewer to register — that wait is unit-tested in
+// GlobeControlsContext.capture.test.tsx; replaying it in every panel flow test
+// would just add seconds. The real GlobeControlsProvider stays in the tree.
+vi.mock("../../context/GlobeControlsContext", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../context/GlobeControlsContext")>();
+  return { ...actual, useGlobeControls: vi.fn() };
+});
 
 // --- programmable fetch mock keyed on URL + method ---
 type Json = Record<string, unknown>;
@@ -66,7 +80,9 @@ function renderPanel() {
 }
 
 function openPanel() {
-  fireEvent.click(screen.getByText(t("report.title")));
+  // The bottom-right launcher FAB carries the report title as its accessible
+  // name; clicking it opens the chat card.
+  fireEvent.click(screen.getByRole("button", { name: t("report.title") }));
 }
 
 function typeAndSend(text: string) {
@@ -82,6 +98,10 @@ beforeEach(() => {
   postResponse = { job_id: "job-1", status: "PENDING" };
   statusResponses = [];
   installFetch();
+  // Default: nothing capturable (no globe). Individual tests override.
+  vi.mocked(useGlobeControls).mockReturnValue({
+    captureAllCountryGlobes: async () => ({}),
+  } as unknown as ReturnType<typeof useGlobeControls>);
 });
 
 afterEach(() => {
@@ -129,12 +149,9 @@ describe("ReportChatPanel", () => {
     // per-country snapshots, exercising the images-included branch without a live
     // Cesium viewer.
     const globes = { NK: "bms=", CN: "Y24=", RU: "cnU=", JP: "anA=" };
-    const ctx = await import("../../context/GlobeControlsContext");
-    const spy = vi
-      .spyOn(ctx, "useGlobeControls")
-      .mockReturnValue({
-        captureAllCountryGlobes: async () => globes,
-      } as unknown as ReturnType<typeof ctx.useGlobeControls>);
+    vi.mocked(useGlobeControls).mockReturnValue({
+      captureAllCountryGlobes: async () => globes,
+    } as unknown as ReturnType<typeof useGlobeControls>);
 
     statusResponses = [{ job_id: "job-1", status: "DONE", download_url: "/x" }];
     renderPanel();
@@ -147,20 +164,16 @@ describe("ReportChatPanel", () => {
     expect(postBodies[0]).toMatchObject({
       images: { country_globes: globes },
     });
-    spy.mockRestore();
   });
 
   it("still POSTs (no images) when per-country capture fails", async () => {
     // captureAllCountryGlobes rejects -> the panel swallows it and submits an
     // image-less report (best-effort capture must never block the request).
-    const ctx = await import("../../context/GlobeControlsContext");
-    const spy = vi
-      .spyOn(ctx, "useGlobeControls")
-      .mockReturnValue({
-        captureAllCountryGlobes: async () => {
-          throw new Error("viewer not ready");
-        },
-      } as unknown as ReturnType<typeof ctx.useGlobeControls>);
+    vi.mocked(useGlobeControls).mockReturnValue({
+      captureAllCountryGlobes: async () => {
+        throw new Error("viewer not ready");
+      },
+    } as unknown as ReturnType<typeof useGlobeControls>);
 
     statusResponses = [{ job_id: "job-1", status: "DONE", download_url: "/x" }];
     renderPanel();
@@ -171,7 +184,21 @@ describe("ReportChatPanel", () => {
     await screen.findByText(t("report.download"));
     expect(postBodies).toHaveLength(1);
     expect(postBodies[0]).not.toHaveProperty("images");
-    spy.mockRestore();
+  });
+
+  it("warns when the globe wasn't capturable (globes skipped notice)", async () => {
+    // Default mock returns no globes -> the panel must surface the skip notice so
+    // a globe-less report is never a silent surprise.
+    statusResponses = [{ job_id: "job-1", status: "DONE", download_url: "/x" }];
+    renderPanel();
+    openPanel();
+
+    typeAndSend("generate daily report for 2026-01-07");
+
+    expect(
+      await screen.findByText(t("report.globesSkipped"))
+    ).toBeInTheDocument();
+    expect(postBodies[0]).not.toHaveProperty("images");
   });
 
   it("FAILED status shows the reason and a retry button", async () => {

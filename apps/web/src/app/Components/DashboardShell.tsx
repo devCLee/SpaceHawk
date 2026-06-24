@@ -9,6 +9,7 @@ import CesiumWrapper from "./CesiumWrapper";
 import SatelliteInfoPanel from "./SatelliteInfoPanel";
 import DebrisInfoPanel from "./DebrisInfoPanel";
 import ControlRail from "./ControlRail";
+import ReportChatPanel from "./ReportChatPanel";
 import { SelectedSatelliteProvider } from "../context/SelectedSatelliteContext";
 import { SensorProvider } from "../context/SensorContext";
 import { SensorVolumeProvider } from "../context/SensorVolumeContext";
@@ -35,6 +36,7 @@ export const DashboardShell: React.FunctionComponent = () => {
             <ControlRail />
             <SatelliteInfoPanel />
             <DebrisInfoPanel />
+            <ReportChatPanel />
           </DebrisLayerProvider>
         </SensorVolumeProvider>
       </SensorProvider>

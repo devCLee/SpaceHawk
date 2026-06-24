@@ -1,9 +1,14 @@
 "use client";
 
 import React from "react";
+// Cesium is NOT imported here — it is loaded as a prebuilt UMD <script> by
+// CesiumWrapper and passed in as the `CesiumJs` prop (window.Cesium). Webpack
+// bundling cesium crashed the prod renderer while evaluating the chunk, so this
+// module stays cesium-free at runtime; only TYPE imports from "cesium" remain
+// (erased at build time, so they pull in no cesium code).
 import type { CesiumType } from "../types/cesium";
 import {
-  Cesium3DTileset,
+  type Cesium3DTileset,
   type Cartesian3,
   type Color,
   type Entity,
@@ -58,8 +63,6 @@ import {
   type SatelliteHoverInfo,
 } from "./SatelliteHoverCard";
 import { toast } from "sonner";
-//NOTE: This is required to get the stylings for default Cesium UI and controls
-import "cesium/Build/Cesium/Widgets/widgets.css";
 
 //NOTE: This is required for cpx/Next 16
 if (typeof window !== "undefined") {
@@ -425,14 +428,14 @@ export const CesiumComponent: React.FunctionComponent<{
     // Hand the viewer to the Header's globe-view group (scene-mode picker,
     // imagery picker). It re-applies the user's chosen scene projection so it
     // survives this mode-driven rebuild.
-    registerViewer(cesiumViewer.current);
+    registerViewer(cesiumViewer.current, CesiumJs);
 
     return () => {
       cancelled = true;
       registerViewer(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, CesiumJs]);
+  }, [mode]);
 
   // Render the full catalog as a single GPU-batched PointPrimitiveCollection
   // (dev-plan §4.3 — Entity-per-object does not scale to 10k+). Each point's
@@ -656,7 +659,7 @@ export const CesiumComponent: React.FunctionComponent<{
       pointsRef.current = null;
       satsByIdRef.current = new Map();
     };
-  }, [isLoaded, CesiumJs, tleEntries, mode, setSelectedId]);
+  }, [isLoaded, tleEntries, mode, setSelectedId, CesiumJs]);
 
   // Style every point from the current view state, in one O(N) pass that only
   // runs on a colour/selection/filter/watchlist change — not per frame.
@@ -742,10 +745,10 @@ export const CesiumComponent: React.FunctionComponent<{
     hiddenCategories,
     watchlistOnly,
     isLoaded,
-    CesiumJs,
     tleEntries,
     mode,
     debrisVisible,
+    CesiumJs,
   ]);
 
   // Render the tracked-debris population as a SECOND GPU PointPrimitiveCollection
@@ -883,7 +886,7 @@ export const CesiumComponent: React.FunctionComponent<{
       debrisPointsRef.current = null;
       debrisByIdRef.current = new Map();
     };
-  }, [isLoaded, CesiumJs, debrisEntries, mode, debrisVisible]);
+  }, [isLoaded, debrisEntries, mode, debrisVisible, CesiumJs]);
 
   // Style every debris point by collision-risk level — one O(N) pass that runs
   // only on a layer/risk-filter/selection change (not per frame). Hidden when the
@@ -928,9 +931,9 @@ export const CesiumComponent: React.FunctionComponent<{
     hiddenRisks,
     selectedId,
     isLoaded,
-    CesiumJs,
     debrisEntries,
     mode,
+    CesiumJs,
   ]);
 
   // Draw the selected object's orbit/ground track as the single time-dynamic
@@ -1013,7 +1016,7 @@ export const CesiumComponent: React.FunctionComponent<{
         selectedOrbitRef.current = null;
       }
     };
-  }, [selectedId, isLoaded, CesiumJs, tleEntries, mode]);
+  }, [selectedId, isLoaded, tleEntries, mode, CesiumJs]);
 
   // Draw the SELECTED object's sensor-coverage volume — the area its onboard
   // sensor can observe — as a translucent nadir cone (apex at the satellite,
@@ -1128,11 +1131,11 @@ export const CesiumComponent: React.FunctionComponent<{
   }, [
     selectedId,
     isLoaded,
-    CesiumJs,
     tleEntries,
     mode,
     sensorVolumeEnabled,
     sensorHalfAngleDeg,
+    CesiumJs,
   ]);
 
   // Draw the active sensor's site marker + nominal coverage ring (#9c).
@@ -1182,7 +1185,7 @@ export const CesiumComponent: React.FunctionComponent<{
         sensorEntityRef.current = null;
       }
     };
-  }, [activeSensor, isLoaded, CesiumJs, mode]);
+  }, [activeSensor, isLoaded, mode, CesiumJs]);
 
   // Optional region-of-interest overlay: the Korean-theatre lat/lon box the engine
   // screens for region entry (ROI_BOUNDS mirrors the engine's roi_* gate). Toggled
@@ -1222,7 +1225,7 @@ export const CesiumComponent: React.FunctionComponent<{
         roiEntityRef.current = null;
       }
     };
-  }, [roiVisible, isLoaded, CesiumJs, mode]);
+  }, [roiVisible, isLoaded, mode, CesiumJs]);
 
   // Subscribe to the engine's authoritative latest-state stream (SSE via the
   // BFF). Each server snapshot snaps the matching points to the engine's
