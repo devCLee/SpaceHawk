@@ -50,6 +50,24 @@ def _isolate_source_creds(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(key, "")
 
 
+@pytest.fixture(scope="session")
+def weasyprint_runtime() -> None:
+    """Skip the test unless WeasyPrint can ACTUALLY render a PDF here.
+
+    ``importorskip("weasyprint")`` is not enough: the package imports fine on a
+    box without the Pango/cairo native libs and only fails (with ``OSError``) when
+    a render touches them. The engine container ships those libs; a bare dev box
+    (e.g. Windows without GTK) may not. We do one trivial render once per session
+    and skip the WeasyPrint-dependent tests when it can't.
+    """
+    try:
+        from weasyprint import HTML
+
+        HTML(string="<p>ok</p>").write_pdf()
+    except Exception as exc:  # noqa: BLE001 - OSError on missing native libs, etc.
+        pytest.skip(f"WeasyPrint native libs unavailable: {type(exc).__name__}: {exc}")
+
+
 @pytest.fixture(autouse=True)
 def _reset_connection_singletons() -> None:
     """Give every test a fresh DB engine / Redis client bound to its own loop.

@@ -2,11 +2,11 @@
 
 This is the integration seam that wires the report modules
 (:mod:`~orbital_engine.reports.assembler` → :mod:`~.sanitize` → :mod:`~.narrative`
-→ :mod:`~.hwpx_filler` → :mod:`~.validate`) behind a persisted
+→ :mod:`~.pdf_renderer` → :mod:`~.validate`) behind a persisted
 :class:`~orbital_engine.reports.models.ReportJob` and a Celery task. Report
 *images* (country globes + the two debris charts) are no longer rendered here —
 they are SUPPLIED BY THE WEB at create time, persisted on the job row, and handed
-to :func:`~orbital_engine.reports.hwpx_filler.fill_daily_report` during the run.
+to :func:`~orbital_engine.reports.pdf_renderer.render_daily_report_pdf` during the run.
 
 Async-in-Celery pattern (mirrored from ``orbital_engine.scheduler.tasks`` — the
 ingest tasks are thin sync wrappers that drive an async runner via
@@ -46,7 +46,6 @@ from orbital_engine.config import Settings, get_settings
 from orbital_engine.db import get_engine
 from orbital_engine.reports.assembler import assemble_daily
 from orbital_engine.reports.charts import render_debris_density, render_debris_heatmap
-from orbital_engine.reports.hwpx_filler import fill_daily_report
 from orbital_engine.reports.models import (
     ReportJob,
     ReportStatus,
@@ -55,9 +54,10 @@ from orbital_engine.reports.models import (
     serialize_images,
 )
 from orbital_engine.reports.narrative import write_report_prose
+from orbital_engine.reports.pdf_renderer import render_daily_report_pdf
 from orbital_engine.reports.sanitize import to_llm_facts
 from orbital_engine.reports.schemas import DailyReportPayload, ReportImages, ReportProse
-from orbital_engine.reports.validate import validate_hwpx
+from orbital_engine.reports.validate import validate_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -112,8 +112,8 @@ class ReportPipeline:
     assemble_fn: Callable[..., Any] = assemble_daily
     sanitize_fn: Callable[[DailyReportPayload], Any] = to_llm_facts
     prose_fn: Callable[..., ReportProse] = write_report_prose
-    fill_fn: Callable[..., bytes] = fill_daily_report
-    validate_fn: Callable[[bytes], None] = validate_hwpx
+    fill_fn: Callable[..., bytes] = render_daily_report_pdf
+    validate_fn: Callable[[bytes], None] = validate_pdf
     density_chart_fn: Callable[[Sequence[float]], bytes] = render_debris_density
     heatmap_chart_fn: Callable[[Sequence[Sequence[float]]], bytes] = render_debris_heatmap
     llm_client: Any | None = None
@@ -248,7 +248,7 @@ async def _run(job_id: str, *, pipeline: ReportPipeline | None = None) -> Report
 
     Loads the job (including its persisted web-supplied images) and marks it
     RUNNING, then runs assemble → sanitize → prose → fill (with the loaded
-    images) → validate. On success the validated HWPX is stored and the job is
+    images) → validate. On success the validated PDF is stored and the job is
     DONE. On ANY stage exception the job is FAILED with ``error_reason`` and NO
     partial output is stored (the failure UPDATE only touches status/error).
     """
@@ -269,7 +269,7 @@ async def _run(job_id: str, *, pipeline: ReportPipeline | None = None) -> Report
             payload = await pipeline.assemble_fn(
                 report_date, conn, settings=settings, owner_username=owner_username
             )
-        data = _build_hwpx(payload, images, pipeline, settings)
+        data = _build_report(payload, images, pipeline, settings)
         pipeline.validate_fn(data)
     except Exception as exc:  # noqa: BLE001 - any stage failure is a job failure
         reason = f"{type(exc).__name__}: {exc}"
@@ -284,13 +284,13 @@ async def _run(job_id: str, *, pipeline: ReportPipeline | None = None) -> Report
     return ReportStatus.DONE
 
 
-def _build_hwpx(
+def _build_report(
     payload: DailyReportPayload,
     images: ReportImages,
     pipeline: ReportPipeline,
     settings: Settings,
 ) -> bytes:
-    """Render §5b charts → sanitize → prose → fill, returning HWPX bytes.
+    """Render §5b charts → sanitize → prose → fill, returning the report bytes (PDF).
 
     ``images`` is the web-supplied :class:`ReportImages` loaded off the job row.
     Both §5b charts are rendered ENGINE-SIDE and overwrite their image slots so they

@@ -18,8 +18,12 @@ dependencies = [
     "celery[redis]>=5.3",
     "bcrypt>=4.1",
     "pyjwt>=2.8",
-    # HWPX report pipeline (feat/hwpx-report-pipeline)
+    # Report pipeline (feat/hwpx-report-pipeline). Output is PDF (WeasyPrint over
+    # an HTML/CSS template); python-hwpx is retained for the legacy HWPX filler.
     "matplotlib>=3.8",
+    "weasyprint>=60",
+    "jinja2>=3.1",
+    "pypdf>=4.0",
     "python-hwpx>=0.1",
     "openai>=1.30",
 ]
@@ -64,3 +68,6 @@ extend-immutable-calls = ["fastapi.Depends", "orbital_engine.security.enforce.re
 # Migrations are framework-shaped; allow their conventional unused imports.
 [tool.ruff.lint.per-file-ignores]
 "migrations/*" = ["F401"]
+# The PDF renderer embeds an inline HTML/Jinja template whose markup lines run
+# past the limit; wrapping them would inject whitespace into rendered cells.
+"orbital_engine/reports/pdf_renderer.py" = ["E501"]

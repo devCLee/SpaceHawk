@@ -8,7 +8,7 @@ the assemble→sanitize→prose→fill orchestration) is tested WITHOUT live inf
   emulates the ``report_job`` unique-key semantics (INSERT … ON CONFLICT DO
   NOTHING + the image-refresh UPDATE + SELECT-by-key), so the dedup +
   enqueue-once + image-persistence contracts are covered with no Postgres.
-* the success / stage-failure runs exercise ``_build_hwpx`` with an injected fake
+* the success / stage-failure runs exercise ``_build_report`` with an injected fake
   LLM client (no live provider, but the REAL ``write_report_prose`` guard runs)
   and the REAL bundled template (fillable since R6), proving DONE bytes pass
   ``validate_hwpx`` (with a web-supplied globe image embedded) and that a stage
@@ -22,14 +22,12 @@ end to end when infra is available; it is skipped otherwise, mirroring
 
 from __future__ import annotations
 
-import io
 import struct
 import zlib
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from hwpx import HwpxDocument
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.sql import dml
 from sqlalchemy.sql.selectable import Select
@@ -54,7 +52,7 @@ from orbital_engine.reports.schemas import (
     SatellitePass,
     WatchlistRow,
 )
-from orbital_engine.reports.validate import validate_hwpx
+from orbital_engine.reports.validate import validate_pdf
 
 PK_SIGNATURE = b"PK"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -384,22 +382,19 @@ async def test_repeat_create_refreshes_images_only_when_supplied() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_build_hwpx_success_embeds_image_and_passes_validation() -> None:
+def test_build_report_success_renders_pdf_and_passes_validation(weasyprint_runtime: None) -> None:
+    # The default pipeline fill_fn is the WeasyPrint PDF renderer; the
+    # weasyprint_runtime fixture skips this where the native libs aren't installed
+    # (the engine container has them; a bare dev box may not). The pure
+    # HTML-building logic is covered in test_pdf_renderer.
     pipeline = _pipeline()
-    data = tasks._build_hwpx(_payload(), _images(), pipeline, pipeline.settings)
+    data = tasks._build_report(_payload(), _images(), pipeline, pipeline.settings)
 
-    assert data.startswith(PK_SIGNATURE)
-    validate_hwpx(data)  # raises on any defect
-
-    # Every image anchor is filled (Fix C): 4 country globes + §5b density +
-    # heatmap. The §5b density AND heatmap are now both engine-rendered; the three
-    # globes the web didn't supply get a generated fallback image, so the count is
-    # the full 6 regardless of how many real images were provided.
-    reopened = HwpxDocument.open(io.BytesIO(data))
-    assert len(reopened.list_images()) == 6, "expected 4 globes + engine density + engine heatmap"
+    assert data.startswith(b"%PDF-")
+    validate_pdf(data)  # raises on any defect (header/trailer/page/size)
 
 
-def test_build_hwpx_renders_and_injects_density_and_heatmap_charts() -> None:
+def test_build_report_renders_and_injects_density_and_heatmap_charts() -> None:
     # density_chart_fn / heatmap_chart_fn are invoked with the payload's altitudes
     # and heatmap grid, and their PNG outputs are what reach the filler as
     # images.debris_density / images.debris_heatmap (both engine-rendered).
@@ -427,7 +422,7 @@ def test_build_hwpx_renders_and_injects_density_and_heatmap_charts() -> None:
     pipeline = _pipeline(
         density_chart_fn=_fake_density, heatmap_chart_fn=_fake_heatmap, fill_fn=_capture_fill
     )
-    tasks._build_hwpx(payload, _images(), pipeline, pipeline.settings)
+    tasks._build_report(payload, _images(), pipeline, pipeline.settings)
 
     assert captured["altitudes"] == payload.debris_altitudes_km
     assert captured["grid"] == payload.debris_heatmap_grid
@@ -449,7 +444,7 @@ def test_engine_density_takes_precedence_over_web_supplied() -> None:
 
     images = ReportImages(country_globes={"NK": _tiny_png()}, debris_density=web_density)
     pipeline = _pipeline(density_chart_fn=lambda _a: engine_png, fill_fn=_capture_fill)
-    tasks._build_hwpx(_payload(), images, pipeline, pipeline.settings)
+    tasks._build_report(_payload(), images, pipeline, pipeline.settings)
 
     assert embedded["debris_density"] == engine_png  # engine wins, not web_density
 
@@ -466,18 +461,18 @@ def test_engine_heatmap_takes_precedence_over_web_supplied() -> None:
 
     images = ReportImages(country_globes={"NK": _tiny_png()}, debris_heatmap=web_heatmap)
     pipeline = _pipeline(heatmap_chart_fn=lambda _g: engine_png, fill_fn=_capture_fill)
-    tasks._build_hwpx(_payload(), images, pipeline, pipeline.settings)
+    tasks._build_report(_payload(), images, pipeline, pipeline.settings)
 
     assert embedded["debris_heatmap"] == engine_png  # engine wins, not web_heatmap
 
 
-def test_build_hwpx_stage_failure_propagates() -> None:
+def test_build_report_stage_failure_propagates() -> None:
     def _boom(*_: Any, **__: Any) -> ReportProse:
         raise SectionError("provider exhausted")
 
     pipeline = tasks.ReportPipeline(prose_fn=_boom)
     with pytest.raises(SectionError):
-        tasks._build_hwpx(_payload(), _images(), pipeline, pipeline.settings)
+        tasks._build_report(_payload(), _images(), pipeline, pipeline.settings)
 
 
 # --------------------------------------------------------------------------- #
@@ -588,8 +583,8 @@ async def test_create_report_job_roundtrip(infra_up: bool) -> None:
     await db.dispose()
 
 
-async def test_run_pipeline_to_done(infra_up: bool) -> None:
-    """End-to-end ``_run`` against real infra + REAL template: job → DONE, valid HWPX."""
+async def test_run_pipeline_to_done(infra_up: bool, weasyprint_runtime: None) -> None:
+    """End-to-end ``_run`` against real infra: job → DONE, valid PDF."""
     enqueued: list[str] = []
     async with db.get_engine().begin() as conn:
         job = await tasks.create_report_job(
@@ -603,8 +598,8 @@ async def test_run_pipeline_to_done(infra_up: bool) -> None:
         done = await tasks._load_job(conn, job.id)
     assert done is not None
     assert done.status is ReportStatus.DONE
-    assert done.result is not None and done.result.startswith(PK_SIGNATURE)
-    validate_hwpx(done.result)  # stored bytes pass the gate
+    assert done.result is not None and done.result.startswith(b"%PDF-")
+    validate_pdf(done.result)  # stored bytes pass the gate
 
     await _delete_job(job.id)
     await db.dispose()

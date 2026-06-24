@@ -6,6 +6,15 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# WeasyPrint (the PDF report renderer) needs Pango/HarfBuzz native libs at
+# runtime, plus a CJK font so the Korean report text renders (fonts-nanum also
+# gives the matplotlib charts a Korean face instead of the ASCII fallback). One
+# apt layer, before the pip install, so it stays cached across code changes.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libjpeg62-turbo libffi8 \
+        fonts-nanum fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install the package (and its deps) from the project metadata.
 COPY pyproject.toml ./
 COPY orbital_engine ./orbital_engine

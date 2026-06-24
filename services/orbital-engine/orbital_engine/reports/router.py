@@ -1,11 +1,11 @@
-"""HTTP surface for the async daily-report (HWPX) pipeline (T8).
+"""HTTP surface for the async daily-report (PDF) pipeline (T8).
 
 Three ANALYST-gated routes over the persisted :class:`~orbital_engine.reports.models.ReportJob`
 (T7 owns creation/enqueue + the pipeline run; this router only creates and reads):
 
 ``POST /reports`` idempotently creates a job (via :func:`create_report_job`) and returns
 202 with the job id + status. ``GET /reports/{job_id}`` returns the job status, adding a
-``download_url`` once it is DONE. ``GET /reports/{job_id}/download`` streams the stored HWPX
+``download_url`` once it is DONE. ``GET /reports/{job_id}/download`` streams the stored PDF
 bytes once the job is DONE (409 while still pending/running/failed).
 
 All routes sit in the ``REPORTS`` data domain (P0-RBAC-ABAC §2), which the policy matrix
@@ -35,7 +35,7 @@ from orbital_engine.security.enforce import requires
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
-HWPX_MEDIA_TYPE = "application/vnd.hancom.hwpx"
+PDF_MEDIA_TYPE = "application/pdf"
 
 # Per-image decoded-size ceiling. The web supplies PNG snapshots (a globe view,
 # a debris chart, a heatmap); a few MB each is generous for those. A larger blob
@@ -185,8 +185,8 @@ async def get_report(
 
 @router.get(
     "/{job_id}/download",
-    summary="Download the finished HWPX report",
-    responses={200: {"content": {HWPX_MEDIA_TYPE: {}}}},
+    summary="Download the finished PDF report",
+    responses={200: {"content": {PDF_MEDIA_TYPE: {}}}},
 )
 async def download_report(
     job_id: str,
@@ -200,9 +200,9 @@ async def download_report(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"report job is {job.status}, not DONE",
         )
-    filename = f"{job.report_type}_report_{job.report_date.isoformat()}.hwpx"
+    filename = f"{job.report_type}_report_{job.report_date.isoformat()}.pdf"
     return Response(
         content=job.result,
-        media_type=HWPX_MEDIA_TYPE,
+        media_type=PDF_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

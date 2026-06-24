@@ -242,16 +242,16 @@ def test_download_unknown_id_404(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status_code == 404
 
 
-def test_download_ready_streams_hwpx(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_download_ready_streams_pdf(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_load(job_id):  # noqa: ANN001
-        return _job(ReportStatus.DONE, result=b"PK\x03\x04hwpx-bytes")
+        return _job(ReportStatus.DONE, result=b"%PDF-1.7 report-bytes")
 
     monkeypatch.setattr(reports_api, "_load_job", fake_load)
     resp = client.get("/reports/rpt-123/download", headers=_auth("ANALYST"))
     assert resp.status_code == 200
-    assert resp.content == b"PK\x03\x04hwpx-bytes"
-    assert resp.headers["content-type"] == "application/vnd.hancom.hwpx"
-    assert resp.headers["content-disposition"] == 'attachment; filename="daily_report_2026-06-01.hwpx"'
+    assert resp.content == b"%PDF-1.7 report-bytes"
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.headers["content-disposition"] == 'attachment; filename="daily_report_2026-06-01.pdf"'
 
 
 def test_report_paths_in_openapi() -> None:

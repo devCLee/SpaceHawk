@@ -38,6 +38,8 @@ Dependency-light by design: only ``python-hwpx`` + stdlib.
 
 from __future__ import annotations
 
+import io
+
 from hwpx import HwpxDocument, validate_package
 
 
@@ -107,3 +109,39 @@ def validate_hwpx(data: bytes) -> None:
     if not reopened_report.ok:
         errors = [str(i) for i in reopened_report.errors]
         raise ReportValidationError("round-trip: document schema validation failed", errors)
+
+
+# Smallest plausible real PDF is a few hundred bytes; anything tiny is a failed
+# render, not a document.
+_MIN_PDF_BYTES = 256
+
+
+def validate_pdf(data: bytes) -> None:
+    """Validate ``data`` as a shippable PDF, or raise :class:`ReportValidationError`.
+
+    The PDF analogue of the #184 discard-or-ship gate. A byte-level ``/Page``
+    grep is unreliable — WeasyPrint compresses the page objects into object
+    streams — so we PARSE the document with ``pypdf`` and require at least one
+    page. The cheap pre-checks (header, plausible size) give a fast, clear error
+    before the parser runs.
+
+    1. starts with the ``%PDF-`` magic header and is not implausibly small,
+    2. parses with ``pypdf`` (catches truncation / structural corruption),
+    3. declares at least one page.
+
+    Returns ``None`` on pass; raises on any failure (callers must discard).
+    """
+    if not data or len(data) < _MIN_PDF_BYTES:
+        raise ReportValidationError("input: PDF empty or too small", len(data) if data else 0)
+    if not data.startswith(b"%PDF-"):
+        raise ReportValidationError("input: missing %PDF- header", data[:8])
+
+    from pypdf import PdfReader  # pure-Python; lightweight import kept local to the gate
+    from pypdf.errors import PyPdfError
+
+    try:
+        page_count = len(PdfReader(io.BytesIO(data)).pages)
+    except (PyPdfError, ValueError, OSError) as exc:
+        raise ReportValidationError("input: PDF failed to parse", repr(exc)) from exc
+    if page_count < 1:
+        raise ReportValidationError("input: PDF has no pages")

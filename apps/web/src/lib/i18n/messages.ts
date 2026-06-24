@@ -275,8 +275,11 @@ export const messages = {
   "report.failed.noReason": "알 수 없는 오류",
   "report.requestFailed": "보고서를 요청하지 못했습니다. 잠시 후 다시 시도하세요.",
   "report.retry": "다시 시도",
-  "report.download": "HWPX 내려받기",
+  "report.download": "PDF 내려받기",
   "report.ready": "{date} 일일 보고서가 준비되었습니다.",
+  "report.globesSkipped":
+    "3D 지구본이 화면에 준비되지 않아 위성 통과 globe 이미지 없이 생성됩니다. 지구본이 보이는 상태에서 다시 생성하면 globe 이미지가 포함됩니다.",
+  "report.reset": "대화 기록 초기화",
 
   // Auth / admin guard / empty state
   "guard.signInRequired": "로그인이 필요합니다.",
