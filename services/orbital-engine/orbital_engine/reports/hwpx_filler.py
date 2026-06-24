@@ -23,9 +23,10 @@ is therefore **no fixed capacity cap**: N data items render N rows.
 
 Images
 ======
-Globe snapshots (one per country activity section) and the two debris charts are
-supplied by the web as PNG bytes. Each is embedded in two steps: ``doc.add_image(
-png, "png") -> item_id`` then ``cell.paragraphs[0].add_picture(item_id,
+Globe snapshots (one per country activity section, web-supplied as JPEG) and the
+debris charts (heatmap web-supplied, density engine-rendered; both PNG) are
+embedded in two steps: ``doc.add_image(data, fmt) -> item_id`` (``fmt`` sniffed
+from the magic bytes — jpg vs png) then ``cell.paragraphs[0].add_picture(item_id,
 width=hwpunit, height=hwpunit)`` (HWPUNIT = 1/7200 inch). Images are *optional*:
 a missing globe / density / heatmap leaves its anchor blank and is logged, never
 fatal.
@@ -455,8 +456,19 @@ def _fill_tables(doc: HwpxDocument, payload: DailyReportPayload) -> None:
     )
 
 
-def _embed_image(doc: HwpxDocument, png: bytes, box: _ImageBox, *, what: str) -> None:
-    """Embed one PNG into ``box``'s cell. Logs and skips on any embed problem."""
+def _image_format(data: bytes) -> str:
+    """Sniff a web-supplied image's container by magic bytes.
+
+    Globe snapshots arrive as JPEG (far smaller than PNG for photographic globe
+    imagery, so the request stays under the engine's 4MB/image cap and Next's
+    10MB body limit); charts arrive as PNG. ``add_image`` needs the right format
+    label, so detect rather than assume.
+    """
+    return "jpg" if data[:3] == b"\xff\xd8\xff" else "png"
+
+
+def _embed_image(doc: HwpxDocument, data: bytes, box: _ImageBox, *, what: str) -> None:
+    """Embed one image (PNG or JPEG) into ``box``'s cell. Logs/skips on any problem."""
     try:
         table = _table_at(doc, box.table_index)
         cell = table.cell(box.row, box.col)
@@ -464,7 +476,7 @@ def _embed_image(doc: HwpxDocument, png: bytes, box: _ImageBox, *, what: str) ->
         if not paragraphs:
             logger.warning("image anchor %s has no paragraph; skipping", what)
             return
-        item_id = doc.add_image(png, "png")
+        item_id = doc.add_image(data, _image_format(data))
         paragraphs[0].add_picture(
             item_id,
             width=int(box.width_mm * _HWPUNIT_PER_MM),

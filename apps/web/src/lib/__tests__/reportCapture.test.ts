@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   canvasToBase64Png,
+  canvasToBase64Jpeg,
   captureScene,
   captureReportImages,
   cameraTargetForCountry,
@@ -123,6 +124,39 @@ describe("canvasToBase64Png", () => {
     expect(off.toDataURL).not.toHaveBeenCalled();
     expect(source.toDataURL).toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+describe("canvasToBase64Jpeg", () => {
+  it("encodes as image/jpeg at the default quality, stripping the prefix", () => {
+    const toDataURL = vi.fn(() => "data:image/jpeg;base64,SkVH"); // base64("JEG")
+    const canvas = {
+      width: 200,
+      height: 150,
+      toDataURL,
+    } as unknown as HTMLCanvasElement;
+    expect(canvasToBase64Jpeg(canvas)).toBe("SkVH");
+    expect(toDataURL).toHaveBeenCalledWith("image/jpeg", 0.82);
+  });
+
+  it("honors an explicit quality", () => {
+    const toDataURL = vi.fn(() => "data:image/jpeg;base64,SkVH");
+    const canvas = {
+      width: 200,
+      height: 150,
+      toDataURL,
+    } as unknown as HTMLCanvasElement;
+    canvasToBase64Jpeg(canvas, 0.5);
+    expect(toDataURL).toHaveBeenCalledWith("image/jpeg", 0.5);
+  });
+
+  it("returns null for a zero-sized canvas", () => {
+    const canvas = {
+      width: 0,
+      height: 100,
+      toDataURL: vi.fn(),
+    } as unknown as HTMLCanvasElement;
+    expect(canvasToBase64Jpeg(canvas)).toBeNull();
   });
 });
 

@@ -18,6 +18,7 @@ on the re-opened document. Covered:
 
 from __future__ import annotations
 
+import base64
 import io
 import struct
 import zlib
@@ -501,3 +502,26 @@ def test_default_template_fills_end_to_end(payload, prose, images) -> None:
     # The shipped daily_report.hwpx is fillable via index addressing (no labels).
     out = fill_daily_report(payload, prose, images)
     assert _reopen(out).validate().ok
+
+
+def test_image_format_sniffs_jpeg_vs_png() -> None:
+    # Globe snapshots arrive as JPEG (small); charts as PNG. The embedder must
+    # label each correctly for add_image rather than assume PNG.
+    assert hwpx_filler._image_format(b"\xff\xd8\xff\xe0\x00\x10JFIF") == "jpg"
+    assert hwpx_filler._image_format(b"\x89PNG\r\n\x1a\n") == "png"
+    assert hwpx_filler._image_format(b"") == "png"  # unknown/empty -> png default
+
+
+def test_default_template_embeds_jpeg_globe(payload, prose) -> None:
+    # A JPEG globe (sniffed -> jpg) embeds without error and lands in the doc.
+    jpeg_1x1 = base64.b64decode(
+        "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
+        "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB/8AACwgAAQABAQERAP/EABQAAQAAAAAA"
+        "AAAAAAAAAAAAAAj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/AT//2Q=="
+    )
+    assert jpeg_1x1[:3] == b"\xff\xd8\xff"
+    images = ReportImages(country_globes={"NK": jpeg_1x1})
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+    assert doc.validate().ok
+    assert len(doc.list_images()) >= 1

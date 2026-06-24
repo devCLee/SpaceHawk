@@ -71,21 +71,33 @@ export interface CaptureScene {
   render: () => void;
 }
 
-const PNG_DATA_URL_PREFIX = "data:image/png;base64,";
+// Matches a `data:<mime>;base64,` prefix on a canvas data URL (mime-agnostic so
+// both PNG and JPEG encodes are handled).
+const DATA_URL_BASE64_RE = /^data:[^;,]+;base64,/;
 
 /** Longest-side ceiling (px) for an encoded capture. A full-resolution Cesium
- *  globe canvas is viewport-sized and doubled on hi-DPI/4K displays, so its PNG
- *  can exceed the engine's 4MB/image cap and get rejected (413) — which surfaces
- *  as a generic "report request failed". Downscaling to this bound keeps each
- *  PNG comfortably under the cap (and the upload small) while staying sharp
- *  enough for an embedded report image. */
+ *  globe canvas is viewport-sized and doubled on hi-DPI/4K displays, so a raw
+ *  snapshot blows past the engine's 4MB/image cap (413) AND Next's 10MB
+ *  request-body limit (400) — both surface as a generic "report request failed".
+ *  Downscaling to this bound keeps captures small while staying sharp enough for
+ *  an embedded report image. */
 const MAX_CAPTURE_DIM = 1600;
 
-/** Encode a canvas to a PNG data URL, downscaling so its longest side is at most
- *  MAX_CAPTURE_DIM. Draws onto an offscreen 2D canvas at the scaled size when the
- *  source is larger; falls back to a direct encode when oversized handling isn't
- *  possible (no 2D context, e.g. jsdom) or the source is already small enough. */
-function toPngDataUrl(canvas: HTMLCanvasElement): string {
+/** JPEG quality for globe snapshots. Photographic globe imagery compresses ~10x
+ *  better as JPEG than PNG at this quality with no meaningful visual loss in an
+ *  embedded report figure — this is what keeps the payload under both limits. */
+const DEFAULT_JPEG_QUALITY = 0.82;
+
+/** Encode a canvas to a `mime` data URL, downscaling so its longest side is at
+ *  most MAX_CAPTURE_DIM. Draws onto an offscreen 2D canvas at the scaled size
+ *  when the source is larger; falls back to a direct encode when oversized
+ *  handling isn't possible (no 2D context, e.g. jsdom) or the source is already
+ *  small enough. `quality` applies to lossy formats (image/jpeg). */
+function toImageDataUrl(
+  canvas: HTMLCanvasElement,
+  mime: string,
+  quality?: number
+): string {
   const longest = Math.max(canvas.width, canvas.height);
   if (longest > MAX_CAPTURE_DIM) {
     const scale = MAX_CAPTURE_DIM / longest;
@@ -98,30 +110,58 @@ function toPngDataUrl(canvas: HTMLCanvasElement): string {
       const ctx = off.getContext("2d");
       if (ctx) {
         ctx.drawImage(canvas, 0, 0, w, h);
-        return off.toDataURL("image/png");
+        return off.toDataURL(mime, quality);
       }
     } catch {
       // Fall through to a direct (full-size) encode on any downscale failure.
     }
   }
-  return canvas.toDataURL("image/png");
+  return canvas.toDataURL(mime, quality);
 }
 
-/** Convert a canvas to a base64 PNG (no `data:` prefix), or null if the canvas
- *  can't be encoded (zero-sized, tainted, or no 2D/WebGL buffer). Downscales
- *  oversized captures so they stay under the engine's per-image size cap. */
-export function canvasToBase64Png(canvas: HTMLCanvasElement): string | null {
+/** Strip a `data:<mime>;base64,` prefix; return the base64 payload, or null for
+ *  a non-base64 / empty data URL. */
+function dataUrlToBase64(dataUrl: string): string | null {
+  if (!DATA_URL_BASE64_RE.test(dataUrl)) return null;
+  const b64 = dataUrl.replace(DATA_URL_BASE64_RE, "");
+  return b64.length > 0 ? b64 : null;
+}
+
+/** Encode a canvas to base64 of the given mime (no `data:` prefix), or null if
+ *  it can't be encoded (zero-sized, tainted, or no buffer). Downscales oversized
+ *  captures so they stay under the engine + Next size limits. */
+function encodeCanvas(
+  canvas: HTMLCanvasElement,
+  mime: string,
+  quality?: number
+): string | null {
   if (canvas.width === 0 || canvas.height === 0) return null;
   let dataUrl: string;
   try {
-    dataUrl = toPngDataUrl(canvas);
+    dataUrl = toImageDataUrl(canvas, mime, quality);
   } catch {
     // SecurityError on a cross-origin-tainted canvas, etc. Best-effort: skip it.
     return null;
   }
-  if (!dataUrl.startsWith(PNG_DATA_URL_PREFIX)) return null;
-  const b64 = dataUrl.slice(PNG_DATA_URL_PREFIX.length);
-  return b64.length > 0 ? b64 : null;
+  return dataUrlToBase64(dataUrl);
+}
+
+/** Convert a canvas to a base64 PNG (no `data:` prefix), or null. Use for charts
+ *  (the debris heatmap) where sharp lines matter; globe snapshots use the JPEG
+ *  variant to keep the payload small. */
+export function canvasToBase64Png(canvas: HTMLCanvasElement): string | null {
+  return encodeCanvas(canvas, "image/png");
+}
+
+/** Convert a canvas to a base64 JPEG (no `data:` prefix), or null. JPEG shrinks
+ *  the photographic globe imagery ~10x vs PNG, keeping the report payload under
+ *  the engine (4MB/image) and Next.js (10MB body) limits regardless of display
+ *  DPI. The engine sniffs the format from the bytes, so JPEG embeds fine. */
+export function canvasToBase64Jpeg(
+  canvas: HTMLCanvasElement,
+  quality: number = DEFAULT_JPEG_QUALITY
+): string | null {
+  return encodeCanvas(canvas, "image/jpeg", quality);
 }
 
 /** Snapshot a Cesium scene's canvas to a base64 PNG. Renders one frame first so
@@ -207,7 +247,9 @@ export async function captureCountryScene(
   } catch {
     return null;
   }
-  return canvasToBase64Png(scene.canvas);
+  // JPEG: globe imagery is photographic, so this keeps the per-country snapshot
+  // an order of magnitude smaller than PNG (under the engine + Next size caps).
+  return canvasToBase64Jpeg(scene.canvas);
 }
 
 export interface CaptureSources {
