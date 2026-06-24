@@ -51,7 +51,6 @@ import copy
 import io
 import logging
 import re
-import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -617,55 +616,54 @@ def _fill_prose(doc: HwpxDocument, prose: ReportProse) -> None:
 # --------------------------------------------------------------------------- #
 
 
-_MANIFEST_PATH = "META-INF/manifest.xml"
-_ODF_MANIFEST_NS = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"
-_BINDATA_MEDIA_TYPES = {
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "png": "image/png",
-    "bmp": "image/bmp",
-    "gif": "image/gif",
-}
+_CONTENT_HPF_PATH = "Contents/content.hpf"
+# Matches a self-closing OPF manifest item, e.g.
+# <opf:item id="BIN0001" href="BinData/BIN0001.png" media-type="image/png"/>.
+_OPF_ITEM_RE = re.compile(r"<opf:item\b[^>]*/>")
+_OPF_ITEM_CLOSE_RE = re.compile(r"\s*/>$")
 
 
-def _register_bindata_in_manifest(data: bytes) -> bytes:
-    """Add a ``META-INF/manifest.xml`` file-entry for every ``BinData/*`` part.
+def _mark_bindata_embedded(data: bytes) -> bytes:
+    """Add ``isEmbeded="1"`` to every ``BinData/*`` ``<opf:item>`` in content.hpf.
 
-    python-hwpx's ``add_image`` registers an embedded image in ``content.hpf`` +
-    the header ``binDataList`` + the section ``<hc:img>`` ref, but NOT in the OPC
-    manifest (``META-INF/manifest.xml``). HWPX is OPC/ODF-packaged and Hancom
-    resolves image binaries via that manifest, so a missing ``file-entry`` renders
-    as a BROKEN-IMAGE icon even though every other link is intact (the template
-    ships an empty ``<odf:manifest/>``). We repackage the HWPX, adding the missing
-    file-entries (media-type by extension), preserving the original entry order +
-    per-entry compression — the ODF ``mimetype`` part must stay first and STORED.
+    python-hwpx's ``add_image`` writes the embedded-image manifest entry in
+    ``Contents/content.hpf`` as ``<opf:item id=.. href="BinData/.." media-type=..>``
+    but OMITS the Hancom ``isEmbeded`` flag. Hangul only loads a ``BinData`` part
+    when its manifest item carries ``isEmbeded="1"``; without it every embedded
+    picture renders as a BROKEN-IMAGE icon even though the bytes, the
+    ``binaryItemIDRef`` and the ``BinData`` part are all intact.
+
+    Verified against Hancom-authored HWPX (hwpxlib SimplePicture/SimpleVideo
+    fixtures): embedded images ship ``<opf:item .. isEmbeded="1"/>`` in
+    content.hpf and the OPC ``META-INF/manifest.xml`` stays *empty* — so the flag,
+    not a manifest file-entry, is what makes the image display. We repackage the
+    HWPX, injecting the flag on each BinData manifest item, preserving the
+    original entry order + per-entry compression — the ODF ``mimetype`` part must
+    stay first and STORED.
     """
     zin = zipfile.ZipFile(io.BytesIO(data))
-    names = zin.namelist()
-    bindata = [n for n in names if n.startswith("BinData/")]
-    if not bindata or _MANIFEST_PATH not in names:
+    if _CONTENT_HPF_PATH not in zin.namelist():
         return data
-    manifest_xml = zin.read(_MANIFEST_PATH).decode("utf-8")
-    missing = [n for n in bindata if f'"{n}"' not in manifest_xml]
-    if not missing:
-        return data
+    hpf = zin.read(_CONTENT_HPF_PATH).decode("utf-8")
 
-    ET.register_namespace("odf", _ODF_MANIFEST_NS)
-    root = ET.fromstring(manifest_xml)
-    for name in missing:
-        ext = name.rsplit(".", 1)[-1].lower()
-        media_type = _BINDATA_MEDIA_TYPES.get(ext, "application/octet-stream")
-        entry = ET.SubElement(root, f"{{{_ODF_MANIFEST_NS}}}file-entry")
-        entry.set(f"{{{_ODF_MANIFEST_NS}}}full-path", name)
-        entry.set(f"{{{_ODF_MANIFEST_NS}}}media-type", media_type)
-    new_manifest = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>' + ET.tostring(root, encoding="unicode")
-    ).encode("utf-8")
+    def _add_flag(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        if "isEmbeded" in tag or 'href="BinData/' not in tag:
+            return tag
+        return _OPF_ITEM_CLOSE_RE.sub(' isEmbeded="1"/>', tag)
+
+    new_hpf = _OPF_ITEM_RE.sub(_add_flag, hpf)
+    if new_hpf == hpf:
+        return data
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as zout:
         for info in zin.infolist():
-            content = new_manifest if info.filename == _MANIFEST_PATH else zin.read(info.filename)
+            content = (
+                new_hpf.encode("utf-8")
+                if info.filename == _CONTENT_HPF_PATH
+                else zin.read(info.filename)
+            )
             zout.writestr(info, content)
     return out.getvalue()
 
@@ -706,7 +704,7 @@ def fill_daily_report(
     _fill_prose(doc, prose)
     _embed_images(doc, images)
 
-    # python-hwpx omits BinData/* from META-INF/manifest.xml; without those
-    # entries Hancom renders every embedded image as a broken-image icon. Patch
-    # the manifest before returning so the images actually display.
-    return _register_bindata_in_manifest(doc.to_bytes())
+    # python-hwpx omits Hancom's isEmbeded flag on content.hpf BinData items;
+    # without it Hancom renders every embedded image as a broken-image icon. Patch
+    # content.hpf before returning so the images actually display.
+    return _mark_bindata_embedded(doc.to_bytes())

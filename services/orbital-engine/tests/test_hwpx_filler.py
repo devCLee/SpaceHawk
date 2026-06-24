@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import base64
 import io
+import re
 import struct
 import zipfile
 import zlib
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pytest
 from hwpx import HwpxDocument
@@ -587,17 +589,75 @@ def test_default_template_embeds_jpeg_globe(payload, prose) -> None:
     assert len(doc.list_images()) >= 1
 
 
-def test_embedded_images_registered_in_manifest(payload, prose, images) -> None:
-    # python-hwpx omits BinData/* from META-INF/manifest.xml; without those
-    # file-entries Hancom renders every embedded image as a broken-image icon.
-    # Assert every embedded binary is now declared with a media-type.
+# Known-good Hancom-loadable HWPX (hwpxlib reader_writer/SimplePicture.hwpx).
+# It is the GROUND TRUTH for how an embedded image must be wired: a golden-diff
+# against it (not guesswork) showed the broken-image icon comes from a missing
+# isEmbeded flag on the content.hpf <opf:item> that binaryItemIDRef resolves to —
+# NOT from the header binItem id, and NOT from META-INF/manifest.xml (golden
+# ships that empty). See hwpx_filler._mark_bindata_embedded.
+_GOLDEN_HWPX = Path(__file__).parent / "fixtures" / "SimplePicture.hwpx"
+
+
+def _assert_embedded_image_contract(data: bytes) -> int:
+    """Assert the embedded-image resolution chain Hancom needs to render a picture.
+
+    Verified against the golden ``SimplePicture.hwpx``::
+
+        section  <hc:img binaryItemIDRef="X">
+          └─► content.hpf  <opf:item id="X" href="BinData/.." isEmbeded="1"/>
+                └─► BinData/.. part present in the package
+        META-INF/manifest.xml carries NO <file-entry> (golden ships it empty)
+
+    A dangling ref, a missing ``isEmbeded`` flag, or an absent BinData part each
+    makes Hancom show a broken-image icon. Returns the count of resolved refs.
+    """
+    z = zipfile.ZipFile(io.BytesIO(data))
+    names = set(z.namelist())
+    hpf = z.read("Contents/content.hpf").decode("utf-8")
+    opf: dict[str, tuple[str, bool]] = {}
+    for tag in re.findall(r"<opf:item\b[^>]*?/>", hpf):
+        id_match = re.search(r'\bid="([^"]*)"', tag)
+        href_match = re.search(r'\bhref="([^"]*)"', tag)
+        if id_match and href_match:
+            opf[id_match.group(1)] = (href_match.group(1), 'isEmbeded="1"' in tag)
+
+    refs: list[str] = []
+    for name in names:
+        if re.match(r"Contents/section\d+\.xml", name):
+            section = z.read(name).decode("utf-8")
+            refs += re.findall(r'<hc:img\b[^>]*?\bbinaryItemIDRef="([^"]*)"', section)
+    assert refs, "expected at least one embedded <hc:img>"
+
+    for ref in refs:
+        assert ref in opf, f"binaryItemIDRef {ref!r} has no content.hpf <opf:item id>"
+        href, embedded = opf[ref]
+        assert embedded, f'opf:item {ref!r} missing isEmbeded="1" -> Hancom broken-image icon'
+        assert href.startswith("BinData/"), f"opf:item {ref!r} href not a BinData part: {href}"
+        assert href in names, f"BinData part {href!r} referenced but absent from package"
+
+    manifest = z.read("META-INF/manifest.xml").decode("utf-8") if "META-INF/manifest.xml" in names else ""
+    assert "file-entry" not in manifest, "manifest must stay empty (golden ships no file-entry)"
+    return len(refs)
+
+
+def test_golden_fixture_satisfies_image_contract() -> None:
+    # Ground truth: pin the embedded-image resolution chain against a known-good
+    # Hancom-loadable HWPX. If this fails, the contract itself moved — re-derive
+    # _assert_embedded_image_contract against a fresh golden file before touching
+    # the filler. This is what makes the regression test below trustworthy.
+    assert _GOLDEN_HWPX.exists(), f"golden fixture missing: {_GOLDEN_HWPX}"
+    assert _assert_embedded_image_contract(_GOLDEN_HWPX.read_bytes()) >= 1
+
+
+def test_embedded_images_resolve_via_opf_isembeded(payload, prose, images) -> None:
+    # REGRESSION (broken-image loop): python-hwpx add_image registers BinData in
+    # content.hpf + header binDataList + the section <hc:img> ref, but OMITS
+    # Hancom's isEmbeded flag, so every embedded picture renders as a broken-image
+    # icon even though the bytes, the binaryItemIDRef, and the BinData part are all
+    # intact. fill_daily_report patches content.hpf so our output satisfies the
+    # SAME embedded-image contract the golden SimplePicture.hwpx does (asserted in
+    # test_golden_fixture_satisfies_image_contract).
     out = fill_daily_report(payload, prose, images)
-    z = zipfile.ZipFile(io.BytesIO(out))
-    bindata = [n for n in z.namelist() if n.startswith("BinData/")]
-    assert bindata, "expected embedded images"
-    manifest = z.read("META-INF/manifest.xml").decode("utf-8")
-    for name in bindata:
-        assert name in manifest, f"{name} not registered in manifest.xml"
-    assert "media-type" in manifest and ("image/png" in manifest or "image/jpeg" in manifest)
-    # still a valid, re-openable HWPX after the manifest patch
+    assert _assert_embedded_image_contract(out) >= 1
+    # still a valid, re-openable HWPX after the content.hpf patch
     assert _reopen(out).validate().ok
