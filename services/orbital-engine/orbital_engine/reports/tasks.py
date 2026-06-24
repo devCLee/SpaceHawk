@@ -148,8 +148,10 @@ async def create_report_job(
     Computes the idempotency key; INSERTs a PENDING row ``ON CONFLICT
     (idempotency_key) DO NOTHING``. If the insert created the row, the Celery task
     is enqueued (``run_report_job.delay(job_id)`` by default; overridable for
-    tests). If the key already existed, the existing job is returned unchanged and
-    nothing is enqueued — no duplicate row, no re-enqueue.
+    tests). If the key already existed: a **FAILED** job is RESET to PENDING and
+    re-enqueued (a transient failure must not cache forever — re-requesting a date
+    that once failed has to retry), while an in-flight (PENDING/RUNNING) or DONE
+    job is returned unchanged with no re-enqueue — no duplicate row.
 
     Images: the web-supplied :class:`ReportImages` are persisted on the row (as
     base64 JSONB via :func:`~orbital_engine.reports.models.serialize_images`) so
@@ -193,25 +195,55 @@ async def create_report_job(
     )
     result = await conn.execute(stmt)
     inserted_id = result.scalar_one_or_none()
+    dispatch = enqueue or (lambda jid: run_report_job.delay(jid))
 
-    # Refresh images on a repeat create (only when new ones were supplied) so a
-    # better/later web render replaces an earlier one; never clobber with NULL.
-    if inserted_id is None and stored_images is not None:
+    if inserted_id is not None:
+        # We created the row → enqueue exactly once.
+        job = await _fetch_by_key(conn, key)
+        if job is None:  # pragma: no cover - the INSERT just created it
+            raise RuntimeError(f"report_job vanished after insert for key {key}")
+        dispatch(job.id)
+        return job
+
+    # The key already exists. A FAILED job must NOT be treated as a cached terminal
+    # result: a transient failure (e.g. an LLM 503) would otherwise freeze that
+    # date on the stale error forever, since re-requesting it returns the old row
+    # and the pipeline never re-runs. So RESET a FAILED job to PENDING (clearing
+    # the stale error/result, refreshing images/owner if newly supplied) and
+    # re-enqueue it. PENDING/RUNNING (in-flight — dedupe the double-submit) and
+    # DONE (cached success) are returned as-is; only new images refresh the row.
+    existing = await _fetch_by_key(conn, key)
+    if existing is None:  # pragma: no cover - the conflict implies a row exists
+        raise RuntimeError(f"report_job vanished after conflict for key {key}")
+
+    if existing.status is ReportStatus.FAILED:
+        reset: dict[str, Any] = {
+            "status": ReportStatus.PENDING,
+            "error_reason": None,
+            "result": None,
+            "updated_at": now,
+        }
+        if stored_images is not None:
+            reset["input_images"] = stored_images
+        if owner_username is not None:
+            reset["owner_username"] = owner_username
+        await conn.execute(
+            update(report_job).where(report_job.c.idempotency_key == key).values(**reset)
+        )
+        job = await _fetch_by_key(conn, key)
+        dispatch(job.id)  # retry the previously-failed date with current code
+        return job
+
+    # In-flight or done: refresh images on a repeat create (only when new ones
+    # were supplied) so a better/later web render replaces an earlier one; never
+    # clobber with NULL, and never re-enqueue.
+    if stored_images is not None:
         await conn.execute(
             update(report_job)
             .where(report_job.c.idempotency_key == key)
             .values(input_images=stored_images, updated_at=now)
         )
-
     job = await _fetch_by_key(conn, key)
-    if job is None:  # pragma: no cover - INSERT or pre-existing row guarantees one
-        raise RuntimeError(f"report_job vanished after upsert for key {key}")
-
-    if inserted_id is not None:
-        # We created the row → enqueue exactly once.
-        dispatch = enqueue or (lambda jid: run_report_job.delay(jid))
-        dispatch(job.id)
-
     return job
 
 

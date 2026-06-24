@@ -268,10 +268,25 @@ class _FakeConn:
             return _FakeResult([], scalar=params["id"])
         if isinstance(statement, dml.Update):
             compiled = statement.compile(dialect=postgresql.dialect())
-            key = compiled.params.get("idempotency_key_1")
+            params = dict(compiled.params)
+            key = params.get("idempotency_key_1")
             row = self.by_key.get(key)
             if row is not None:
-                row["input_images"] = compiled.params.get("input_images")
+                for col in (
+                    "status",
+                    "error_reason",
+                    "result",
+                    "input_images",
+                    "owner_username",
+                    "updated_at",
+                ):
+                    if col in params:
+                        row[col] = params[col]
+                # A reset-to-PENDING clears the terminal fields even if SQLAlchemy
+                # rendered the NULLs inline rather than as bound params.
+                if "status" in params:
+                    row["error_reason"] = params.get("error_reason")
+                    row["result"] = params.get("result")
             return _FakeResult([])
         if isinstance(statement, Select):
             key = statement.compile(dialect=postgresql.dialect()).params.get("idempotency_key_1")
@@ -314,6 +329,48 @@ async def test_create_report_job_without_owner_stores_null() -> None:
     )
     assert conn.by_key[job.idempotency_key]["owner_username"] is None
     assert job.owner_username is None
+
+
+async def test_failed_job_is_reset_and_retried_on_recreate() -> None:
+    # REGRESSION: a transient failure (e.g. LLM 503) used to be cached forever —
+    # re-requesting a date that once FAILED returned the stale FAILED row and the
+    # pipeline never re-ran. Re-creating a FAILED job must reset it to PENDING and
+    # re-enqueue so the fixed code gets to run.
+    conn = _FakeConn()
+    enqueued: list[str] = []
+    d = date(2026, 6, 19)
+
+    job = await tasks.create_report_job("daily", d, None, conn, enqueue=enqueued.append)
+    # Simulate the worker marking it FAILED with a stale error.
+    conn.by_key[job.idempotency_key]["status"] = ReportStatus.FAILED
+    conn.by_key[job.idempotency_key]["error_reason"] = "SectionError: ... InternalServerError"
+
+    again = await tasks.create_report_job("daily", d, None, conn, enqueue=enqueued.append)
+
+    assert again.id == job.id  # same row, not a duplicate
+    assert len(conn.by_key) == 1
+    assert again.status is ReportStatus.PENDING  # reset for retry
+    assert again.error_reason is None  # stale error cleared
+    assert enqueued == [job.id, job.id]  # re-enqueued to actually retry
+
+
+async def test_done_job_is_not_rerun_on_recreate() -> None:
+    # The flip side of the retry fix: a DONE job is a cached success — re-requesting
+    # it must NOT re-run (no re-enqueue) and must preserve the stored result.
+    conn = _FakeConn()
+    enqueued: list[str] = []
+    d = date(2026, 6, 23)
+
+    job = await tasks.create_report_job("daily", d, None, conn, enqueue=enqueued.append)
+    conn.by_key[job.idempotency_key]["status"] = ReportStatus.DONE
+    conn.by_key[job.idempotency_key]["result"] = b"%PDF-1.7 cached"
+
+    again = await tasks.create_report_job("daily", d, None, conn, enqueue=enqueued.append)
+
+    assert again.id == job.id
+    assert again.status is ReportStatus.DONE
+    assert again.result == b"%PDF-1.7 cached"  # cached success preserved
+    assert enqueued == [job.id]  # NOT re-enqueued
 
 
 async def test_create_report_job_distinct_inputs_create_distinct_jobs() -> None:
