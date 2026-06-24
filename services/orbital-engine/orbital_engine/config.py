@@ -269,6 +269,14 @@ class Settings(BaseSettings):
         default=9,
         validation_alias=AliasChoices("REPORT_LLM_MAX_RETRIES", "report_llm_max_retries"),
     )
+    # A report job left PENDING/RUNNING longer than this is treated as orphaned
+    # (the worker died or never picked it up) and re-run on the next request for
+    # that date, instead of deduping forever to a dead job. Generous enough to
+    # never pre-empt a job that is genuinely still working (LLM retries + render).
+    report_job_stale_after_s: float = Field(
+        default=600.0,
+        validation_alias=AliasChoices("REPORT_JOB_STALE_AFTER_S", "report_job_stale_after_s"),
+    )
 
     def assert_secure_for_environment(self) -> None:
         """Fail fast on insecure session config in production (Stage 5 hardening).

@@ -36,7 +36,7 @@ import logging
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol
 
 from sqlalchemy import select, update
@@ -133,6 +133,25 @@ async def _fetch_by_key(conn: _Conn, key: str) -> ReportJob | None:
     return ReportJob.from_row(dict(row)) if row is not None else None
 
 
+# In-flight statuses: a healthy worker advances these within seconds (PENDING ->
+# RUNNING) and finishes well under the stale threshold.
+_IN_FLIGHT = (ReportStatus.PENDING, ReportStatus.RUNNING)
+
+
+def _is_orphaned(job: ReportJob, now: datetime, stale_after_s: float) -> bool:
+    """True if an IN-FLIGHT job hasn't advanced within ``stale_after_s``.
+
+    A job stuck PENDING/RUNNING past the threshold means the worker died or never
+    picked it up, so re-requesting that date must re-run it rather than dedupe to a
+    dead job forever. A missing ``updated_at`` counts as orphaned (fail-safe).
+    """
+    if job.status not in _IN_FLIGHT:
+        return False
+    if job.updated_at is None:
+        return True
+    return (now - job.updated_at) > timedelta(seconds=stale_after_s)
+
+
 async def create_report_job(
     report_type: str,
     report_date: date,
@@ -142,16 +161,20 @@ async def create_report_job(
     images: ReportImages | None = None,
     owner_username: str | None = None,
     enqueue: Callable[[str], Any] | None = None,
+    stale_after_s: float | None = None,
 ) -> ReportJob:
     """Idempotently create (or return) the job for this request, enqueuing once.
 
     Computes the idempotency key; INSERTs a PENDING row ``ON CONFLICT
     (idempotency_key) DO NOTHING``. If the insert created the row, the Celery task
     is enqueued (``run_report_job.delay(job_id)`` by default; overridable for
-    tests). If the key already existed: a **FAILED** job is RESET to PENDING and
-    re-enqueued (a transient failure must not cache forever — re-requesting a date
-    that once failed has to retry), while an in-flight (PENDING/RUNNING) or DONE
-    job is returned unchanged with no re-enqueue — no duplicate row.
+    tests). If the key already existed, a **FAILED** job — or an **orphaned**
+    in-flight job (PENDING/RUNNING with no progress for ``stale_after_s``, i.e. the
+    worker died) — is RESET to PENDING and re-enqueued, so re-requesting that date
+    actually retries instead of caching a dead result. A fresh in-flight job
+    (within the threshold) dedupes the double-submit and a DONE job is a cached
+    success — both returned unchanged with no re-enqueue. ``stale_after_s``
+    defaults to ``settings.report_job_stale_after_s``.
 
     Images: the web-supplied :class:`ReportImages` are persisted on the row (as
     base64 JSONB via :func:`~orbital_engine.reports.models.serialize_images`) so
@@ -173,6 +196,8 @@ async def create_report_job(
     now = datetime.now(UTC)
     job_id = uuid.uuid4().hex
     stored_images = serialize_images(images)
+    if stale_after_s is None:
+        stale_after_s = get_settings().report_job_stale_after_s
 
     stmt = (
         pg_insert(report_job)
@@ -205,18 +230,21 @@ async def create_report_job(
         dispatch(job.id)
         return job
 
-    # The key already exists. A FAILED job must NOT be treated as a cached terminal
-    # result: a transient failure (e.g. an LLM 503) would otherwise freeze that
-    # date on the stale error forever, since re-requesting it returns the old row
-    # and the pipeline never re-runs. So RESET a FAILED job to PENDING (clearing
-    # the stale error/result, refreshing images/owner if newly supplied) and
-    # re-enqueue it. PENDING/RUNNING (in-flight — dedupe the double-submit) and
-    # DONE (cached success) are returned as-is; only new images refresh the row.
+    # The key already exists. Two cases must NOT be cached as terminal and have to
+    # re-run on this request:
+    #   * FAILED — a transient failure (e.g. an LLM 503) would otherwise freeze the
+    #     date on the stale error forever; re-requesting must retry.
+    #   * ORPHANED in-flight — a PENDING/RUNNING job stuck past the stale threshold
+    #     means the worker died/never picked it up; deduping to it loops forever.
+    # Both reset to PENDING (clearing any stale error/result, refreshing
+    # images/owner if newly supplied) and re-enqueue. A FRESH in-flight job
+    # (in-flight, within the threshold) dedupes the double-submit, and a DONE job
+    # is a cached success — both returned as-is; only new images refresh the row.
     existing = await _fetch_by_key(conn, key)
     if existing is None:  # pragma: no cover - the conflict implies a row exists
         raise RuntimeError(f"report_job vanished after conflict for key {key}")
 
-    if existing.status is ReportStatus.FAILED:
+    if existing.status is ReportStatus.FAILED or _is_orphaned(existing, now, stale_after_s):
         reset: dict[str, Any] = {
             "status": ReportStatus.PENDING,
             "error_reason": None,

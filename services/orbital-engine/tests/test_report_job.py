@@ -354,6 +354,46 @@ async def test_failed_job_is_reset_and_retried_on_recreate() -> None:
     assert enqueued == [job.id, job.id]  # re-enqueued to actually retry
 
 
+async def test_orphaned_in_flight_job_is_rerun_after_stale_threshold() -> None:
+    # REGRESSION: a PENDING/RUNNING job whose worker died (no progress for longer
+    # than the stale threshold) used to dedupe forever. Re-requesting it must reset
+    # to PENDING and re-enqueue so it actually runs.
+    conn = _FakeConn()
+    enqueued: list[str] = []
+    d = date(2026, 6, 22)
+
+    job = await tasks.create_report_job("daily", d, None, conn, enqueue=enqueued.append)
+    # Simulate the worker dying: stuck in-flight, last touched long ago.
+    conn.by_key[job.idempotency_key]["status"] = ReportStatus.RUNNING
+    conn.by_key[job.idempotency_key]["updated_at"] = datetime(2020, 1, 1, tzinfo=UTC)
+
+    again = await tasks.create_report_job(
+        "daily", d, None, conn, enqueue=enqueued.append, stale_after_s=600
+    )
+
+    assert again.id == job.id
+    assert again.status is ReportStatus.PENDING  # reset for re-run
+    assert enqueued == [job.id, job.id]  # re-enqueued
+
+
+async def test_fresh_in_flight_job_is_not_rerun() -> None:
+    # The guard against double-running: an in-flight job within the stale threshold
+    # is a genuine double-submit — dedupe it, do NOT re-enqueue.
+    conn = _FakeConn()
+    enqueued: list[str] = []
+    d = date(2026, 6, 22)
+
+    job = await tasks.create_report_job("daily", d, None, conn, enqueue=enqueued.append)
+    # status PENDING, updated_at = now (fresh) from the insert.
+    again = await tasks.create_report_job(
+        "daily", d, None, conn, enqueue=enqueued.append, stale_after_s=600
+    )
+
+    assert again.id == job.id
+    assert again.status is ReportStatus.PENDING
+    assert enqueued == [job.id]  # NOT re-enqueued — still legitimately in-flight
+
+
 async def test_done_job_is_not_rerun_on_recreate() -> None:
     # The flip side of the retry fix: a DONE job is a cached success — re-requesting
     # it must NOT re-run (no re-enqueue) and must preserve the stored result.
