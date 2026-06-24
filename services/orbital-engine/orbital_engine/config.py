@@ -252,14 +252,22 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("REPORT_LLM_BASE_URL", "report_llm_base_url")
     )
     report_llm_model: str = Field(
-        default="gemini-flash-latest",
+        # Pin a specific model, not the `*-latest` alias: the alias routes to an
+        # overloaded free-tier pool that returns 503 UNAVAILABLE, while a pinned
+        # flash model has capacity. Override via REPORT_LLM_MODEL.
+        default="gemini-2.5-flash",
         validation_alias=AliasChoices("REPORT_LLM_MODEL", "report_llm_model"),
     )
     report_llm_timeout_s: float = Field(
         default=30.0, validation_alias=AliasChoices("REPORT_LLM_TIMEOUT_S", "report_llm_timeout_s")
     )
     report_llm_max_retries: int = Field(
-        default=4, validation_alias=AliasChoices("REPORT_LLM_MAX_RETRIES", "report_llm_max_retries")
+        # The free Gemini tier returns intermittent 503 UNAVAILABLE under load
+        # (only ~1 in 6 calls may succeed during a spike). This is an async job,
+        # so a generous retry budget with capped backoff rides the spike out
+        # instead of failing the report. Override via REPORT_LLM_MAX_RETRIES.
+        default=9,
+        validation_alias=AliasChoices("REPORT_LLM_MAX_RETRIES", "report_llm_max_retries"),
     )
 
     def assert_secure_for_environment(self) -> None:

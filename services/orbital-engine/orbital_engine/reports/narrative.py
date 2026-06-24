@@ -34,6 +34,7 @@ guard rejection is retried ONCE with a stricter instruction. Exhaustion raises
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 from collections.abc import Callable
@@ -67,6 +68,13 @@ _DIGIT_RE = re.compile(r"[0-9]")
 # available slots the day's facts actually warrant.
 _MAX_ANALYSIS_ITEMS = 4
 _MAX_RESPONSE_OPS = 4
+
+# Transient-retry backoff: exponential (base * 2**n) but CAPPED so a large retry
+# budget doesn't blow up to minutes per sleep, plus random jitter so concurrent
+# jobs don't hammer an overloaded free tier in lockstep.
+_BACKOFF_BASE_S = 0.5
+_BACKOFF_CAP_S = 8.0
+_BACKOFF_JITTER_S = 0.75
 
 
 class SectionError(RuntimeError):
@@ -257,7 +265,8 @@ def _generate_with_retries(
             last_exc = exc
             if attempt + 1 >= attempts:
                 break
-            sleep(0.5 * (2**attempt))
+            delay = min(_BACKOFF_BASE_S * (2**attempt), _BACKOFF_CAP_S)
+            sleep(delay + random.uniform(0.0, _BACKOFF_JITTER_S))
     raise SectionError(
         f"report prose failed after {attempts} attempt(s): {type(last_exc).__name__}"
     ) from last_exc
@@ -278,8 +287,9 @@ def write_report_prose(
     Strategy (one generation = one transient-retry loop + one guard check):
 
     * Up to ``settings.report_llm_max_retries`` retries on transient provider
-      errors, exponential backoff (``0.5 * 2**n`` seconds; ``sleep`` injectable
-      so tests pass a no-op).
+      errors (the free Gemini tier's intermittent 503 UNAVAILABLE included),
+      exponential backoff capped at ``_BACKOFF_CAP_S`` with jitter (``sleep``
+      injectable so tests pass a no-op).
     * The produced (still-tokenized) prose is run through the no-numerals guard
       over ALL prose strings. A violation triggers ONE stricter re-generation;
       a second violation raises :class:`SectionError`.
