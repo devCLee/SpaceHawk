@@ -180,6 +180,16 @@ class DailyReportPayload(BaseModel):
             "Chart-only — deliberately NOT carried into the LLM facts (sanitize.py)."
         ),
     )
+    debris_heatmap_grid: list[list[float]] = Field(
+        default_factory=list,
+        description=(
+            "Risk-weighted lon×lat density grid for the §5b 2D 잔해 밀도 히트맵 "
+            "chart only, shape [72][144] (2.5° bins; row=lat 90→-90 top→bottom, "
+            "col=lon -180→180). Mirrors the web binning in DebrisHeatmap2D.tsx. "
+            "Empty list when no debris could be propagated. Chart-only — "
+            "deliberately NOT carried into the LLM facts (sanitize.py)."
+        ),
+    )
 
 
 # --- §6 / §7 LLM prose contract -----------------------------------------------

@@ -81,6 +81,14 @@ def _tiny_png() -> bytes:
     return PNG_SIGNATURE + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
 
 
+def _sample_heatmap_grid() -> list[list[float]]:
+    """A non-empty 72×144 risk-weighted lon×lat grid for the §5b heatmap."""
+    grid = [[0.0] * 144 for _ in range(72)]
+    grid[10][20] = 1.0
+    grid[35][72] = 0.4
+    return grid
+
+
 def _payload() -> DailyReportPayload:
     """A small but representative payload (every section non-empty)."""
     return DailyReportPayload(
@@ -118,6 +126,7 @@ def _payload() -> DailyReportPayload:
         ],
         debris_risk_counts=DebrisRiskCounts(critical=1, high=2, moderate=3, low=4),
         debris_altitudes_km=[412.0, 800.0, 812.0, 824.0, 1420.0],
+        debris_heatmap_grid=_sample_heatmap_grid(),
         high_risk_debris=[
             HighRiskDebrisRow(
                 country_code="PRC",
@@ -364,21 +373,28 @@ def test_build_hwpx_success_embeds_image_and_passes_validation() -> None:
     validate_hwpx(data)  # raises on any defect
 
     # Every image anchor is filled (Fix C): 4 country globes + §5b density +
-    # heatmap. Anchors the web didn't supply get a generated fallback image, so
-    # the count is the full 6 regardless of how many real images were provided.
+    # heatmap. The §5b density AND heatmap are now both engine-rendered; the three
+    # globes the web didn't supply get a generated fallback image, so the count is
+    # the full 6 regardless of how many real images were provided.
     reopened = HwpxDocument.open(io.BytesIO(data))
-    assert len(reopened.list_images()) == 6, "expected 4 globes + density + heatmap (real or fallback)"
+    assert len(reopened.list_images()) == 6, "expected 4 globes + engine density + engine heatmap"
 
 
-def test_build_hwpx_renders_and_injects_density_chart() -> None:
-    # density_chart_fn is invoked with the payload's altitudes, and its PNG output
-    # is what reaches the filler as images.debris_density (engine-rendered).
-    sentinel = _tiny_png()
+def test_build_hwpx_renders_and_injects_density_and_heatmap_charts() -> None:
+    # density_chart_fn / heatmap_chart_fn are invoked with the payload's altitudes
+    # and heatmap grid, and their PNG outputs are what reach the filler as
+    # images.debris_density / images.debris_heatmap (both engine-rendered).
+    density_sentinel = _tiny_png()
+    heatmap_sentinel = _tiny_png()
     captured: dict[str, Any] = {}
 
     def _fake_density(altitudes: Any) -> bytes:
         captured["altitudes"] = list(altitudes)
-        return sentinel
+        return density_sentinel
+
+    def _fake_heatmap(grid: Any) -> bytes:
+        captured["grid"] = [list(row) for row in grid]
+        return heatmap_sentinel
 
     embedded: dict[str, Any] = {}
 
@@ -389,14 +405,17 @@ def test_build_hwpx_renders_and_injects_density_chart() -> None:
         return PK_SIGNATURE + b"stub"
 
     payload = _payload()
-    pipeline = _pipeline(density_chart_fn=_fake_density, fill_fn=_capture_fill)
+    pipeline = _pipeline(
+        density_chart_fn=_fake_density, heatmap_chart_fn=_fake_heatmap, fill_fn=_capture_fill
+    )
     tasks._build_hwpx(payload, _images(), pipeline, pipeline.settings)
 
     assert captured["altitudes"] == payload.debris_altitudes_km
-    # Engine-rendered density reaches the filler; web globe is left untouched.
-    assert embedded["debris_density"] == sentinel
+    assert captured["grid"] == payload.debris_heatmap_grid
+    # Engine-rendered density + heatmap reach the filler; web globe is left untouched.
+    assert embedded["debris_density"] == density_sentinel
+    assert embedded["debris_heatmap"] == heatmap_sentinel
     assert embedded["country_globes"] == _images().country_globes
-    assert embedded["debris_heatmap"] is None
 
 
 def test_engine_density_takes_precedence_over_web_supplied() -> None:
@@ -414,6 +433,23 @@ def test_engine_density_takes_precedence_over_web_supplied() -> None:
     tasks._build_hwpx(_payload(), images, pipeline, pipeline.settings)
 
     assert embedded["debris_density"] == engine_png  # engine wins, not web_density
+
+
+def test_engine_heatmap_takes_precedence_over_web_supplied() -> None:
+    # A web-supplied debris_heatmap is OVERWRITTEN by the engine render.
+    web_heatmap = b"web-supplied-not-used"
+    engine_png = _tiny_png()
+    embedded: dict[str, Any] = {}
+
+    def _capture_fill(_payload: Any, _prose: Any, images: ReportImages) -> bytes:
+        embedded["debris_heatmap"] = images.debris_heatmap
+        return PK_SIGNATURE + b"stub"
+
+    images = ReportImages(country_globes={"NK": _tiny_png()}, debris_heatmap=web_heatmap)
+    pipeline = _pipeline(heatmap_chart_fn=lambda _g: engine_png, fill_fn=_capture_fill)
+    tasks._build_hwpx(_payload(), images, pipeline, pipeline.settings)
+
+    assert embedded["debris_heatmap"] == engine_png  # engine wins, not web_heatmap
 
 
 def test_build_hwpx_stage_failure_propagates() -> None:

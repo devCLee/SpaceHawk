@@ -114,6 +114,9 @@ def _debris_row(object_id: str, name: str, **over: Any) -> dict[str, Any]:
         "apoapsis_km": 850.0,  # primary LEO debris peak -> high density factor
         "periapsis_km": 850.0,
         "period_min": 102.0,
+        # Real TLE lines so the §5b heatmap can propagate the row to a sub-point.
+        "tle_line1": ISS_L1,
+        "tle_line2": ISS_L2,
     }
     row.update(over)
     return row
@@ -257,6 +260,14 @@ async def test_debris_risk_counts_and_high_risk_table() -> None:
     # counts) — the two scorable rows at 850 km, and NOT the un-scorable one.
     assert payload.debris_altitudes_km == [850.0, 850.0]
 
+    # §5b heatmap grid: shape [72][144], populated from the propagated scored rows
+    # (the two with TLE lines + apsides bin to a positive cell; the un-scorable
+    # row is excluded just like the counts).
+    grid = payload.debris_heatmap_grid
+    assert len(grid) == 72 and all(len(row) == 144 for row in grid)
+    total_weight = sum(v for row in grid for v in row)
+    assert total_weight > 0.0  # both scorable rows binned somewhere
+
 
 # --- Empty day --------------------------------------------------------------
 
@@ -278,6 +289,8 @@ async def test_empty_day_yields_valid_empty_payload() -> None:
     assert payload.debris_risk_counts.low == 0
     assert payload.high_risk_debris == []
     assert payload.debris_altitudes_km == []
+    # No debris → empty heatmap grid (renderer shows a placeholder).
+    assert payload.debris_heatmap_grid == []
 
 
 # --- Owner-name / regime branches -------------------------------------------

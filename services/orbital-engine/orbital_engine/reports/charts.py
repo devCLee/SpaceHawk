@@ -1,11 +1,11 @@
 """Engine-side chart rendering for the daily HWPX report (§5b).
 
-A single, focused renderer: :func:`render_debris_density` turns the §5 scored
-debris set's mean shell altitudes into the **고도별 잔해 밀도** bar chart embedded
-at the §5b left anchor. The companion 2D 잔해 밀도 히트맵 stays web-supplied; this
-module renders only the by-altitude density bars so the engine output stays
-consistent with ``debris_risk_counts`` (it bins the SAME altitude set the
-assembler scored).
+Two §5b renderers, both engine-side so the charts always appear regardless of the
+web UI: :func:`render_debris_density` turns the §5 scored debris set's mean shell
+altitudes into the **고도별 잔해 밀도** bar chart, and :func:`render_debris_heatmap`
+turns the assembler's risk-weighted lon×lat grid into the **2D 잔해 밀도 히트맵**.
+Both bin the SAME scored debris set the assembler counts in ``debris_risk_counts``,
+so the engine output stays internally consistent.
 
 Headless by construction: the Agg backend is selected *before* pyplot is
 imported, so this works on a worker with no display. Korean labels render with an
@@ -23,9 +23,11 @@ import matplotlib
 matplotlib.use("Agg")  # headless: must precede pyplot import
 
 import io  # noqa: E402 - after the backend is fixed
+import math  # noqa: E402 - after the backend is fixed
 
 import matplotlib.pyplot as plt  # noqa: E402 - after the backend is fixed
 from matplotlib import font_manager  # noqa: E402 - after the backend is fixed
+from matplotlib.colors import LinearSegmentedColormap  # noqa: E402 - after the backend is fixed
 
 # --- Altitude binning ---------------------------------------------------------
 # LEO (0–2000 km) is the debris-dense regime, so it gets fine 200 km bins; the
@@ -57,6 +59,35 @@ _EMPTY_EN = "No debris data"
 # Default label for the missing-image fallback graphic (이미지 없음 = "no image").
 _FALLBACK_LABEL_KO = "이미지 없음"
 _FALLBACK_LABEL_EN = "No image"
+
+# --- §5b 2D 잔해 밀도 히트맵 --------------------------------------------------
+# Heat ramp stops, blue→cyan→green→yellow→orange→red, mirroring the web's
+# HEAT_STOPS in DebrisHeatmap2D.tsx (positions + RGB). A LinearSegmentedColormap
+# built from these gives the same visual ramp under matplotlib's imshow.
+_HEAT_STOPS: tuple[tuple[float, tuple[float, float, float]], ...] = (
+    (0.0, (30 / 255, 60 / 255, 160 / 255)),
+    (0.25, (0 / 255, 200 / 255, 220 / 255)),
+    (0.5, (40 / 255, 210 / 255, 90 / 255)),
+    (0.7, (240 / 255, 220 / 255, 60 / 255)),
+    (0.85, (245 / 255, 150 / 255, 40 / 255)),
+    (1.0, (239 / 255, 68 / 255, 68 / 255)),
+)
+_HEAT_CMAP = LinearSegmentedColormap.from_list("debris_heat", _HEAT_STOPS)
+
+# Lon×lat grid shape (must match the assembler's _bin_heatmap: [GRID_H][GRID_W]).
+_HEATMAP_GRID_W = 144
+_HEATMAP_GRID_H = 72
+_HEATMAP_LON_TICKS = (-180, -90, 0, 90, 180)
+_HEATMAP_LAT_TICKS = (90, 45, 0, -45, -90)
+
+_HEATMAP_TITLE_KO = "2D 잔해 밀도 히트맵"
+_HEATMAP_X_LABEL_KO = "경도 (°)"
+_HEATMAP_Y_LABEL_KO = "위도 (°)"
+_HEATMAP_EMPTY_KO = "잔해 위치 데이터 없음"
+_HEATMAP_TITLE_EN = "2D debris density heatmap"
+_HEATMAP_X_LABEL_EN = "Longitude (°)"
+_HEATMAP_Y_LABEL_EN = "Latitude (°)"
+_HEATMAP_EMPTY_EN = "No debris position data"
 
 
 def _cjk_font() -> str | None:
@@ -132,6 +163,68 @@ def render_debris_density(altitudes_km: Sequence[float]) -> bytes:
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
         ax.margins(x=0.01)
+        return _figure_to_png(fig)
+
+
+def _heatmap_is_empty(grid: Sequence[Sequence[float]]) -> bool:
+    """True when ``grid`` is missing, mis-shaped, or all non-positive (placeholder)."""
+    if not grid:
+        return True
+    return all(v <= 0.0 for row in grid for v in row)
+
+
+def render_debris_heatmap(grid: Sequence[Sequence[float]]) -> bytes:
+    """Render the §5b 2D 잔해 밀도 히트맵 as PNG bytes.
+
+    ``grid`` is the risk-weighted lon×lat density grid from the assembler
+    (``[GRID_H][GRID_W]`` = 72×144, lat 90→-90 top→bottom, lon -180→180), mirroring
+    ``DebrisHeatmap2D.tsx``. Drawn equirectangular via ``imshow`` with the blue→red
+    heat ramp colormap and sqrt-scaled intensity (``t = sqrt(value / max)``) so low
+    densities lift, exactly like the web. Lon/lat axis ticks + Korean titles (CJK
+    font autodetect, ASCII fallback). An empty / all-zero / mis-shaped grid yields a
+    labeled placeholder PNG. The figure is always closed (no figure-leak).
+    """
+    font = _cjk_font()
+    ko = font is not None
+    title = _HEATMAP_TITLE_KO if ko else _HEATMAP_TITLE_EN
+    x_label = _HEATMAP_X_LABEL_KO if ko else _HEATMAP_X_LABEL_EN
+    y_label = _HEATMAP_Y_LABEL_KO if ko else _HEATMAP_Y_LABEL_EN
+    empty_label = _HEATMAP_EMPTY_KO if ko else _HEATMAP_EMPTY_EN
+
+    rc: dict[str, object] = {"axes.unicode_minus": False}
+    if font is not None:
+        rc["font.family"] = font
+
+    with plt.rc_context(rc):
+        fig, ax = plt.subplots(figsize=(8.0, 4.0))
+
+        if _heatmap_is_empty(grid):
+            ax.text(0.5, 0.5, empty_label, ha="center", va="center", fontsize=14, transform=ax.transAxes)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(title)
+            return _figure_to_png(fig)
+
+        peak = max(v for row in grid for v in row)
+        # sqrt intensity (t = sqrt(value / max)), matching the web's lift of low density.
+        scaled = [[math.sqrt(v / peak) if v > 0.0 else 0.0 for v in row] for row in grid]
+
+        ax.set_facecolor("#0a0f1a")
+        ax.imshow(
+            scaled,
+            cmap=_HEAT_CMAP,
+            origin="upper",  # row 0 = lat +90 (top), matching the grid orientation
+            extent=(-180.0, 180.0, -90.0, 90.0),
+            aspect="auto",
+            vmin=0.0,
+            vmax=1.0,
+            interpolation="bilinear",
+        )
+        ax.set_xticks(list(_HEATMAP_LON_TICKS))
+        ax.set_yticks(list(_HEATMAP_LAT_TICKS))
+        ax.set_title(title)
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
         return _figure_to_png(fig)
 
 

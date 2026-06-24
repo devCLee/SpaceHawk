@@ -45,7 +45,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.db import get_engine
 from orbital_engine.reports.assembler import assemble_daily
-from orbital_engine.reports.charts import render_debris_density
+from orbital_engine.reports.charts import render_debris_density, render_debris_heatmap
 from orbital_engine.reports.hwpx_filler import fill_daily_report
 from orbital_engine.reports.models import (
     ReportJob,
@@ -115,6 +115,7 @@ class ReportPipeline:
     fill_fn: Callable[..., bytes] = fill_daily_report
     validate_fn: Callable[[bytes], None] = validate_hwpx
     density_chart_fn: Callable[[Sequence[float]], bytes] = render_debris_density
+    heatmap_chart_fn: Callable[[Sequence[Sequence[float]]], bytes] = render_debris_heatmap
     llm_client: Any | None = None
     settings: Settings = field(default_factory=get_settings)
 
@@ -278,19 +279,24 @@ def _build_hwpx(
     pipeline: ReportPipeline,
     settings: Settings,
 ) -> bytes:
-    """Render §5b density chart → sanitize → prose → fill, returning HWPX bytes.
+    """Render §5b charts → sanitize → prose → fill, returning HWPX bytes.
 
     ``images`` is the web-supplied :class:`ReportImages` loaded off the job row.
-    The §5b 고도별 잔해 밀도 chart is rendered ENGINE-SIDE from the payload's scored
-    debris altitudes and overwrites ``images.debris_density`` — the engine render
-    takes precedence over any web-supplied density image so the chart always
-    matches the engine's own ``debris_risk_counts``. The web-supplied
-    ``country_globes`` and ``debris_heatmap`` are left untouched. The (possibly
-    refreshed) images are handed to ``fill_fn(payload, prose, images)``; missing
-    images are best-effort and never fail the fill.
+    Both §5b charts are rendered ENGINE-SIDE and overwrite their image slots so they
+    always appear regardless of the web UI: the 고도별 잔해 밀도 bar chart from the
+    payload's scored debris altitudes (``debris_density``) and the 2D 잔해 밀도
+    히트맵 from the payload's risk-weighted lon×lat grid (``debris_heatmap``). The
+    engine render takes precedence over any web-supplied density/heatmap so both
+    charts always match the engine's own ``debris_risk_counts``. The web-supplied
+    ``country_globes`` are left untouched. The (possibly refreshed) images are handed
+    to ``fill_fn(payload, prose, images)``; missing images are best-effort and never
+    fail the fill.
     """
     images = images.model_copy(
-        update={"debris_density": pipeline.density_chart_fn(payload.debris_altitudes_km)}
+        update={
+            "debris_density": pipeline.density_chart_fn(payload.debris_altitudes_km),
+            "debris_heatmap": pipeline.heatmap_chart_fn(payload.debris_heatmap_grid),
+        }
     )
     sanitize_result = pipeline.sanitize_fn(payload)
     prose = pipeline.prose_fn(sanitize_result, client=pipeline.llm_client, settings=settings)

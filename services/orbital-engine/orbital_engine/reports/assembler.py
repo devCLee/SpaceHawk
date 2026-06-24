@@ -29,6 +29,8 @@ from sqlalchemy import text
 
 from orbital_engine.config import Settings
 from orbital_engine.debris_risk import circular_speed_km_s, risk_level, risk_score
+from orbital_engine.propagation.coordinates import ecef_to_geodetic, teme_to_ecef
+from orbital_engine.propagation.sgp4_service import propagate_tle
 from orbital_engine.reports.passes import KARI, predict_passes
 from orbital_engine.reports.schemas import (
     ConjunctionRow,
@@ -56,6 +58,28 @@ _PASS_MIN_ELEVATION_DEG = 10.0
 
 # Cap the §5c high-risk debris table so a debris-heavy day stays tabular.
 _HIGH_RISK_DEBRIS_LIMIT = 25
+
+# --- §5b 2D 잔해 밀도 히트맵 grid ---------------------------------------------
+# A longitude×latitude density grid, mirroring apps/web/src/app/Components/
+# DebrisHeatmap2D.tsx: GRID_W=144 lon bins, GRID_H=72 lat bins (2.5°). Stored
+# [row=lat][col=lon] (lat 90→-90 top→bottom, lon -180→180), matching imshow's
+# natural orientation. Each tracked debris is propagated to its sub-point at the
+# report instant and binned risk-weighted (no 3×3 smoothing — a plain weighted
+# bin; the engine renderer's sqrt scaling + interpolation gives a comparable look).
+_HEATMAP_GRID_W = 144
+_HEATMAP_GRID_H = 72
+# Risk-level intensity weight (verbatim from debrisRisk.ts RISK_WEIGHT). Bins use
+# the SAME risk_level the §5a counts use, so the heatmap agrees with the counts.
+_HEATMAP_RISK_WEIGHT: dict[str, float] = {
+    "Critical": 1.0,
+    "High": 0.7,
+    "Medium": 0.4,
+    "Low": 0.2,
+}
+# Bound the propagation work on a debris-heavy day (one SGP4 call per object). The
+# scored debris set is taken in catalog order; the cap keeps the worst case
+# predictable while still covering a representative sample.
+_HEATMAP_DEBRIS_CAP = 5000
 
 # Map each ReportCountry (NK/CN/RU/JP) -> the Space-Track owner code(s) that
 # appear in the catalog's ``country_code`` column. Codes taken verbatim from
@@ -316,11 +340,16 @@ async def _conjunctions(conn: _Conn, start: datetime, end: datetime) -> list[Con
 
 
 async def _debris(conn: _Conn) -> list[dict[str, Any]]:
-    """§5 — live DEBRIS-class catalog rows with the fields the risk model needs."""
+    """§5 — live DEBRIS-class catalog rows with the fields the risk model needs.
+
+    Carries the TLE lines too so the §5b 2D 잔해 밀도 히트맵 can propagate each
+    fragment to its sub-point at the report instant (rows without elements bin
+    nothing and are simply skipped by the heatmap, as in the web).
+    """
     return await _rows(
         conn,
         "SELECT object_id, object_name, country_code, rcs_size, "
-        "       apoapsis_km, periapsis_km, period_min "
+        "       apoapsis_km, periapsis_km, period_min, tle_line1, tle_line2 "
         "FROM space_object WHERE decay_date IS NULL AND object_type::text = 'DEBRIS'",
     )
 
@@ -339,18 +368,70 @@ def _debris_level(row: dict[str, Any]) -> str | None:
     return risk_level(score)
 
 
+def _empty_heatmap_grid() -> list[list[float]]:
+    """A zeroed [GRID_H][GRID_W] heatmap grid (lat rows × lon cols)."""
+    return [[0.0] * _HEATMAP_GRID_W for _ in range(_HEATMAP_GRID_H)]
+
+
+def _subpoint_lon_lat(row: dict[str, Any], when: datetime) -> tuple[float, float] | None:
+    """Propagate one debris row's TLE to its (lon, lat) sub-point at ``when``, or None.
+
+    Mirrors passes.py's TEME→ECEF→geodetic chain (propagate_tle → teme_to_ecef →
+    ecef_to_geodetic). None when TLE lines are missing or SGP4 reports an error.
+    """
+    line1, line2 = row.get("tle_line1"), row.get("tle_line2")
+    if not line1 or not line2:
+        return None
+    state = propagate_tle(line1, line2, when)
+    if state is None:
+        return None
+    ecef = teme_to_ecef(tuple(state["teme_position_km"]), state["gmst_rad"])
+    lat, lon, _alt = ecef_to_geodetic(ecef)
+    return lon, lat
+
+
+def _bin_heatmap(
+    scored_rows: list[tuple[str, dict[str, Any]]], when: datetime
+) -> list[list[float]]:
+    """Risk-weighted lon×lat density grid for the §5b 히트맵 (web binning, no smoothing).
+
+    Each scored debris row (capped at ``_HEATMAP_DEBRIS_CAP``) is propagated to its
+    sub-point at ``when`` and added at weight ``_HEATMAP_RISK_WEIGHT[level]`` into
+    the cell ``gx=floor(((lon+180)/360)*W)``, ``gy=floor(((90-lat)/180)*H)``
+    (clamped to bounds), exactly as DebrisHeatmap2D.tsx bins. No 3×3 smoothing —
+    a plain weighted bin (the renderer's sqrt scaling + imshow interpolation gives
+    a comparable look). Returns ``[]`` when nothing propagates so the payload field
+    stays empty (the renderer shows a placeholder), per the schema contract.
+    """
+    grid = _empty_heatmap_grid()
+    binned = 0
+    for level, row in scored_rows[:_HEATMAP_DEBRIS_CAP]:
+        lon_lat = _subpoint_lon_lat(row, when)
+        if lon_lat is None:
+            continue
+        lon, lat = lon_lat
+        gx = min(_HEATMAP_GRID_W - 1, max(0, int(((lon + 180.0) / 360.0) * _HEATMAP_GRID_W)))
+        gy = min(_HEATMAP_GRID_H - 1, max(0, int(((90.0 - lat) / 180.0) * _HEATMAP_GRID_H)))
+        grid[gy][gx] += _HEATMAP_RISK_WEIGHT.get(level, 0.2)
+        binned += 1
+    return grid if binned else []
+
+
 async def _debris_risk(
-    conn: _Conn,
-) -> tuple[DebrisRiskCounts, list[HighRiskDebrisRow], list[float]]:
-    """§5a counts + §5c high-risk table + §5b altitude set from the live debris catalog.
+    conn: _Conn, heatmap_instant: datetime
+) -> tuple[DebrisRiskCounts, list[HighRiskDebrisRow], list[float], list[list[float]]]:
+    """§5a counts + §5c high-risk table + §5b altitude set + §5b heatmap grid.
 
     The third return value is the mean shell altitude of every *scored* debris row
-    (those with a derivable altitude), feeding the §5b 고도별 잔해 밀도 chart. It is
-    the SAME selection counted in ``DebrisRiskCounts`` so the chart and counts agree.
+    (those with a derivable altitude), feeding the §5b 고도별 잔해 밀도 chart. The
+    fourth is the risk-weighted lon×lat density grid for the §5b 2D 잔해 밀도 히트맵,
+    propagating the scored debris to ``heatmap_instant``. Both are the SAME debris
+    selection counted in ``DebrisRiskCounts`` so the charts and counts agree.
     """
     rows = await _debris(conn)
     counts = {"critical": 0, "high": 0, "moderate": 0, "low": 0}
     scored: list[tuple[str, dict[str, Any]]] = []
+    heatmap_rows: list[tuple[str, dict[str, Any]]] = []
     altitudes: list[float] = []
     field_for = {"Critical": "critical", "High": "high", "Medium": "moderate", "Low": "low"}
     for row in rows:
@@ -361,6 +442,7 @@ async def _debris_risk(
         mean_alt = _mean_altitude_km(row.get("apoapsis_km"), row.get("periapsis_km"))
         if mean_alt is not None:
             altitudes.append(mean_alt)
+        heatmap_rows.append((level, row))
         if level in _HIGH_RISK_LEVELS:
             scored.append((level, row))
 
@@ -380,6 +462,7 @@ async def _debris_risk(
         )
         for level, row in scored[:_HIGH_RISK_DEBRIS_LIMIT]
     ]
+    heatmap_grid = _bin_heatmap(heatmap_rows, heatmap_instant)
     return (
         DebrisRiskCounts(
             critical=counts["critical"],
@@ -389,6 +472,7 @@ async def _debris_risk(
         ),
         high_risk,
         altitudes,
+        heatmap_grid,
     )
 
 
@@ -417,7 +501,11 @@ async def assemble_daily(
     watchlist_matrix, watchlist_total = await _watchlist(conn)
     country_activity = await _country_activity(conn, start, end)
     conjunctions = await _conjunctions(conn, start, end)
-    debris_risk_counts, high_risk_debris, debris_altitudes = await _debris_risk(conn)
+    # Heatmap sub-points are taken at the report-day instant (00:00Z), matching the
+    # §2/§3 pass window's start so all §5 spatial views share one instant.
+    debris_risk_counts, high_risk_debris, debris_altitudes, debris_heatmap_grid = (
+        await _debris_risk(conn, start)
+    )
 
     return DailyReportPayload(
         report_date=report_date,
@@ -428,4 +516,5 @@ async def assemble_daily(
         debris_risk_counts=debris_risk_counts,
         high_risk_debris=high_risk_debris,
         debris_altitudes_km=debris_altitudes,
+        debris_heatmap_grid=debris_heatmap_grid,
     )
