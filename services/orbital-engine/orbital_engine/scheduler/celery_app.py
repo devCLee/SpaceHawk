@@ -29,8 +29,14 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
-    # Tasks live in the sibling module; import so they register on worker boot.
-    imports=("orbital_engine.scheduler.tasks",),
+    # Import task modules so they register on worker boot. `scheduler.tasks` holds
+    # the periodic ingest tasks; `reports.tasks` holds `run_report_job` (the async
+    # HWPX report pipeline) — without it the worker would NotRegister that task and
+    # report jobs would sit PENDING forever after the API enqueues them.
+    imports=(
+        "orbital_engine.scheduler.tasks",
+        "orbital_engine.reports.tasks",
+    ),
 )
 
 # Per-source cadence: authoritative Space-Track hourly, redundant Celestrak more

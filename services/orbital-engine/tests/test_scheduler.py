@@ -34,3 +34,13 @@ def test_tasks_are_registered() -> None:
     assert "orbital_engine.scheduler.tasks.ingest_source" in celery_app.tasks
     assert "orbital_engine.scheduler.tasks.ingest_all" in celery_app.tasks
     assert "orbital_engine.scheduler.tasks.enrich_discos" in celery_app.tasks
+
+
+def test_report_job_task_registered_on_worker() -> None:
+    # The worker boots from `celery_app.conf.imports` ONLY (it never imports the
+    # API router), so reports.tasks must be listed there or run_report_job is
+    # NotRegistered and report jobs hang PENDING forever.
+    assert "orbital_engine.reports.tasks" in celery_app.conf.imports
+    import orbital_engine.reports.tasks  # noqa: F401
+
+    assert "orbital_engine.reports.tasks.run_report_job" in celery_app.tasks
