@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import io
 import struct
+import zipfile
 import zlib
 from datetime import UTC, date, datetime
 
@@ -584,3 +585,19 @@ def test_default_template_embeds_jpeg_globe(payload, prose) -> None:
     doc = _reopen(out)
     assert doc.validate().ok
     assert len(doc.list_images()) >= 1
+
+
+def test_embedded_images_registered_in_manifest(payload, prose, images) -> None:
+    # python-hwpx omits BinData/* from META-INF/manifest.xml; without those
+    # file-entries Hancom renders every embedded image as a broken-image icon.
+    # Assert every embedded binary is now declared with a media-type.
+    out = fill_daily_report(payload, prose, images)
+    z = zipfile.ZipFile(io.BytesIO(out))
+    bindata = [n for n in z.namelist() if n.startswith("BinData/")]
+    assert bindata, "expected embedded images"
+    manifest = z.read("META-INF/manifest.xml").decode("utf-8")
+    for name in bindata:
+        assert name in manifest, f"{name} not registered in manifest.xml"
+    assert "media-type" in manifest and ("image/png" in manifest or "image/jpeg" in manifest)
+    # still a valid, re-openable HWPX after the manifest patch
+    assert _reopen(out).validate().ok
