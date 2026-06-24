@@ -299,6 +299,25 @@ async def test_create_report_job_is_idempotent() -> None:
     assert job1.status is ReportStatus.PENDING
 
 
+async def test_create_report_job_stores_owner_username() -> None:
+    conn = _FakeConn()
+    job = await tasks.create_report_job(
+        "daily", date(2026, 6, 22), None, conn, owner_username="analyst1", enqueue=lambda _jid: None
+    )
+    # Persisted on the row and projected onto the loaded job.
+    assert conn.by_key[job.idempotency_key]["owner_username"] == "analyst1"
+    assert job.owner_username == "analyst1"
+
+
+async def test_create_report_job_without_owner_stores_null() -> None:
+    conn = _FakeConn()
+    job = await tasks.create_report_job(
+        "daily", date(2026, 6, 22), None, conn, enqueue=lambda _jid: None
+    )
+    assert conn.by_key[job.idempotency_key]["owner_username"] is None
+    assert job.owner_username is None
+
+
 async def test_create_report_job_distinct_inputs_create_distinct_jobs() -> None:
     conn = _FakeConn()
     enqueued: list[str] = []
@@ -459,6 +478,73 @@ def test_build_hwpx_stage_failure_propagates() -> None:
     pipeline = tasks.ReportPipeline(prose_fn=_boom)
     with pytest.raises(SectionError):
         tasks._build_hwpx(_payload(), _images(), pipeline, pipeline.settings)
+
+
+# --------------------------------------------------------------------------- #
+# _run passes the job's owner_username through to assemble_fn (no infra)
+# --------------------------------------------------------------------------- #
+
+
+class _FakeEngineConn:
+    """A no-op connection: ``_run`` only uses it for status writes + assemble."""
+
+    async def execute(self, *_: Any, **__: Any) -> Any:
+        return None
+
+
+class _FakeEngineCtx:
+    async def __aenter__(self) -> _FakeEngineConn:
+        return _FakeEngineConn()
+
+    async def __aexit__(self, *_: Any) -> bool:
+        return False
+
+
+class _FakeEngine:
+    def begin(self) -> _FakeEngineCtx:
+        return _FakeEngineCtx()
+
+    def connect(self) -> _FakeEngineCtx:
+        return _FakeEngineCtx()
+
+
+async def test_run_passes_owner_username_to_assemble(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    job = ReportJob(
+        id="rpt-owner",
+        idempotency_key="key-owner",
+        report_type="daily",
+        report_date=date(2026, 6, 22),
+        status=ReportStatus.PENDING,
+        owner_username="analyst1",
+    )
+
+    async def fake_load(_conn: Any, _job_id: str) -> ReportJob:
+        return job
+
+    async def fake_set_status(*_: Any, **__: Any) -> None:
+        return None
+
+    async def fake_assemble(report_date: Any, _conn: Any, *, settings: Any, owner_username: Any) -> Any:
+        captured["owner_username"] = owner_username
+        return _payload()
+
+    monkeypatch.setattr(tasks, "get_engine", lambda: _FakeEngine())
+    monkeypatch.setattr(tasks, "_load_job", fake_load)
+    monkeypatch.setattr(tasks, "_set_status", fake_set_status)
+
+    pipeline = tasks.ReportPipeline(
+        assemble_fn=fake_assemble,
+        prose_fn=write_report_prose,
+        llm_client=_FakeLLMClient(),
+        fill_fn=lambda *_a, **_k: PK_SIGNATURE + b"stub",
+        validate_fn=lambda _b: None,
+    )
+
+    result = await tasks._run("rpt-owner", pipeline=pipeline)
+    assert result is ReportStatus.DONE
+    assert captured["owner_username"] == "analyst1"
 
 
 # --------------------------------------------------------------------------- #

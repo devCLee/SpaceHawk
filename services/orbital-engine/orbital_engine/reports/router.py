@@ -144,12 +144,17 @@ async def _load_job(job_id: str) -> ReportJob | None:
 )
 async def create_report(
     body: CreateReportRequest,
-    _subject: Subject = Depends(requires(DataDomain.REPORTS, Action.QUERY)),
+    subject: Subject = Depends(requires(DataDomain.REPORTS, Action.QUERY)),
 ) -> CreateReportResponse:
     images = _build_images(body.images)
     async with get_engine().begin() as conn:
         job = await create_report_job(
-            body.report_type, body.report_date, body.filters, conn, images=images
+            body.report_type,
+            body.report_date,
+            body.filters,
+            conn,
+            images=images,
+            owner_username=subject.username,
         )
     return CreateReportResponse(job_id=job.id, status=job.status)
 

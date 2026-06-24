@@ -51,9 +51,11 @@ class _FakeResult:
 class _FakeConn:
     """Dispatches each query (by SQL substring) to a seeded row set.
 
-    ``tables`` keys: ``watchlist`` (all live catalog rows), ``country`` (owner_code
-    -> object rows, returned for that country's ANY(:codes)), ``conjunctions``,
-    and ``debris``. The country query is filtered by the bound ``codes`` param,
+    ``tables`` keys: ``watchlist_ids`` (the owner's watchlisted object_ids, from the
+    ``watchlist_item`` query), ``watchlist`` (the catalog rows §1 counts, returned
+    for the ``object_id = ANY(:oids)`` query), ``country`` (owner_code -> object
+    rows, returned for that country's ANY(:codes)), ``conjunctions``, and
+    ``debris``. The country query is filtered by the bound ``codes`` param,
     matching the real ``country_code = ANY(:codes)`` SQL.
     """
 
@@ -65,6 +67,9 @@ class _FakeConn:
         sql = str(statement)
         self.calls.append(sql)
         params = parameters or {}
+        if "FROM watchlist_item" in sql:
+            ids = self.tables.get("watchlist_ids", [])
+            return _FakeResult([{"object_id": oid} for oid in ids])
         if "country_code = ANY(:codes)" in sql:
             by_code: dict[str, list[dict[str, Any]]] = self.tables.get("country", {})
             rows: list[dict[str, Any]] = []
@@ -75,6 +80,8 @@ class _FakeConn:
             return _FakeResult(self.tables.get("conjunctions", []))
         if "object_type::text = 'DEBRIS'" in sql:
             return _FakeResult(self.tables.get("debris", []))
+        if "object_id = ANY(:oids)" in sql:
+            return _FakeResult(self.tables.get("watchlist", []))
         if "FROM space_object WHERE decay_date IS NULL" in sql:
             return _FakeResult(self.tables.get("watchlist", []))
         raise AssertionError(f"unexpected query: {sql}")
@@ -133,8 +140,9 @@ async def test_watchlist_matrix_groups_by_country_and_regime() -> None:
         _wl_row("CIS", eccentricity=0.7, apoapsis_km=39000.0, periapsis_km=600.0),  # HEO
         _wl_row(None, apoapsis_km=None, periapsis_km=None, period_min=None),  # undeterminable
     ]
-    conn = _FakeConn({"watchlist": watchlist})
-    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
+    # The owner watches 5 objects; the catalog rows for those ids are the matrix.
+    conn = _FakeConn({"watchlist_ids": [f"id-{i}" for i in range(5)], "watchlist": watchlist})
+    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings(), owner_username="analyst1")
 
     by_code = {r.country_code: r for r in payload.watchlist_matrix}
     assert by_code["PRC"].leo == 1 and by_code["PRC"].meo == 1 and by_code["PRC"].total == 2
@@ -149,7 +157,51 @@ async def test_watchlist_matrix_groups_by_country_and_regime() -> None:
     total = payload.watchlist_total
     assert total is not None and total.country_code == "TOTAL"
     assert total.leo == 1 and total.meo == 1 and total.geo == 1 and total.heo == 1
-    assert total.total == 5  # every object counted, incl. the undeterminable one
+    assert total.total == 5  # every watchlisted object counted, incl. the undeterminable one
+
+
+async def test_watchlist_filtered_to_owner_object_ids() -> None:
+    # §1 counts ONLY the catalog rows the user watches. The assembler intersects
+    # the user's watchlist ids against the catalog via object_id = ANY(:oids); the
+    # bound ids are exactly the watchlist_ids and the seeded catalog rows are what
+    # get counted (here: 2 PRC objects -> total 2).
+    conn = _FakeConn(
+        {
+            "watchlist_ids": ["SH:CAT:1", "SH:CAT:2"],
+            "watchlist": [_wl_row("PRC"), _wl_row("PRC")],
+        }
+    )
+    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings(), owner_username="analyst1")
+
+    # The §1 query was bound with the owner's watchlist ids (not the whole catalog).
+    oid_call = next(c for c in conn.calls if "object_id = ANY(:oids)" in c)
+    assert oid_call  # the filtered query ran
+    assert payload.watchlist_total is not None and payload.watchlist_total.total == 2
+    by_code = {r.country_code: r for r in payload.watchlist_matrix}
+    assert by_code["PRC"].total == 2
+
+
+async def test_watchlist_empty_for_owner_with_empty_list() -> None:
+    # Owner present but watches nothing -> empty matrix + zero TOTAL (the filler
+    # renders the empty-watchlist message). The catalog is never even queried for §1.
+    conn = _FakeConn({"watchlist_ids": [], "watchlist": [_wl_row("PRC"), _wl_row("CIS")]})
+    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings(), owner_username="analyst1")
+
+    assert payload.watchlist_matrix == []
+    assert payload.watchlist_total is not None and payload.watchlist_total.total == 0
+    # No §1 catalog query was issued (the empty list short-circuits).
+    assert not any("object_id = ANY(:oids)" in c for c in conn.calls)
+
+
+async def test_watchlist_empty_when_no_owner() -> None:
+    # No owner_username (e.g. an old job row) -> §1 empty, no watchlist lookup.
+    conn = _FakeConn({"watchlist_ids": ["SH:CAT:1"], "watchlist": [_wl_row("PRC")]})
+    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
+
+    assert payload.watchlist_matrix == []
+    assert payload.watchlist_total is not None and payload.watchlist_total.total == 0
+    assert not any("FROM watchlist_item" in c for c in conn.calls)
+    assert not any("object_id = ANY(:oids)" in c for c in conn.calls)
 
 
 # --- §2/§3 country activity (passes) ----------------------------------------
@@ -315,8 +367,8 @@ async def test_regime_classification(
     expected: str | None,
 ) -> None:
     row_in = _wl_row("PRC", apoapsis_km=apo, periapsis_km=peri, period_min=period, eccentricity=ecc)
-    conn = _FakeConn({"watchlist": [row_in]})
-    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
+    conn = _FakeConn({"watchlist_ids": ["id-1"], "watchlist": [row_in]})
+    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings(), owner_username="analyst1")
     row = payload.watchlist_matrix[0]
     # Exactly the expected regime column is incremented (or none for None).
     cols = {"LEO": row.leo, "MEO": row.meo, "GEO": row.geo, "HEO": row.heo}
@@ -327,8 +379,8 @@ async def test_regime_classification(
 
 
 async def test_unmapped_owner_code_passes_through_without_name() -> None:
-    conn = _FakeConn({"watchlist": [_wl_row("XYZ")]})
-    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings())
+    conn = _FakeConn({"watchlist_ids": ["id-1"], "watchlist": [_wl_row("XYZ")]})
+    payload = await assemble_daily(REPORT_DATE, conn, settings=Settings(), owner_username="analyst1")
     row = payload.watchlist_matrix[0]
     assert row.country_code == "XYZ" and row.country_name is None
 
@@ -383,20 +435,30 @@ _RT_OBJ = SpaceObject.model_validate(
 async def test_assemble_daily_round_trip(infra_up: bool) -> None:
     # Proves every query in assemble_daily runs against the REAL migrated schema
     # (column-name / ANY(:codes) bugs the fake conn cannot catch) and yields a
-    # valid, internally-consistent payload.
+    # valid, internally-consistent payload. §1 is owner-scoped: the seeded object
+    # is added to a test user's watchlist so the filtered §1 counts exactly it.
     from orbital_engine.repository import upsert_objects
+    from orbital_engine.watchlist import add_watchlist, remove_watchlist
 
+    owner = "pytest-assembler-owner"
+    seeded_oid = _RT_OBJ.object_id
     await upsert_objects([_RT_OBJ])
+    async with db.get_engine().begin() as conn:
+        await add_watchlist(conn, owner, seeded_oid)
+
     async with db.get_engine().connect() as conn:
-        payload = await assemble_daily(PASS_DATE, conn, settings=Settings())
+        payload = await assemble_daily(PASS_DATE, conn, settings=Settings(), owner_username=owner)
 
     assert isinstance(payload, DailyReportPayload)
     assert payload.report_date == PASS_DATE
-    # The catalog has at least the seeded PRC object => non-empty watchlist.
-    assert payload.watchlist_total is not None and payload.watchlist_total.total >= 1
+    # §1 is scoped to the owner's watchlist (the one seeded object), not the catalog.
+    assert payload.watchlist_total is not None and payload.watchlist_total.total == 1
     assert len(payload.country_activity) == len(ReportCountry)
     # Risk counts are internally consistent (non-negative ints).
     c = payload.debris_risk_counts
     assert min(c.critical, c.high, c.moderate, c.low) >= 0
+
+    async with db.get_engine().begin() as conn:
+        await remove_watchlist(conn, owner, seeded_oid)
     await db.dispose()
     await state.close()

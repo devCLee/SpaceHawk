@@ -43,6 +43,12 @@ _MIN_ROLE: dict[tuple[DataDomain, Action], Role] = {
     (DataDomain.REPORTS, Action.READ): Role.ANALYST,
     (DataDomain.REPORTS, Action.QUERY): Role.ANALYST,
     (DataDomain.REPORTS, Action.EXPORT): Role.ANALYST,
+    # A user's own 관심 목록 is a personal preference list, not classified data:
+    # any authenticated user (VIEWER floor) may read AND mutate their OWN list.
+    # ACKNOWLEDGE is reused as the write action (no new verb); the router scopes
+    # every query to subject.username so a user can only touch their own rows.
+    (DataDomain.WATCHLIST, Action.READ): Role.VIEWER,
+    (DataDomain.WATCHLIST, Action.ACKNOWLEDGE): Role.VIEWER,
     (DataDomain.AUDIT, Action.READ): Role.ADMIN,
     (DataDomain.AUDIT, Action.QUERY): Role.ADMIN,
     (DataDomain.ADMIN, Action.ADMINISTER): Role.ADMIN,

@@ -9,7 +9,16 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from orbital_engine.api import audit, auth, catalog, conjunctions, debris, health, maneuvers
+from orbital_engine.api import (
+    audit,
+    auth,
+    catalog,
+    conjunctions,
+    debris,
+    health,
+    maneuvers,
+    watchlist,
+)
 from orbital_engine.config import Settings, get_settings
 from orbital_engine.db import dispose
 from orbital_engine.logging import configure_logging, get_logger
@@ -93,6 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(debris.router)
     app.include_router(maneuvers.router)
     app.include_router(reports.router)
+    app.include_router(watchlist.router)
     app.include_router(audit.router)
 
     log.info("app.startup", environment=settings.environment, version=settings.version)

@@ -140,6 +140,7 @@ async def create_report_job(
     conn: _Conn,
     *,
     images: ReportImages | None = None,
+    owner_username: str | None = None,
     enqueue: Callable[[str], Any] | None = None,
 ) -> ReportJob:
     """Idempotently create (or return) the job for this request, enqueuing once.
@@ -156,6 +157,12 @@ async def create_report_job(
     idempotency key (same date = same report); on a repeat create, the supplied
     images REFRESH the stored set so a later/better render wins. A create with no
     images stores NULL and does not clobber an existing set.
+
+    Owner: ``owner_username`` (the requesting user, passed by the router) is stored
+    on the row so the image-less Celery run knows whose 관심 목록 to filter §1 by —
+    the worker has no request user. It is NOT part of the idempotency key (the same
+    day's report is the same job regardless of who asked first); an existing row's
+    owner is left as-is on a repeat create.
 
     ``conn`` is an injected async connection (caller-owned), mirroring
     ``assemble_daily``. The caller is responsible for the surrounding transaction.
@@ -174,6 +181,7 @@ async def create_report_job(
             report_date=report_date,
             filters_json=dict(filters) if filters else None,
             input_images=stored_images,
+            owner_username=owner_username,
             status=ReportStatus.PENDING,
             error_reason=None,
             result=None,
@@ -253,11 +261,14 @@ async def _run(job_id: str, *, pipeline: ReportPipeline | None = None) -> Report
             raise RuntimeError(f"report_job {job_id} not found")
         await _set_status(conn, job_id, ReportStatus.RUNNING)
         report_date = job.report_date
+        owner_username = job.owner_username
         images = deserialize_images(job.input_images)
 
     try:
         async with get_engine().connect() as conn:
-            payload = await pipeline.assemble_fn(report_date, conn, settings=settings)
+            payload = await pipeline.assemble_fn(
+                report_date, conn, settings=settings, owner_username=owner_username
+            )
         data = _build_hwpx(payload, images, pipeline, settings)
         pipeline.validate_fn(data)
     except Exception as exc:  # noqa: BLE001 - any stage failure is a job failure

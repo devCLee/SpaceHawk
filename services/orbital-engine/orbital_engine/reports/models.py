@@ -66,6 +66,9 @@ report_job = Table(
     Column("report_date", Date, nullable=False),
     Column("filters_json", JSONB, nullable=True),
     Column("input_images", JSONB, nullable=True),
+    # The user who generated the report (Celery runs with no request user, so the
+    # owner is recorded on the row); §1 관심목록 is filtered to this user's watchlist.
+    Column("owner_username", String, nullable=True),
     Column("status", _status_type, nullable=False),
     Column("error_reason", String, nullable=True),
     Column("result", LargeBinary, nullable=True),
@@ -138,6 +141,7 @@ class ReportJob:
     status: ReportStatus
     filters_json: dict[str, Any] | None = None
     input_images: dict[str, Any] | None = None
+    owner_username: str | None = None
     error_reason: str | None = None
     result: bytes | None = None
     created_at: datetime | None = None
@@ -154,6 +158,7 @@ class ReportJob:
             status=ReportStatus(row["status"]),
             filters_json=row.get("filters_json"),
             input_images=row.get("input_images"),
+            owner_username=row.get("owner_username"),
             error_reason=row.get("error_reason"),
             result=bytes(row["result"]) if row.get("result") is not None else None,
             created_at=row.get("created_at"),

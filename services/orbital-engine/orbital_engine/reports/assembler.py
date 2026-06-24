@@ -42,6 +42,7 @@ from orbital_engine.reports.schemas import (
     SatellitePass,
     WatchlistRow,
 )
+from orbital_engine.watchlist import list_watchlist
 
 # --- Cost controls (full-catalog days must stay bounded) ---------------------
 # §2/§3 pass computation is the only O(n) propagation in the assembler. We bound
@@ -192,19 +193,36 @@ async def _rows(conn: _Conn, sql: str, params: dict[str, Any] | None = None) -> 
     return [dict(row) for row in result.mappings()]
 
 
-async def _watchlist(conn: _Conn) -> tuple[list[WatchlistRow], WatchlistRow]:
-    """§1 — ALL catalog objects grouped by owner country × regime, plus totals.
+def _empty_watchlist_total() -> WatchlistRow:
+    """A zeroed §1 TOTAL row (empty/absent watchlist → empty message in the report)."""
+    return WatchlistRow(country_code="TOTAL", country_name=None, leo=0, meo=0, geo=0, heo=0, total=0)
+
+
+async def _watchlist(
+    conn: _Conn, object_ids: list[str] | None
+) -> tuple[list[WatchlistRow], WatchlistRow]:
+    """§1 — the generating user's 관심 목록 grouped by owner country × regime, plus totals.
 
     Counts are derived in Python (regime needs the eccentricity/apside logic the
-    SQL has no clean expression for). One pass over the live catalog; objects
-    with an undeterminable regime are tallied into the row total but not into any
-    regime column.
+    SQL has no clean expression for). One pass over the catalog rows whose
+    ``object_id`` is in ``object_ids`` (the user's watchlist); objects with an
+    undeterminable regime are tallied into the row total but not into any regime
+    column.
+
+    ``object_ids`` is ``None`` (no owner) or empty (empty watchlist) → an empty
+    matrix + a zero TOTAL row, so the report renders its "empty watchlist" message
+    (handled by the filler). Only when the user actually watches objects do we
+    query and count them.
     """
+    if not object_ids:
+        return [], _empty_watchlist_total()
+
     rows = await _rows(
         conn,
         "SELECT coalesce(country_code, 'UNKNOWN') AS owner_code, "
         "       apoapsis_km, periapsis_km, period_min, eccentricity "
-        "FROM space_object WHERE decay_date IS NULL",
+        "FROM space_object WHERE decay_date IS NULL AND object_id = ANY(:oids)",
+        {"oids": object_ids},
     )
 
     buckets: dict[str, dict[str, int]] = {}
@@ -481,6 +499,7 @@ async def assemble_daily(
     conn: _Conn,
     *,
     settings: Settings | None = None,
+    owner_username: str | None = None,
 ) -> DailyReportPayload:
     """Assemble the deterministic payload for one day's space-operations report.
 
@@ -488,6 +507,13 @@ async def assemble_daily(
     ``ValueError`` for a future ``report_date``; any day with no data returns a
     valid payload with empty sections. Objects missing TLE lines are skipped in
     the pass pass rather than crashing it.
+
+    ``owner_username`` scopes §1 관심목록 to the generating user's watchlist: the
+    user's watchlisted ``object_id``s are intersected with the live catalog and
+    only those objects are counted by country × regime. ``None`` (no owner) or an
+    empty watchlist yields an empty matrix + a zero TOTAL row, so the report shows
+    the empty-watchlist message (rendered by the filler). The rest of the payload
+    is unaffected.
 
     ``settings`` is accepted for signature stability with the rest of the report
     pipeline; the deterministic data assembly takes no tunables from it (the pass
@@ -497,8 +523,10 @@ async def assemble_daily(
     if report_date > datetime.now(UTC).date():
         raise ValueError(f"report_date {report_date.isoformat()} is in the future")
 
+    watchlist_ids = await list_watchlist(conn, owner_username) if owner_username else None
+
     start, end = _day_window(report_date)
-    watchlist_matrix, watchlist_total = await _watchlist(conn)
+    watchlist_matrix, watchlist_total = await _watchlist(conn, watchlist_ids)
     country_activity = await _country_activity(conn, start, end)
     conjunctions = await _conjunctions(conn, start, end)
     # Heatmap sub-points are taken at the report-day instant (00:00Z), matching the
