@@ -363,10 +363,11 @@ def test_build_hwpx_success_embeds_image_and_passes_validation() -> None:
     assert data.startswith(PK_SIGNATURE)
     validate_hwpx(data)  # raises on any defect
 
-    # Two images land: the web-supplied globe + the ENGINE-rendered §5b density
-    # chart (rendered from payload.debris_altitudes_km, not web-supplied).
+    # Every image anchor is filled (Fix C): 4 country globes + §5b density +
+    # heatmap. Anchors the web didn't supply get a generated fallback image, so
+    # the count is the full 6 regardless of how many real images were provided.
     reopened = HwpxDocument.open(io.BytesIO(data))
-    assert len(reopened.list_images()) == 2, "expected globe + engine-rendered density image"
+    assert len(reopened.list_images()) == 6, "expected 4 globes + density + heatmap (real or fallback)"
 
 
 def test_build_hwpx_renders_and_injects_density_chart() -> None:

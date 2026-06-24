@@ -402,21 +402,51 @@ def test_all_images_embedded(payload, prose, images) -> None:
 
 
 def test_missing_images_do_not_fail(payload, prose) -> None:
-    # No images at all -> still a valid report, just no embedded pictures.
+    # No images supplied -> still a valid report; every anchor gets a fallback
+    # PNG so no anchor is left holding the template's placeholder prose.
     out = fill_daily_report(payload, prose, ReportImages())
     doc = _reopen(out)
 
     assert doc.validate().ok
-    assert doc.list_images() == []
+    # 4 globe anchors + density + heatmap all filled with fallback graphics.
+    assert len(doc.list_images()) == 6
 
 
-def test_partial_images_embed_only_supplied(payload, prose) -> None:
+def test_partial_images_embed_supplied_plus_fallback(payload, prose) -> None:
+    # One real globe + one real heatmap supplied; the 3 other globes and the
+    # density anchor get fallback PNGs -> every anchor (6) ends up with a picture.
     png = _tiny_png()
     partial = ReportImages(country_globes={"NK": png}, debris_heatmap=png)
     out = fill_daily_report(payload, prose, partial)
     doc = _reopen(out)
 
-    assert len(doc.list_images()) == 2  # one globe + heatmap, density absent
+    assert len(doc.list_images()) == 6
+
+
+def test_globe_placeholder_text_cleared(payload, prose) -> None:
+    # The template's globe anchor cell ships literal placeholder prose. Embedding a
+    # globe must wipe it so the image is not left sitting beside stray text.
+    png = _tiny_png()
+    out = fill_daily_report(payload, prose, ReportImages(country_globes={"NK": png}))
+    doc = _reopen(out)
+
+    nk_index = hwpx_filler._COUNTRY_TABLES[hwpx_filler.ReportCountry.NORTH_KOREA]
+    nk = _collect_document_tables(doc)[nk_index].table
+    row, col = hwpx_filler._COUNTRY_IMAGE_CELL
+    assert "This is where" not in nk.cell(row, col).text
+
+
+def test_missing_globe_uses_fallback_and_clears_text(payload, prose) -> None:
+    # No globe for any country and no heatmap -> each anchor gets a fallback image
+    # and none retains the placeholder prose.
+    out = fill_daily_report(payload, prose, ReportImages())
+    doc = _reopen(out)
+
+    assert len(doc.list_images()) == 6  # every anchor filled (real or fallback)
+    row, col = hwpx_filler._COUNTRY_IMAGE_CELL
+    for country, ti in hwpx_filler._COUNTRY_TABLES.items():
+        cell = _collect_document_tables(doc)[ti].table.cell(row, col)
+        assert "This is where" not in cell.text, country.value
 
 
 # --------------------------------------------------------------------------- #
@@ -435,6 +465,35 @@ def test_empty_payload_fills_validly(prose, images) -> None:
     # Risk counts default to zero and are still written.
     risk = _collect_document_tables(doc)[hwpx_filler._RISK_COUNT_TABLE].table
     assert [risk.cell(1, c).text for c in range(4)] == ["0", "0", "0", "0"]
+
+
+# --------------------------------------------------------------------------- #
+# §1 관심 목록 — empty-vs-populated message
+# --------------------------------------------------------------------------- #
+
+
+def test_watchlist_empty_shows_message(prose, images) -> None:
+    # No watchlist satellites -> §1 data row carries the empty message in cell 0,
+    # the remaining count cells cleared (not a zero grid).
+    empty = DailyReportPayload(report_date=date(2026, 6, 22))
+    out = fill_daily_report(empty, prose, images)
+    doc = _reopen(out)
+    table = _collect_document_tables(doc)[hwpx_filler._WATCHLIST_TABLE].table
+
+    assert table.row_count == 2  # header + single (unexpanded) data row
+    assert table.cell(1, 0).text == hwpx_filler._WATCHLIST_EMPTY_MSG
+    assert [table.cell(1, c).text for c in range(1, 6)] == ["", "", "", "", ""]
+
+
+def test_watchlist_nonempty_still_renders_rows(payload, prose, images) -> None:
+    # Populated matrix keeps the per-country (+ total) rows and shows no message.
+    out = fill_daily_report(payload, prose, images)
+    doc = _reopen(out)
+    table = _collect_document_tables(doc)[hwpx_filler._WATCHLIST_TABLE].table
+
+    assert table.row_count == 4  # header + 2 country rows + total
+    assert table.cell(1, 0).text == "미국"
+    assert hwpx_filler._WATCHLIST_EMPTY_MSG not in doc.export_text()
 
 
 # --------------------------------------------------------------------------- #

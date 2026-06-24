@@ -54,6 +54,10 @@ _X_LABEL_EN = "Altitude (km)"
 _Y_LABEL_EN = "Debris count"
 _EMPTY_EN = "No debris data"
 
+# Default label for the missing-image fallback graphic (이미지 없음 = "no image").
+_FALLBACK_LABEL_KO = "이미지 없음"
+_FALLBACK_LABEL_EN = "No image"
+
 
 def _cjk_font() -> str | None:
     """First installed CJK font family from the candidate list, or None."""
@@ -128,4 +132,34 @@ def render_debris_density(altitudes_km: Sequence[float]) -> bytes:
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
         ax.margins(x=0.01)
+        return _figure_to_png(fig)
+
+
+def render_fallback_image(label: str = _FALLBACK_LABEL_KO) -> bytes:
+    """Render a small placeholder PNG with ``label`` centered on a neutral panel.
+
+    Used by the HWPX filler to fill any image anchor whose real image is absent
+    (a country globe the web did not supply, the heatmap, a failed embed) so the
+    cell shows a clean graphic instead of the template's placeholder text. The
+    label follows font availability like :func:`render_debris_density`: the Korean
+    default renders when a CJK face is installed, otherwise an ASCII fallback is
+    substituted for the Korean default so the PNG stays legible anywhere.
+    """
+    font = _cjk_font()
+    if font is None and label == _FALLBACK_LABEL_KO:
+        label = _FALLBACK_LABEL_EN
+
+    rc: dict[str, object] = {"axes.unicode_minus": False}
+    if font is not None:
+        rc["font.family"] = font
+
+    with plt.rc_context(rc):
+        fig, ax = plt.subplots(figsize=(3.0, 2.0))
+        fig.patch.set_facecolor("#ecf0f1")
+        ax.set_facecolor("#ecf0f1")
+        ax.text(0.5, 0.5, label, ha="center", va="center", fontsize=16, color="#7f8c8d")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
         return _figure_to_png(fig)

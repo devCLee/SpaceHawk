@@ -60,6 +60,7 @@ from hwpx import HwpxDocument
 from hwpx.oxml import HwpxOxmlTable
 from hwpx.tools.table_navigation import _collect_document_tables
 
+from orbital_engine.reports.charts import render_fallback_image
 from orbital_engine.reports.schemas import (
     DailyReportPayload,
     ReportCountry,
@@ -135,6 +136,12 @@ _RESPONSE_HEADING = "대응 작전 추진 내용"
 
 # The smallest table count a real daily-report template must have.
 _MIN_TABLES = 10
+
+# §1 표 header row 0, single blank data row at index 1 (6 columns: 국가/LEO/MEO/GEO/HEO/합계).
+_WATCHLIST_DATA_ROW = 1
+_WATCHLIST_COLS = 6
+# Shown in §1's data row when no watchlist satellites are registered.
+_WATCHLIST_EMPTY_MSG = "등록된 관심 목록 위성 데이터가 없습니다."
 
 
 class FillError(Exception):
@@ -422,11 +429,28 @@ def _fill_cover(doc: HwpxDocument, report_date: date) -> None:
     logger.warning("cover date pattern not found; cover date left unchanged")
 
 
+def _fill_watchlist(doc: HwpxDocument, payload: DailyReportPayload) -> None:
+    """Fill §1 관심 목록 등록 위성 현황 (fail-closed on structure).
+
+    When ``payload.watchlist_matrix`` is empty we do NOT render per-country rows;
+    instead the single blank data row gets :data:`_WATCHLIST_EMPTY_MSG` in its
+    first cell and the remaining cells cleared, so the section reads as "no data"
+    rather than an empty/zero grid. Non-empty payloads keep the row-cloning path.
+    """
+    if payload.watchlist_matrix:
+        _fill_rows(
+            doc, _WATCHLIST_TABLE, _WATCHLIST_DATA_ROW, _watchlist_rows(payload), section="watchlist"
+        )
+        return
+    table = _table_at(doc, _WATCHLIST_TABLE)
+    _set_cell(table, _WATCHLIST_DATA_ROW, 0, _WATCHLIST_EMPTY_MSG, where="watchlist empty")
+    for col in range(1, _WATCHLIST_COLS):
+        _set_cell(table, _WATCHLIST_DATA_ROW, col, "", where=f"watchlist empty c{col}")
+
+
 def _fill_tables(doc: HwpxDocument, payload: DailyReportPayload) -> None:
     """Fill every data table (fail-closed on structure)."""
-    _fill_rows(
-        doc, _WATCHLIST_TABLE, 1, _watchlist_rows(payload), section="watchlist"
-    )
+    _fill_watchlist(doc, payload)
 
     activity_by_country = {a.country_code: a for a in payload.country_activity}
     for country, table_index in _COUNTRY_TABLES.items():
@@ -467,8 +491,21 @@ def _image_format(data: bytes) -> str:
     return "jpg" if data[:3] == b"\xff\xd8\xff" else "png"
 
 
+def _clear_cell_text(cell) -> None:
+    """Clear every paragraph's text in ``cell`` (preserving paragraph styles).
+
+    The template's globe anchor cells carry literal placeholder prose ("This is
+    where the 3D globe snapshot ... should be located.") spread across several
+    paragraphs. We wipe all of them via the paragraph ``clear_text`` API so an
+    embedded picture (or its fallback) is not left sitting next to stray text.
+    """
+    for para in cell.paragraphs:
+        para.clear_text()
+
+
 def _embed_image(doc: HwpxDocument, data: bytes, box: _ImageBox, *, what: str) -> None:
-    """Embed one image (PNG or JPEG) into ``box``'s cell. Logs/skips on any problem."""
+    """Embed one image (PNG or JPEG) into ``box``'s cell, clearing its placeholder
+    text first. Logs/skips on any problem (images are best-effort, never fatal)."""
     try:
         table = _table_at(doc, box.table_index)
         cell = table.cell(box.row, box.col)
@@ -476,6 +513,7 @@ def _embed_image(doc: HwpxDocument, data: bytes, box: _ImageBox, *, what: str) -
         if not paragraphs:
             logger.warning("image anchor %s has no paragraph; skipping", what)
             return
+        _clear_cell_text(cell)
         item_id = doc.add_image(data, _image_format(data))
         paragraphs[0].add_picture(
             item_id,
@@ -486,40 +524,52 @@ def _embed_image(doc: HwpxDocument, data: bytes, box: _ImageBox, *, what: str) -
         logger.warning("failed to embed image %s; leaving anchor blank", what, exc_info=True)
 
 
+def _embed_image_or_fallback(
+    doc: HwpxDocument, data: bytes | None, box: _ImageBox, *, what: str
+) -> None:
+    """Fill ``box`` with ``data`` if present, else a generated fallback PNG.
+
+    Either path clears the cell's placeholder text first (via :func:`_embed_image`)
+    so every image anchor ends up showing a picture, never the template's literal
+    "this is where the image goes" prose. The fallback render is itself wrapped so
+    a render hiccup can never make image filling fatal.
+    """
+    if data is not None:
+        _embed_image(doc, data, box, what=what)
+        return
+    logger.info("no image supplied for %s; embedding fallback graphic", what)
+    try:
+        fallback = render_fallback_image()
+    except Exception:  # noqa: BLE001 - fallback render is best-effort; never fatal
+        logger.warning("failed to render fallback for %s; leaving anchor blank", what, exc_info=True)
+        return
+    _embed_image(doc, fallback, box, what=f"{what}(fallback)")
+
+
 def _embed_images(doc: HwpxDocument, images: ReportImages) -> None:
-    """Embed the web-supplied globe / debris images; log (never raise) on misses."""
+    """Fill every globe / debris image anchor: real bytes when supplied, otherwise a
+    generated fallback PNG. Placeholder text is always cleared; never raises."""
+    row, col = _COUNTRY_IMAGE_CELL
     for country, table_index in _COUNTRY_TABLES.items():
-        png = images.country_globes.get(country.value)
-        if png is None:
-            logger.info("no globe snapshot supplied for %s; anchor left blank", country.value)
-            continue
-        row, col = _COUNTRY_IMAGE_CELL
-        _embed_image(
+        _embed_image_or_fallback(
             doc,
-            png,
+            images.country_globes.get(country.value),
             _ImageBox(table_index, row, col, _GLOBE_WIDTH_MM, _GLOBE_HEIGHT_MM),
             what=f"globe[{country.value}]",
         )
 
-    if images.debris_density is None:
-        logger.info("no debris-density image supplied; anchor left blank")
-    else:
-        _embed_image(
-            doc,
-            images.debris_density,
-            _ImageBox(_DEBRIS_IMAGE_TABLE, 1, 0, _DEBRIS_WIDTH_MM, _DEBRIS_HEIGHT_MM),
-            what="debris_density",
-        )
-
-    if images.debris_heatmap is None:
-        logger.info("no debris-heatmap image supplied; anchor left blank")
-    else:
-        _embed_image(
-            doc,
-            images.debris_heatmap,
-            _ImageBox(_DEBRIS_IMAGE_TABLE, 1, 1, _DEBRIS_WIDTH_MM, _DEBRIS_HEIGHT_MM),
-            what="debris_heatmap",
-        )
+    _embed_image_or_fallback(
+        doc,
+        images.debris_density,
+        _ImageBox(_DEBRIS_IMAGE_TABLE, 1, 0, _DEBRIS_WIDTH_MM, _DEBRIS_HEIGHT_MM),
+        what="debris_density",
+    )
+    _embed_image_or_fallback(
+        doc,
+        images.debris_heatmap,
+        _ImageBox(_DEBRIS_IMAGE_TABLE, 1, 1, _DEBRIS_WIDTH_MM, _DEBRIS_HEIGHT_MM),
+        what="debris_heatmap",
+    )
 
 
 def _insert_after_heading(doc: HwpxDocument, heading: str, lines: Sequence[str]) -> None:

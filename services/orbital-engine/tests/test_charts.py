@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 
-from orbital_engine.reports.charts import render_debris_density
+from orbital_engine.reports.charts import render_debris_density, render_fallback_image
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -42,3 +42,23 @@ def test_render_does_not_leak_figures() -> None:
     render_debris_density([])
     after = len(plt.get_fignums())
     assert after == before  # every figure closed
+
+
+def test_render_fallback_image_is_valid_png() -> None:
+    png = render_fallback_image()
+    assert isinstance(png, bytes)
+    assert png.startswith(PNG_SIGNATURE)
+    assert len(png) > 0
+
+
+def test_render_fallback_image_custom_label_is_valid_png() -> None:
+    png = render_fallback_image("히트맵 없음")
+    assert png.startswith(PNG_SIGNATURE)
+
+
+def test_render_fallback_does_not_leak_figures() -> None:
+    plt.close("all")
+    before = len(plt.get_fignums())
+    render_fallback_image()
+    after = len(plt.get_fignums())
+    assert after == before  # figure closed
