@@ -1,0 +1,73 @@
+[project]
+name = "orbital-engine"
+version = "0.1.0"
+description = "SpaceHawk Orbital Engine — Python/FastAPI domain & compute tier"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "structlog>=24.1",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.1",
+    "httpx>=0.27",
+    "redis>=5.0",
+    "sgp4>=2.23",
+    "celery[redis]>=5.3",
+    "bcrypt>=4.1",
+    "pyjwt>=2.8",
+    # Report pipeline (feat/hwpx-report-pipeline). Output is PDF (WeasyPrint over
+    # an HTML/CSS template); python-hwpx is retained for the legacy HWPX filler.
+    "matplotlib>=3.8",
+    "weasyprint>=60",
+    "jinja2>=3.1",
+    "pypdf>=4.0",
+    "python-hwpx>=0.1",
+    "openai>=1.30",
+]
+
+[project.optional-dependencies]
+# Tooling used in Stage 0 to validate the canonical model against the JSON Schema
+# contract and the sample catalog, and to exercise the API skeleton.
+dev = [
+    "jsonschema>=4.21",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+export-openapi = "orbital_engine.openapi:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["orbital_engine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+# FastAPI's `Depends(...)` in parameter defaults is the framework idiom, not the
+# B008 mutable-default trap; allow it (Query/Path/etc. are already exempt), along
+# with our own `requires(...)` authorization-dependency factory used the same way.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "orbital_engine.security.enforce.requires"]
+
+# Migrations are framework-shaped; allow their conventional unused imports.
+[tool.ruff.lint.per-file-ignores]
+"migrations/*" = ["F401"]
+# The PDF renderer embeds an inline HTML/Jinja template whose markup lines run
+# past the limit; wrapping them would inject whitespace into rendered cells.
+"orbital_engine/reports/pdf_renderer.py" = ["E501"]

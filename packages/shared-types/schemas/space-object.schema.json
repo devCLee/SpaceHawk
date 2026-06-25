@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spacehawk/schemas/space-object.schema.json",
+  "title": "SpaceObject",
+  "description": "SpaceHawk canonical space-object record. A normalized, strongly-typed view of a CCSDS OMM / Space-Track GP element set, extended with a Unified Space Object Identifier (USOID) and ingestion provenance. This is the language-neutral contract shared by the web tier (TypeScript) and the Orbital Engine (Python/Pydantic); both implementations MUST conform to it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "object_id",
+    "data_source",
+    "object_name",
+    "intl_designator",
+    "object_type",
+    "ref_frame",
+    "time_system",
+    "mean_element_theory",
+    "epoch",
+    "mean_motion",
+    "eccentricity",
+    "inclination",
+    "ra_of_asc_node",
+    "arg_of_pericenter",
+    "mean_anomaly",
+    "classification_type",
+    "ephemeris_type"
+  ],
+  "properties": {
+    "object_id": {
+      "type": "string",
+      "description": "Unified Space Object Identifier (USOID). Stable internal primary key, deterministic across sources and ingestion cycles. See docs/data-model/CANONICAL-OBJECT-MODEL.md.",
+      "pattern": "^SH:(CAT:[0-9]{9}|INTL:[0-9]{4}-[0-9]{3}[A-Z]{0,3}|SRC:[A-Z0-9-]+:.+)$"
+    },
+    "norad_cat_id": {
+      "type": ["integer", "null"],
+      "description": "NORAD catalog number (Space-Track NORAD_CAT_ID). Null for uncatalogued objects.",
+      "minimum": 1
+    },
+    "intl_designator": {
+      "type": "string",
+      "description": "International Designator / COSPAR ID (CCSDS OBJECT_ID), e.g. '1967-034D'."
+    },
+    "gp_id": {
+      "type": ["integer", "null"],
+      "description": "Source GP record id (Space-Track GP_ID); provenance only."
+    },
+    "source_file_id": {
+      "type": ["integer", "null"],
+      "description": "Source bulk-file id (Space-Track FILE); provenance only."
+    },
+    "data_source": {
+      "type": "string",
+      "description": "Authority that supplied this record.",
+      "enum": ["SPACE-TRACK", "CELESTRAK", "DISCOS", "LEOLABS"]
+    },
+    "originator": {
+      "type": ["string", "null"],
+      "description": "CCSDS ORIGINATOR (e.g. '18 SPCS')."
+    },
+    "ccsds_omm_vers": {
+      "type": ["string", "null"],
+      "description": "CCSDS OMM version (e.g. '3.0')."
+    },
+    "comment": {
+      "type": ["string", "null"]
+    },
+    "creation_date": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "CCSDS CREATION_DATE — when the source produced the message."
+    },
+    "ingested_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "When SpaceHawk ingested/normalized this record."
+    },
+    "object_name": {
+      "type": "string"
+    },
+    "object_type": {
+      "type": "string",
+      "enum": ["PAYLOAD", "ROCKET BODY", "DEBRIS", "UNKNOWN", "TBA"]
+    },
+    "rcs_size": {
+      "type": ["string", "null"],
+      "enum": ["SMALL", "MEDIUM", "LARGE", null]
+    },
+    "classification_type": {
+      "type": "string",
+      "description": "U=Unclassified, C=Confidential, S=Secret.",
+      "enum": ["U", "C", "S"]
+    },
+    "country_code": {
+      "type": ["string", "null"],
+      "description": "Owner/operator country code (Space-Track convention, e.g. 'US', 'CIS')."
+    },
+    "launch_date": {
+      "type": ["string", "null"],
+      "format": "date"
+    },
+    "decay_date": {
+      "type": ["string", "null"],
+      "format": "date"
+    },
+    "site": {
+      "type": ["string", "null"],
+      "description": "Launch site code (e.g. 'AFWTR')."
+    },
+    "center_name": {
+      "type": ["string", "null"],
+      "description": "Central body (CCSDS CENTER_NAME), e.g. 'EARTH'.",
+      "default": "EARTH"
+    },
+    "ref_frame": {
+      "type": "string",
+      "description": "Reference frame of the mean elements (CCSDS REF_FRAME).",
+      "enum": ["TEME"]
+    },
+    "time_system": {
+      "type": "string",
+      "enum": ["UTC"]
+    },
+    "mean_element_theory": {
+      "type": "string",
+      "enum": ["SGP4", "SDP4"]
+    },
+    "epoch": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Epoch of the mean elements (CCSDS EPOCH)."
+    },
+    "mean_motion": {
+      "type": "number",
+      "description": "Mean motion, revolutions per day.",
+      "exclusiveMinimum": 0
+    },
+    "eccentricity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "inclination": {
+      "type": "number",
+      "description": "Inclination, degrees.",
+      "minimum": 0,
+      "maximum": 180
+    },
+    "ra_of_asc_node": {
+      "type": "number",
+      "description": "Right ascension of ascending node, degrees.",
+      "minimum": 0,
+      "maximum": 360
+    },
+    "arg_of_pericenter": {
+      "type": "number",
+      "description": "Argument of pericenter, degrees.",
+      "minimum": 0,
+      "maximum": 360
+    },
+    "mean_anomaly": {
+      "type": "number",
+      "description": "Mean anomaly, degrees.",
+      "minimum": 0,
+      "maximum": 360
+    },
+    "ephemeris_type": {
+      "type": "integer",
+      "description": "SGP4 ephemeris type (0 for distributed TLEs)."
+    },
+    "element_set_no": {
+      "type": ["integer", "null"]
+    },
+    "rev_at_epoch": {
+      "type": ["integer", "null"],
+      "description": "Revolution number at epoch."
+    },
+    "bstar": {
+      "type": ["number", "null"],
+      "description": "SGP4 B* drag term (1/earth radii)."
+    },
+    "mean_motion_dot": {
+      "type": ["number", "null"],
+      "description": "First derivative of mean motion (rev/day^2)."
+    },
+    "mean_motion_ddot": {
+      "type": ["number", "null"],
+      "description": "Second derivative of mean motion (rev/day^3)."
+    },
+    "semimajor_axis_km": {
+      "type": ["number", "null"],
+      "description": "Derived semi-major axis, km."
+    },
+    "period_min": {
+      "type": ["number", "null"],
+      "description": "Derived orbital period, minutes."
+    },
+    "apoapsis_km": {
+      "type": ["number", "null"],
+      "description": "Derived apoapsis altitude, km."
+    },
+    "periapsis_km": {
+      "type": ["number", "null"],
+      "description": "Derived periapsis altitude, km."
+    },
+    "tle_line0": {
+      "type": ["string", "null"]
+    },
+    "tle_line1": {
+      "type": ["string", "null"]
+    },
+    "tle_line2": {
+      "type": ["string", "null"]
+    },
+    "object_class": {
+      "type": ["string", "null"],
+      "description": "DISCOS object class (ESA DISCOSweb objectClass), e.g. 'Payload', 'Rocket Body'. Enrichment-only; null until the DISCOS pass runs."
+    },
+    "mass_kg": {
+      "type": ["number", "null"],
+      "description": "Object mass, kilograms (DISCOS). Enrichment-only.",
+      "minimum": 0
+    },
+    "shape": {
+      "type": ["string", "null"],
+      "description": "DISCOS shape descriptor, e.g. 'Box', 'Cyl', 'Sphere + 2 Pan'. Enrichment-only."
+    },
+    "span_m": {
+      "type": ["number", "null"],
+      "description": "Largest linear dimension, metres (max of DISCOS width/height/depth/diameter/length/span). Enrichment-only.",
+      "minimum": 0
+    },
+    "cross_section_min_m2": {
+      "type": ["number", "null"],
+      "description": "Minimum cross-sectional area, m^2 (DISCOS xSectMin). Enrichment-only.",
+      "minimum": 0
+    },
+    "cross_section_avg_m2": {
+      "type": ["number", "null"],
+      "description": "Average cross-sectional area, m^2 (DISCOS xSectAvg). Enrichment-only.",
+      "minimum": 0
+    },
+    "cross_section_max_m2": {
+      "type": ["number", "null"],
+      "description": "Maximum cross-sectional area, m^2 (DISCOS xSectMax). Enrichment-only.",
+      "minimum": 0
+    }
+  }
+}

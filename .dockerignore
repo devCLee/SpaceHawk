@@ -1,0 +1,29 @@
+# Docker build context is the repo root (see infra/web.Dockerfile). Without this
+# file, `COPY . .` drags the local, multi-gigabyte `.next/` build cache into the
+# image. `next build` then emits a fresh webpack runtime whose chunk map does not
+# match the stale chunk files left behind, so dynamic imports (e.g. cesium) fail
+# at runtime with ChunkLoadError and the globe never mounts. Keep build inputs to
+# source only; deps are reinstalled (`npm ci`) and `.next` is produced clean.
+
+# Build outputs / caches (the cause of the chunk-mismatch bug)
+**/.next/
+**/.turbo/
+**/dist/
+**/out/
+
+# Dependencies (reinstalled in-image via npm ci)
+**/node_modules/
+
+# Python virtualenvs + caches (engine venv is large; web build never needs them)
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+
+# VCS + local tooling artifacts
+.git/
+.gstack/
+graphify-out/
+**/*.log

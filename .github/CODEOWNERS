@@ -1,0 +1,25 @@
+# SpaceHawk code ownership.
+#
+# Each line maps a path to its reviewer(s). The last matching pattern wins.
+# Replace the placeholder team slugs below with real GitHub teams once they
+# exist, and enable branch protection on `main` and `develop` requiring
+# Code Owner review (configured in the repo settings — see the Stage 0
+# design pack, infra/README and the P0 governance notes).
+
+# Default owner for everything not matched more specifically.
+*                       @devclee
+
+# Web / BFF tier
+/apps/web/              @devclee
+
+# Python Orbital Engine (compute/data tier)
+/services/              @devclee
+
+# Shared contracts (generated TS client, schemas)
+/packages/              @devclee
+
+# Infrastructure, deployment, air-gap/offline supply chain
+/infra/                 @devclee
+
+# CI / repo automation
+/.github/               @devclee

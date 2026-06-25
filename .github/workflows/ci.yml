@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web (lint · typecheck · build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  engine:
+    name: Orbital Engine (lint · format · test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/orbital-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -q
+
+  contract-drift:
+    name: API contract is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install engine
+        run: pip install -e ".[dev]"
+        working-directory: services/orbital-engine
+      - name: Export OpenAPI from the engine
+        run: python -m orbital_engine.openapi
+        working-directory: services/orbital-engine
+      - run: npm ci
+      - name: Regenerate the TypeScript client
+        run: npm run gen:client
+      - name: Fail if the committed contract is stale
+        run: |
+          git diff --exit-code -- packages/shared-types/openapi.json packages/shared-types/src/orbital-engine.ts \
+            || (echo "::error::OpenAPI/TS client is out of date. Run the regeneration steps in packages/shared-types/README.md and commit." && exit 1)
+
+  compose-validate:
+    name: Docker Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f infra/docker-compose.yml config --quiet

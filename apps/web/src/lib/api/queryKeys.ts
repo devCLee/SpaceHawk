@@ -1,0 +1,26 @@
+// Central query-key registry (house convention — see team's API_URL). Keys are
+// arrays/factories so related caches invalidate together. URLs are the
+// same-origin BFF paths the keys map to.
+
+export const queryKeys = {
+  // GET /api/catalog/all (full globe catalog, shared by the globe + filter panels)
+  catalogAll: () => ["catalog", "all"] as const,
+  // GET /api/catalog/{id}
+  catalogDetail: (objectId: string) =>
+    ["catalog", "detail", objectId] as const,
+  // GET /api/conjunctions
+  conjunctions: () => ["conjunctions", "list"] as const,
+  // GET /api/debris (tracked debris layer + per-object risk)
+  debris: () => ["debris", "list"] as const,
+  // GET /api/debris/risk (population risk analysis + screened conjunctions)
+  debrisRisk: () => ["debris", "risk"] as const,
+  // GET /api/alerts/log
+  alerts: (status?: string) => ["alerts", "list", status ?? "all"] as const,
+  // GET /api/maneuvers (optionally scoped to one object)
+  maneuvers: (objectId?: string) =>
+    ["maneuvers", "list", objectId ?? "all"] as const,
+  // GET /api/maneuvers/baselines
+  baselines: () => ["maneuvers", "baselines"] as const,
+  // GET /api/reports/{id} (HWPX report job status, polled)
+  reportJob: (jobId: string) => ["reports", "job", jobId] as const,
+};
