@@ -9,18 +9,24 @@ export const queryKeys = {
   catalogDetail: (objectId: string) =>
     ["catalog", "detail", objectId] as const,
   // GET /api/conjunctions
-  conjunctions: () => ["conjunctions", "list"] as const,
+  conjunctions: (limit?: number) =>
+    ["conjunctions", "list", limit ?? "default"] as const,
   // GET /api/debris (tracked debris layer + per-object risk)
   debris: () => ["debris", "list"] as const,
   // GET /api/debris/risk (population risk analysis + screened conjunctions)
   debrisRisk: () => ["debris", "risk"] as const,
   // GET /api/alerts/log
-  alerts: (status?: string) => ["alerts", "list", status ?? "all"] as const,
+  alerts: (status?: string, type?: string, limit?: number) =>
+    ["alerts", "list", status ?? "all", type ?? "all", limit ?? "default"] as const,
   // GET /api/maneuvers (optionally scoped to one object)
-  maneuvers: (objectId?: string) =>
-    ["maneuvers", "list", objectId ?? "all"] as const,
+  maneuvers: (objectId?: string, limit?: number) =>
+    ["maneuvers", "list", objectId ?? "all", limit ?? "default"] as const,
   // GET /api/maneuvers/baselines
-  baselines: () => ["maneuvers", "baselines"] as const,
+  baselines: (limit?: number) =>
+    ["maneuvers", "baselines", limit ?? "default"] as const,
+  // GET /api/catalog/{id}/history (element-set time series, 분석 이력 page)
+  objectHistory: (objectId: string) =>
+    ["catalog", "history", objectId] as const,
   // GET /api/reports/{id} (HWPX report job status, polled)
   reportJob: (jobId: string) => ["reports", "job", jobId] as const,
 };

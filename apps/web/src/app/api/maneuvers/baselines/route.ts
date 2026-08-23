@@ -7,7 +7,8 @@ import { fetchBaselines } from "@/lib/orbital-engine";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(): Promise<Response> {
-  const result = await fetchBaselines();
+export async function GET(req: Request): Promise<Response> {
+  const limit = Number(new URL(req.url).searchParams.get("limit")) || undefined;
+  const result = await fetchBaselines(limit);
   return Response.json(result, { headers: { "Cache-Control": "no-store" } });
 }

@@ -10,7 +10,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: Request): Promise<Response> {
-  const objectId = new URL(req.url).searchParams.get("object_id") ?? undefined;
-  const result = await fetchManeuvers(objectId);
+  const { searchParams } = new URL(req.url);
+  const objectId = searchParams.get("object_id") ?? undefined;
+  const limit = Number(searchParams.get("limit")) || undefined;
+  const result = await fetchManeuvers(objectId, limit);
   return Response.json(result, { headers: { "Cache-Control": "no-store" } });
 }

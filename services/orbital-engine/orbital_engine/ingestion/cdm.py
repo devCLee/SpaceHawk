@@ -154,9 +154,17 @@ def _newest_creation_date(records: list[dict[str, Any]]) -> str | None:
 
 
 async def ingest_cdms(settings: Settings | None = None) -> int:
-    """Fetch CDMs and upsert them as conjunctions. Returns the number written."""
-    # Imported here to keep ingestion modules importable without the DB layer.
-    from orbital_engine.repository import upsert_conjunctions
+    """Fetch CDMs, enrich with a computed relative speed, and upsert them.
 
+    Returns the number written.
+    """
+    # Imported here to keep ingestion modules importable without the DB layer.
+    from orbital_engine.repository import fetch_catalog, upsert_conjunctions
+    from orbital_engine.screening import enrich_relative_speed
+
+    settings = settings or get_settings()
     conjunctions = await fetch_cdms(settings)
+    if conjunctions:
+        rows = await fetch_catalog(settings.ingest_limit)
+        enrich_relative_speed(conjunctions, rows)
     return await upsert_conjunctions(conjunctions)

@@ -30,7 +30,7 @@ import {
 import { http } from "@/lib/api/apiClient";
 import { t } from "@/lib/i18n/t";
 
-type ModeId = "live" | "sandbox" | "audit";
+type ModeId = "live" | "sandbox" | "history" | "audit";
 type Pop = "alerts" | "account" | null;
 type AlertCat = "all" | "watch";
 
@@ -52,12 +52,14 @@ export default function Header() {
   const globe = useGlobeControls();
   const { history } = useAlerts();
 
-  // The audit segment maps to a real route, so its active state is driven by the
-  // URL — not local state — or it desyncs after navigating to /admin/audit (e.g.
-  // via the account menu). Live/sandbox are workspace toggles with no route yet.
+  // The audit/history segments map to real routes, so their active state is
+  // driven by the URL — not local state — or it desyncs after navigating there
+  // (e.g. via the account menu). Live/sandbox are workspace toggles with no
+  // route yet.
   const onAudit = pathname?.startsWith("/admin/audit") ?? false;
+  const onHistory = pathname?.startsWith("/history") ?? false;
   const [mode, setActiveMode] = React.useState<ModeId>("live");
-  const activeMode: ModeId = onAudit ? "audit" : mode;
+  const activeMode: ModeId = onAudit ? "audit" : onHistory ? "history" : mode;
   const [pop, setPop] = React.useState<Pop>(null);
   const clusterRef = React.useRef<HTMLDivElement>(null);
   const imageryBtnRef = React.useRef<HTMLButtonElement>(null);
@@ -115,9 +117,13 @@ export default function Header() {
       router.push("/admin/audit");
       return;
     }
+    if (id === "history") {
+      router.push("/history");
+      return;
+    }
     setActiveMode(id);
-    // Leaving the audit page back to a workspace mode returns to the dashboard.
-    if (onAudit) router.push("/");
+    // Leaving a routed page back to a workspace mode returns to the dashboard.
+    if (onAudit || onHistory) router.push("/");
   }
 
   const online = globe.mode === "online";
@@ -162,6 +168,12 @@ export default function Header() {
             onClick={() => selectMode("sandbox")}
           >
             {t("header.sandbox")}
+          </button>
+          <button
+            className={activeMode === "history" ? "on" : ""}
+            onClick={() => selectMode("history")}
+          >
+            {t("header.history")}
           </button>
           {isAdmin && (
             <button
