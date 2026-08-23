@@ -77,10 +77,13 @@ async def get_conjunctions(
 @router.get("/alerts", response_model=list[AlertResponse], summary="Durable alert log")
 async def get_alerts(
     status: str | None = Query(default=None, description="NEW / ACK / DISMISSED"),
+    alert_type: str | None = Query(
+        default=None, alias="type", description="Alert type, e.g. rpo / conjunction"
+    ),
     limit: int = Query(default=100, ge=1, le=1000),
     _subject: Subject = Depends(requires(DataDomain.SCREENING, Action.READ)),
 ) -> list[dict[str, Any]]:
-    return await query_alerts(status=status, limit=limit)
+    return await query_alerts(status=status, alert_type=alert_type, limit=limit)
 
 
 @router.post("/alerts/{alert_id}/ack", response_model=AlertResponse, summary="Acknowledge/dismiss an alert")

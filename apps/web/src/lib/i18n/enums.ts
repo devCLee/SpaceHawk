@@ -3,6 +3,8 @@
 // change; only its rendered label is localized. Look the label up here, keep the
 // value in the array / request.
 
+import { t } from "./t";
+
 // Catalog object_type — sent to the engine /catalog as `object_type`.
 const OBJECT_TYPE_LABEL: Record<string, string> = {
   "": "모든 유형",
@@ -25,4 +27,19 @@ const ALERT_STATUS_LABEL: Record<string, string> = {
 
 export function alertStatusLabel(value: string): string {
   return ALERT_STATUS_LABEL[value] ?? value;
+}
+
+// Maneuver classification — the engine's ManeuverResponse.maneuver_type.
+// Labels live in messages.ts (maneuver.type.*); this map keys them by raw value.
+const MANEUVER_TYPE_LABEL: Record<string, string> = {
+  STATION_KEEPING: t("maneuver.type.stationKeeping"),
+  ORBIT_RAISE: t("maneuver.type.orbitRaise"),
+  ORBIT_LOWER: t("maneuver.type.orbitLower"),
+  PHASING: t("maneuver.type.phasing"),
+  RPO: t("maneuver.type.rpo"),
+  UNKNOWN: t("maneuver.type.unknown"),
+};
+
+export function maneuverTypeLabel(value: string): string {
+  return MANEUVER_TYPE_LABEL[value] ?? value;
 }

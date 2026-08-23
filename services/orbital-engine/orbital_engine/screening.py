@@ -119,6 +119,60 @@ def _build_satrec(row: dict[str, Any]) -> Satrec | None:
         return None
 
 
+def relative_speed_at(sat_a: Satrec, sat_b: Satrec, when: datetime) -> float | None:
+    """|v_a − v_b| in km/s at ``when``; None when SGP4 errors for either object."""
+    if when.tzinfo is not None:
+        when = when.astimezone(UTC).replace(tzinfo=None)
+    jd, fr = jday(
+        when.year, when.month, when.day,
+        when.hour, when.minute, when.second + when.microsecond / 1e6,
+    )
+    err_a, _ra, va = sat_a.sgp4(jd, fr)
+    err_b, _rb, vb = sat_b.sgp4(jd, fr)
+    if err_a != 0 or err_b != 0:
+        return None
+    return math.dist(va, vb)
+
+
+def enrich_relative_speed(
+    conjunctions: list[Conjunction], rows: list[dict[str, Any]]
+) -> int:
+    """Fill missing ``relative_speed_km_s`` on conjunctions from catalog TLEs.
+
+    Space-Track's public ``cdm_public`` feed carries no relative-velocity block,
+    so CDM-sourced rows arrive without a relative speed. Compute |v1 − v2| at TCA
+    by propagating both participants' catalog TLEs. Best-effort, in place: a
+    conjunction stays None when either participant has no usable TLE. Returns the
+    number of conjunctions enriched.
+    """
+    by_norad = {
+        int(r["norad_cat_id"]): r for r in rows if r.get("norad_cat_id") is not None
+    }
+    sats: dict[int, Satrec | None] = {}
+
+    def sat_for(norad: int | None) -> Satrec | None:
+        if norad is None:
+            return None
+        if norad not in sats:
+            row = by_norad.get(norad)
+            sats[norad] = _build_satrec(row) if row else None
+        return sats[norad]
+
+    enriched = 0
+    for c in conjunctions:
+        if c.relative_speed_km_s is not None:
+            continue
+        sat_a = sat_for(c.primary_norad_cat_id)
+        sat_b = sat_for(c.secondary_norad_cat_id)
+        if sat_a is None or sat_b is None:
+            continue
+        speed = relative_speed_at(sat_a, sat_b, c.tca)
+        if speed is not None:
+            c.relative_speed_km_s = speed
+            enriched += 1
+    return enriched
+
+
 def _prep(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Attach a Satrec + apsis altitudes to each usable row (others dropped)."""
     prepped: list[dict[str, Any]] = []

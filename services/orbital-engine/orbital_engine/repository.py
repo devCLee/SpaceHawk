@@ -8,6 +8,7 @@ the propagation loop and the BFF only need a projection, not ORM entities.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -504,13 +505,18 @@ async def record_alert(alert: dict[str, Any]) -> None:
 
 
 async def query_alerts(
-    *, status: str | None = None, limit: int = 100
+    *, status: str | None = None, alert_type: str | None = None, limit: int = 100
 ) -> list[dict[str, Any]]:
-    """Return alerts newest-first, optionally filtered by triage status."""
-    where = "WHERE status::text = :st " if status else ""
+    """Return alerts newest-first, optionally filtered by triage status and type."""
+    clauses: list[str] = []
     params: dict[str, Any] = {"lim": max(1, min(int(limit), 1000))}
     if status:
+        clauses.append("status::text = :st")
         params["st"] = status
+    if alert_type:
+        clauses.append("type = :ty")
+        params["ty"] = alert_type
+    where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
     sql = f"SELECT {_ALERT_SELECT} FROM alert {where}ORDER BY created_at DESC LIMIT :lim"
     async with get_engine().connect() as conn:
         result = await conn.execute(text(sql), params)
@@ -676,4 +682,113 @@ async def query_baselines(*, limit: int = 200) -> list[dict[str, Any]]:
     )
     async with get_engine().connect() as conn:
         result = await conn.execute(sql, {"lim": max(1, min(int(limit), 1000))})
+        return [dict(row) for row in result.mappings()]
+
+
+# ---------------------------------------------------------------------------
+# Composite threat scoring aggregates (mentoring item #11 / S2). One rollup per
+# analysis method, grouped by object, max-within-window semantics (worst-case
+# posture). ``as_of`` anchors the window end (default now()) so /scores/history
+# can replay the same rollup at past days. Debris risk deliberately has no
+# query here — the /scores endpoint reuses ``query_debris`` + ``_enrich``.
+# ---------------------------------------------------------------------------
+
+_SCORE_WINDOW = (
+    "{col} <= COALESCE(:as_of, now()) "
+    "AND {col} >= COALESCE(:as_of, now()) - make_interval(days => :days)"
+)
+
+
+async def score_maneuver_aggregates(
+    *, window_days: int, as_of: datetime | None = None
+) -> list[dict[str, Any]]:
+    """Per-object maneuver rollup: max confidence / Δv and event count."""
+    sql = text(
+        "SELECT object_id, max(object_name) AS object_name, "
+        "       max(confidence) AS max_confidence, "
+        "       max(delta_v_m_s) AS max_delta_v_m_s, count(*) AS event_count "
+        "FROM maneuver "
+        f"WHERE {_SCORE_WINDOW.format(col='detected_epoch')} "
+        "GROUP BY object_id"
+    )
+    async with get_engine().connect() as conn:
+        result = await conn.execute(sql, {"days": int(window_days), "as_of": as_of})
+        return [dict(row) for row in result.mappings()]
+
+
+async def score_conjunction_aggregates(
+    *, window_days: int, as_of: datetime | None = None
+) -> list[dict[str, Any]]:
+    """Per-object conjunction rollup over BOTH sides of each screened pair.
+
+    Windowed on ``screened_at`` (recent screening activity), deliberately not
+    the future-TCA-only filter of ``query_conjunctions``: threat posture counts
+    past closest approaches too. Severity is max-ranked as an int and mapped
+    back to its label in Python.
+    """
+    window = _SCORE_WINDOW.format(col="screened_at")
+    sql = text(
+        "SELECT oid AS object_id, max(name) AS object_name, "
+        "       max(probability) AS max_pc, max(sev_rank) AS sev_rank, "
+        "       min(miss_distance_km) AS min_miss_km, count(*) AS event_count "
+        "FROM ("
+        "  SELECT primary_object_id AS oid, primary_name AS name, probability, "
+        "         miss_distance_km, CASE severity::text WHEN 'HIGH' THEN 3 "
+        "         WHEN 'MOD' THEN 2 ELSE 1 END AS sev_rank "
+        f"  FROM conjunction WHERE {window} "
+        "  UNION ALL "
+        "  SELECT secondary_object_id, secondary_name, probability, "
+        "         miss_distance_km, CASE severity::text WHEN 'HIGH' THEN 3 "
+        "         WHEN 'MOD' THEN 2 ELSE 1 END "
+        f"  FROM conjunction WHERE {window}"
+        ") s WHERE oid IS NOT NULL GROUP BY oid"
+    )
+    rank_to_severity = {3: "HIGH", 2: "MOD", 1: "LOW"}
+    async with get_engine().connect() as conn:
+        result = await conn.execute(sql, {"days": int(window_days), "as_of": as_of})
+        rows = [dict(row) for row in result.mappings()]
+    for row in rows:
+        row["severity"] = rank_to_severity.get(row.pop("sev_rank"))
+    return rows
+
+
+async def score_rpo_aggregates(
+    *, window_days: int, as_of: datetime | None = None
+) -> list[dict[str, Any]]:
+    """Per-object RPO rollup, attributed to the THREAT (shadowing) object.
+
+    ``alert.object_id`` on an RPO alert is the *protected asset*; the actor
+    only exists inside the payload — score the actor, not the victim.
+    """
+    sql = text(
+        "SELECT payload->>'threat_object_id' AS object_id, "
+        "       max(payload->>'threat_name') AS object_name, "
+        "       max((payload->>'coplanarity')::float) AS max_coplanarity, "
+        "       count(*) AS event_count "
+        "FROM alert "
+        "WHERE type = 'rpo' AND payload ? 'threat_object_id' "
+        f"  AND {_SCORE_WINDOW.format(col='created_at')} "
+        "GROUP BY payload->>'threat_object_id'"
+    )
+    async with get_engine().connect() as conn:
+        result = await conn.execute(sql, {"days": int(window_days), "as_of": as_of})
+        return [dict(row) for row in result.mappings()]
+
+
+async def score_anomaly_aggregates(
+    *, window_days: int, as_of: datetime | None = None
+) -> list[dict[str, Any]]:
+    """Per-object baseline-deviation rollup from maneuver-anomaly alerts."""
+    sql = text(
+        "SELECT object_id, max(payload->>'object_name') AS object_name, "
+        "       max((payload->>'delta_v_sigma')::float) AS max_sigma, "
+        "       bool_or(COALESCE((payload->>'novel_type')::boolean, false)) AS novel_type, "
+        "       count(*) AS event_count "
+        "FROM alert "
+        "WHERE type = 'maneuver-anomaly' AND object_id IS NOT NULL "
+        f"  AND {_SCORE_WINDOW.format(col='created_at')} "
+        "GROUP BY object_id"
+    )
+    async with get_engine().connect() as conn:
+        result = await conn.execute(sql, {"days": int(window_days), "as_of": as_of})
         return [dict(row) for row in result.mappings()]

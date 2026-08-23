@@ -23,6 +23,7 @@ import type {
 } from "@/lib/orbital-engine";
 import * as s from "./panelStyles";
 import { t } from "@/lib/i18n/t";
+import { maneuverTypeLabel } from "@/lib/i18n/enums";
 
 const TYPE_COLOR: Record<ManeuverType, string> = {
   STATION_KEEPING: "#7dd87d",
@@ -31,15 +32,6 @@ const TYPE_COLOR: Record<ManeuverType, string> = {
   PHASING: "#ffd166",
   RPO: "#ff6b6b",
   UNKNOWN: "#7d8da0",
-};
-
-const TYPE_LABEL: Record<ManeuverType, string> = {
-  STATION_KEEPING: t("maneuver.type.stationKeeping"),
-  ORBIT_RAISE: t("maneuver.type.orbitRaise"),
-  ORBIT_LOWER: t("maneuver.type.orbitLower"),
-  PHASING: t("maneuver.type.phasing"),
-  RPO: t("maneuver.type.rpo"),
-  UNKNOWN: t("maneuver.type.unknown"),
 };
 
 function num(v: number | null | undefined, digits = 1): string {
@@ -74,7 +66,7 @@ const BaselineCard: React.FunctionComponent<{ baseline: ManeuverBaseline }> = ({
     </div>
     <div style={{ ...s.muted, fontSize: 11 }}>
       {Object.entries(baseline.type_distribution)
-        .map(([t, n]) => `${TYPE_LABEL[t as ManeuverType] ?? t}×${n}`)
+        .map(([ty, n]) => `${maneuverTypeLabel(ty)}×${n}`)
         .join(" · ")}
     </div>
   </div>
@@ -91,7 +83,7 @@ const ManeuverRow: React.FunctionComponent<{
     <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
       <span>{m.object_name}</span>
       <span style={{ color: TYPE_COLOR[m.maneuver_type], fontWeight: 600 }}>
-        {TYPE_LABEL[m.maneuver_type]}
+        {maneuverTypeLabel(m.maneuver_type)}
       </span>
     </div>
     <div style={{ ...s.muted, fontSize: 11, display: "flex", gap: 10, flexWrap: "wrap" }}>

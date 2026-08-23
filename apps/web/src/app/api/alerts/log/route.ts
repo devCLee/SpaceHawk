@@ -10,9 +10,12 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: Request): Promise<Response> {
-  const status = new URL(req.url).searchParams.get("status") ?? undefined;
+  const { searchParams } = new URL(req.url);
+  const status = searchParams.get("status") ?? undefined;
+  const type = searchParams.get("type") ?? undefined;
+  const limit = Number(searchParams.get("limit")) || undefined;
   try {
-    const alerts = await fetchAlerts(status);
+    const alerts = await fetchAlerts(status, type, limit);
     return Response.json(alerts, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return Response.json({ error: "orbital-engine unavailable" }, { status: 502 });

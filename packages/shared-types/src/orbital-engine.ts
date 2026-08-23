@@ -55,6 +55,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authenticate and open a session
+         * @description Verify credentials, mint the session token, set the cookie.
+         *
+         *     Returns 401 for unknown user, bad password, or an unapproved account — the
+         *     same opaque error in every case so the endpoint does not leak which failed.
+         */
+        post: operations["login_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current session subject */
+        get: operations["me_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close the session */
+        post: operations["logout_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalog": {
         parameters: {
             query?: never;
@@ -132,7 +189,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Trigger Celestrak ingest */
+        /** Trigger a catalog ingest (all sources) */
         post: operations["run_ingest_ingest_run_post"];
         delete?: never;
         options?: never;
@@ -197,10 +254,390 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/conjunctions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ranked conjunctions */
+        get: operations["get_conjunctions_conjunctions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Durable alert log */
+        get: operations["get_alerts_alerts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/alerts/{alert_id}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge/dismiss an alert */
+        post: operations["acknowledge_alert_alerts__alert_id__ack_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/debris": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tracked debris + risk */
+        get: operations["get_debris_debris_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/debris/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Debris risk analysis */
+        get: operations["get_debris_risk_debris_risk_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/maneuvers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detected maneuvers */
+        get: operations["get_maneuvers_maneuvers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/maneuvers/baselines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-object behavioral baselines */
+        get: operations["get_baselines_maneuvers_baselines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Composite threat scores */
+        get: operations["get_scores_scores_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scores/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Threat-level histogram over the last N days */
+        get: operations["get_scores_history_scores_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create (idempotently) a daily-report job */
+        post: operations["create_report_reports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report job status (+ download_url once DONE) */
+        get: operations["get_report_reports__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{job_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the finished PDF report */
+        get: operations["download_report_reports__job_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/watchlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The current user's watchlist */
+        get: operations["get_watchlist_watchlist_get"];
+        put?: never;
+        /** Add an object to the current user's watchlist (idempotent) */
+        post: operations["add_to_watchlist_watchlist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/watchlist/{object_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove an object from the current user's watchlist (no-op if absent) */
+        delete: operations["remove_from_watchlist_watchlist__object_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Query the audit log (ADMIN) */
+        get: operations["get_audit_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AckRequest */
+        AckRequest: {
+            /**
+             * Status
+             * @default ACK
+             * @enum {string}
+             */
+            status: "ACK" | "DISMISSED";
+            /** Acknowledged By */
+            acknowledged_by?: string | null;
+        };
+        /**
+         * AddWatchlistRequest
+         * @description Body for adding one object to the current user's watchlist.
+         */
+        AddWatchlistRequest: {
+            /** Object Id */
+            object_id: string;
+        };
+        /**
+         * AlertResponse
+         * @description One durable alert in the triage log.
+         */
+        AlertResponse: {
+            /** Id */
+            id: string;
+            /** Type */
+            type: string;
+            /** Severity */
+            severity?: string | null;
+            /** Object Id */
+            object_id?: string | null;
+            /** Conjunction Id */
+            conjunction_id?: string | null;
+            /** Message */
+            message: string;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+            /** Status */
+            status: string;
+            /** Acknowledged By */
+            acknowledged_by?: string | null;
+            /** Acknowledged At */
+            acknowledged_at?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** AuditEntry */
+        AuditEntry: {
+            /** Id */
+            id: number;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /** Subject */
+            subject?: string | null;
+            /** Role */
+            role?: string | null;
+            /** Service */
+            service?: string | null;
+            /** Source Ip */
+            source_ip?: string | null;
+            /** Domain */
+            domain: string;
+            /** Action */
+            action: string;
+            /** Decision */
+            decision: string;
+            /** Code */
+            code: string;
+            /** Reason */
+            reason: string;
+            /** Method */
+            method?: string | null;
+            /** Path */
+            path?: string | null;
+        };
+        /**
+         * AuditPage
+         * @description One page of audit rows plus the total matching count (for page-count calc).
+         */
+        AuditPage: {
+            /** Rows */
+            rows: components["schemas"]["AuditEntry"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * BaselineResponse
+         * @description One object's behavioral fingerprint — mirrors ``ManeuverBaseline``.
+         */
+        BaselineResponse: {
+            /** Object Id */
+            object_id: string;
+            /** Object Name */
+            object_name: string;
+            /** Sample Count */
+            sample_count: number;
+            /** Mean Interval Days */
+            mean_interval_days?: number | null;
+            /** Interval Mad Days */
+            interval_mad_days?: number | null;
+            /** Mean Delta V M S */
+            mean_delta_v_m_s: number;
+            /** Delta V Mad M S */
+            delta_v_mad_m_s: number;
+            /** Type Distribution */
+            type_distribution?: {
+                [key: string]: number;
+            };
+            /**
+             * Last Epoch
+             * Format: date-time
+             */
+            last_epoch: string;
+            /** Updated At */
+            updated_at?: string | null;
+        };
         /** CatalogObject */
         CatalogObject: {
             /** Object Id */
@@ -219,6 +656,143 @@ export interface components {
             tle_line1?: string | null;
             /** Tle Line2 */
             tle_line2?: string | null;
+        };
+        /**
+         * Clearance
+         * @description Subject clearance, same scale as ``ClassificationType`` (U < C < S).
+         * @enum {string}
+         */
+        Clearance: "U" | "C" | "S";
+        /**
+         * ConjunctionResponse
+         * @description One screened/CDM conjunction — mirrors the web `Conjunction` contract.
+         */
+        ConjunctionResponse: {
+            /** Id */
+            id: string;
+            /** Source */
+            source: string;
+            /** Cdm Id */
+            cdm_id?: string | null;
+            /** Primary Object Id */
+            primary_object_id: string;
+            /** Primary Norad Cat Id */
+            primary_norad_cat_id?: number | null;
+            /** Primary Name */
+            primary_name: string;
+            /** Secondary Object Id */
+            secondary_object_id: string;
+            /** Secondary Norad Cat Id */
+            secondary_norad_cat_id?: number | null;
+            /** Secondary Name */
+            secondary_name: string;
+            /**
+             * Tca
+             * Format: date-time
+             */
+            tca: string;
+            /** Miss Distance Km */
+            miss_distance_km: number;
+            /** Relative Speed Km S */
+            relative_speed_km_s?: number | null;
+            /** Probability */
+            probability?: number | null;
+            /** Severity */
+            severity: string;
+            /** Screened At */
+            screened_at?: string | null;
+        };
+        /**
+         * CreateReportRequest
+         * @description Request body for a daily-report job.
+         */
+        CreateReportRequest: {
+            /**
+             * Report Type
+             * @default daily
+             */
+            report_type: string;
+            /**
+             * Report Date
+             * Format: date
+             */
+            report_date: string;
+            /** Filters */
+            filters?: {
+                [key: string]: unknown;
+            } | null;
+            images?: components["schemas"]["ReportImagesRequest"] | null;
+        };
+        /**
+         * CreateReportResponse
+         * @description The accepted job: id + current (PENDING) status.
+         */
+        CreateReportResponse: {
+            /** Job Id */
+            job_id: string;
+            status: components["schemas"]["ReportStatus"];
+        };
+        /**
+         * DebrisObject
+         * @description One tracked-debris object with derived orbital params + risk.
+         */
+        DebrisObject: {
+            /** Object Id */
+            object_id: string;
+            /** Norad Cat Id */
+            norad_cat_id?: number | null;
+            /** Object Name */
+            object_name: string;
+            /** Country Code */
+            country_code?: string | null;
+            /** Rcs Size */
+            rcs_size?: string | null;
+            /** Inclination */
+            inclination?: number | null;
+            /** Eccentricity */
+            eccentricity?: number | null;
+            /** Period Min */
+            period_min?: number | null;
+            /** Apoapsis Km */
+            apoapsis_km?: number | null;
+            /** Periapsis Km */
+            periapsis_km?: number | null;
+            /** Mean Altitude Km */
+            mean_altitude_km?: number | null;
+            /** Speed Km S */
+            speed_km_s?: number | null;
+            /**
+             * Risk Score
+             * @default 0
+             */
+            risk_score: number;
+            /**
+             * Risk Level
+             * @default Low
+             */
+            risk_level: string;
+            /** Tle Line0 */
+            tle_line0?: string | null;
+            /** Tle Line1 */
+            tle_line1?: string | null;
+            /** Tle Line2 */
+            tle_line2?: string | null;
+        };
+        /**
+         * DebrisRiskSummary
+         * @description Population-level debris risk analysis.
+         */
+        DebrisRiskSummary: {
+            /** Total */
+            total: number;
+            /** By Level */
+            by_level?: {
+                [key: string]: number;
+            };
+            /** Density By Shell */
+            density_by_shell?: components["schemas"]["ShellBin"][];
+            /** Conjunctions */
+            conjunctions?: components["schemas"]["ConjunctionResponse"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -289,6 +863,85 @@ export interface components {
          * @enum {string}
          */
         LivenessStatus: "ok";
+        /** LoginRequest */
+        LoginRequest: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+        };
+        /**
+         * ManeuverResponse
+         * @description One detected maneuver — mirrors the canonical ``Maneuver`` record.
+         */
+        ManeuverResponse: {
+            /** Id */
+            id: string;
+            /** Object Id */
+            object_id: string;
+            /** Norad Cat Id */
+            norad_cat_id?: number | null;
+            /** Object Name */
+            object_name: string;
+            /**
+             * Epoch Before
+             * Format: date-time
+             */
+            epoch_before: string;
+            /**
+             * Epoch After
+             * Format: date-time
+             */
+            epoch_after: string;
+            /**
+             * Detected Epoch
+             * Format: date-time
+             */
+            detected_epoch: string;
+            /** Delta Sma Km */
+            delta_sma_km: number;
+            /** Delta Ecc */
+            delta_ecc: number;
+            /** Delta Inc Deg */
+            delta_inc_deg: number;
+            /** Delta Raan Deg */
+            delta_raan_deg: number;
+            /** Detection Statistic */
+            detection_statistic: number;
+            /** Confidence */
+            confidence: number;
+            /** Sma Before Km */
+            sma_before_km?: number | null;
+            /** Inclination Deg */
+            inclination_deg?: number | null;
+            /** Delta V M S */
+            delta_v_m_s?: number | null;
+            /** Ric Radial M S */
+            ric_radial_m_s?: number | null;
+            /** Ric In Track M S */
+            ric_in_track_m_s?: number | null;
+            /** Ric Cross Track M S */
+            ric_cross_track_m_s?: number | null;
+            /** Maneuver Type */
+            maneuver_type: string;
+            /** Detected At */
+            detected_at?: string | null;
+        };
+        /**
+         * MeResponse
+         * @description The subject attributes the UI uses to shape itself (no token, no hash).
+         */
+        MeResponse: {
+            /** Username */
+            username: string;
+            role: components["schemas"]["Role"];
+            service: components["schemas"]["Service"];
+            clearance: components["schemas"]["Clearance"];
+            /** Scope */
+            scope?: string[];
+            /** Grants */
+            grants?: string[];
+        };
         /**
          * ObjectDetail
          * @description Full catalog record for the per-satellite info sidebar (#9h).
@@ -379,6 +1032,191 @@ export interface components {
          * @enum {string}
          */
         ReadinessStatus: "ready" | "not_ready";
+        /**
+         * ReportImagesRequest
+         * @description Optional web-supplied report images as base64-encoded PNGs.
+         *
+         *     All fields optional so a no-image POST is valid. ``country_globes`` maps a
+         *     report-country code (NK/CN/RU/JP) to a base64 PNG; unknown keys are dropped.
+         */
+        ReportImagesRequest: {
+            /** Country Globes */
+            country_globes?: {
+                [key: string]: string;
+            };
+            /** Debris Density */
+            debris_density?: string | null;
+            /** Debris Heatmap */
+            debris_heatmap?: string | null;
+        };
+        /**
+         * ReportStatus
+         * @description Lifecycle of a report job (matches the ``report_job_status`` enum in 0010).
+         * @enum {string}
+         */
+        ReportStatus: "PENDING" | "RUNNING" | "DONE" | "FAILED";
+        /**
+         * ReportStatusResponse
+         * @description A job's status; ``download_url`` is present only once DONE, ``error_reason`` only on FAILED.
+         */
+        ReportStatusResponse: {
+            /** Job Id */
+            job_id: string;
+            status: components["schemas"]["ReportStatus"];
+            /** Report Type */
+            report_type: string;
+            /**
+             * Report Date
+             * Format: date
+             */
+            report_date: string;
+            /** Download Url */
+            download_url?: string | null;
+            /** Error Reason */
+            error_reason?: string | null;
+            /** Filters */
+            filters?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
+         * Role
+         * @description Coarse RBAC grouping (a convenience over ABAC; never widens a deny).
+         *
+         *     Ordered least → most privilege. ``VIEWER`` = the roadmap's "general" users
+         *     (browse the catalog/visualisation); ``ANALYST`` = the "core" operators
+         *     (screening, alert triage, intelligence, export); ``ADMIN`` = administration
+         *     and audit.
+         * @enum {string}
+         */
+        Role: "VIEWER" | "ANALYST" | "ADMIN";
+        /**
+         * ScoreComponents
+         * @description Normalized 0..1 per-method scores; None = no signal in the window.
+         */
+        ScoreComponents: {
+            /** Maneuver */
+            maneuver?: number | null;
+            /** Conjunction */
+            conjunction?: number | null;
+            /** Rpo */
+            rpo?: number | null;
+            /** Debris */
+            debris?: number | null;
+            /** Anomaly */
+            anomaly?: number | null;
+        };
+        /**
+         * ScoreHistoryPoint
+         * @description Threat-level histogram of the scored population at one past day.
+         */
+        ScoreHistoryPoint: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** By Level */
+            by_level?: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * ScoreItem
+         * @description One object's composite threat score with its explainable breakdown.
+         */
+        ScoreItem: {
+            /** Object Id */
+            object_id: string;
+            /** Object Name */
+            object_name: string;
+            /** Composite */
+            composite: number;
+            /** Level */
+            level: string;
+            components: components["schemas"]["ScoreComponents"];
+            raw: components["schemas"]["ScoreRaw"];
+        };
+        /**
+         * ScoreRaw
+         * @description Underlying raw evidence for drill-down/tooltips.
+         */
+        ScoreRaw: {
+            /** Max Confidence */
+            max_confidence?: number | null;
+            /** Max Delta V M S */
+            max_delta_v_m_s?: number | null;
+            /** Maneuver Count */
+            maneuver_count?: number | null;
+            /** Max Pc */
+            max_pc?: number | null;
+            /** Min Miss Km */
+            min_miss_km?: number | null;
+            /** Severity */
+            severity?: string | null;
+            /** Conjunction Count */
+            conjunction_count?: number | null;
+            /** Max Coplanarity */
+            max_coplanarity?: number | null;
+            /** Rpo Count */
+            rpo_count?: number | null;
+            /** Debris Risk Score */
+            debris_risk_score?: number | null;
+            /** Max Delta V Sigma */
+            max_delta_v_sigma?: number | null;
+            /** Novel Type */
+            novel_type?: boolean | null;
+            /** Anomaly Count */
+            anomaly_count?: number | null;
+        };
+        /**
+         * ScoreSummary
+         * @description Population rollup for the dashboard KPI tiles.
+         */
+        ScoreSummary: {
+            /** Total */
+            total: number;
+            /** By Level */
+            by_level?: {
+                [key: string]: number;
+            };
+            /** By Method */
+            by_method?: {
+                [key: string]: number;
+            };
+        };
+        /** ScoresHistoryResponse */
+        ScoresHistoryResponse: {
+            /** Window Days */
+            window_days: number;
+            /** Days */
+            days: number;
+            /** Points */
+            points: components["schemas"]["ScoreHistoryPoint"][];
+        };
+        /** ScoresResponse */
+        ScoresResponse: {
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Window Days */
+            window_days: number;
+            /** Weights */
+            weights: {
+                [key: string]: number;
+            };
+            summary: components["schemas"]["ScoreSummary"];
+            /** Items */
+            items: components["schemas"]["ScoreItem"][];
+        };
+        /**
+         * Service
+         * @description Owning/affiliated service (the tri-service axis). ``JOINT`` spans all.
+         * @enum {string}
+         */
+        Service: "AIR_FORCE" | "ARMY" | "NAVY" | "JOINT";
         /** ServiceInfo */
         ServiceInfo: {
             /** Name */
@@ -387,6 +1225,16 @@ export interface components {
             version: string;
             /** Environment */
             environment: string;
+        };
+        /**
+         * ShellBin
+         * @description Debris count in one 100 km altitude shell (density-by-shell profile).
+         */
+        ShellBin: {
+            /** Altitude Km */
+            altitude_km: number;
+            /** Count */
+            count: number;
         };
         /** StateObject */
         StateObject: {
@@ -413,6 +1261,14 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * WatchlistResponse
+         * @description The current user's watchlisted catalog object ids.
+         */
+        WatchlistResponse: {
+            /** Object Ids */
+            object_ids: string[];
         };
     };
     responses: never;
@@ -479,6 +1335,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Readiness"];
+                };
+            };
+        };
+    };
+    login_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    me_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+        };
+    };
+    logout_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
         };
@@ -691,6 +1622,525 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_conjunctions_conjunctions_get: {
+        parameters: {
+            query?: {
+                /** @description Exact tier: LOW / MOD / HIGH */
+                severity?: string | null;
+                min_probability?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConjunctionResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_alerts_alerts_get: {
+        parameters: {
+            query?: {
+                /** @description NEW / ACK / DISMISSED */
+                status?: string | null;
+                /** @description Alert type, e.g. rpo / conjunction */
+                type?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    acknowledge_alert_alerts__alert_id__ack_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alert_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_debris_debris_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebrisObject"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_debris_risk_debris_risk_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebrisRiskSummary"];
+                };
+            };
+        };
+    };
+    get_maneuvers_maneuvers_get: {
+        parameters: {
+            query?: {
+                /** @description Filter to one object */
+                object_id?: string | null;
+                /** @description Exact purpose class */
+                maneuver_type?: string | null;
+                min_confidence?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManeuverResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_baselines_maneuvers_baselines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaselineResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scores_scores_get: {
+        parameters: {
+            query?: {
+                window_days?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoresResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scores_history_scores_history_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                window_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoresHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_report_reports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateReportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_report_reports__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_report_reports__job_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/pdf": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_watchlist_watchlist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchlistResponse"];
+                };
+            };
+        };
+    };
+    add_to_watchlist_watchlist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddWatchlistRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchlistResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_from_watchlist_watchlist__object_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchlistResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_audit_audit_get: {
+        parameters: {
+            query?: {
+                /** @description Substring match on subject */
+                subject?: string | null;
+                /** @description Substring match on request path */
+                path?: string | null;
+                /** @description Substring match on source IP */
+                source_ip?: string | null;
+                /** @description permit / deny (OR) */
+                decision?: string[] | null;
+                /** @description Filter by role (OR) */
+                role?: string[] | null;
+                /** @description Filter by data domain (OR) */
+                domain?: string[] | null;
+                /** @description Filter by action (OR) */
+                action?: string[] | null;
+                /** @description Earliest ts (inclusive) */
+                ts_from?: string | null;
+                /** @description Latest ts (inclusive) */
+                ts_to?: string | null;
+                /** @description Page size */
+                limit?: number;
+                /** @description Rows to skip (page * size) */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
