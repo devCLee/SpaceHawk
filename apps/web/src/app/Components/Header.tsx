@@ -5,7 +5,7 @@
 // magic offsets — the globe online/offline switch (top:8), Cesium's scene-mode +
 // imagery picker (top:48), and the notification bell (top:152):
 //
-//   wordmark | 라이브 · 샌드박스 · 감사 로그 | ◐ scene · ▦ imagery · ● 지구본 온라인 | 🔔 | 계정
+//   wordmark | 라이브 · 감사 로그 | ◐ scene · ▦ imagery · ● 지구본 온라인 | 🔔 | 계정
 //
 // The globe-view group + bell only appear on the dashboard (when a Cesium viewer
 // is registered with GlobeControls); the workspace modes + account chip show on
@@ -30,7 +30,7 @@ import {
 import { http } from "@/lib/api/apiClient";
 import { t } from "@/lib/i18n/t";
 
-type ModeId = "live" | "sandbox" | "scores" | "history" | "audit";
+type ModeId = "live" | "scores" | "history" | "audit";
 type Pop = "alerts" | "account" | null;
 type AlertCat = "all" | "watch";
 
@@ -54,8 +54,7 @@ export default function Header() {
 
   // The audit/history segments map to real routes, so their active state is
   // driven by the URL — not local state — or it desyncs after navigating there
-  // (e.g. via the account menu). Live/sandbox are workspace toggles with no
-  // route yet.
+  // (e.g. via the account menu). Live is a workspace toggle with no route yet.
   const onAudit = pathname?.startsWith("/admin/audit") ?? false;
   const onHistory = pathname?.startsWith("/history") ?? false;
   const onScores = pathname?.startsWith("/scores") ?? false;
@@ -173,12 +172,6 @@ export default function Header() {
             onClick={() => selectMode("live")}
           >
             {t("header.live")}
-          </button>
-          <button
-            className={activeMode === "sandbox" ? "on" : ""}
-            onClick={() => selectMode("sandbox")}
-          >
-            {t("header.sandbox")}
           </button>
           <button
             className={activeMode === "scores" ? "on" : ""}
