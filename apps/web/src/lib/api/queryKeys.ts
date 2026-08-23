@@ -29,4 +29,10 @@ export const queryKeys = {
     ["catalog", "history", objectId] as const,
   // GET /api/reports/{id} (HWPX report job status, polled)
   reportJob: (jobId: string) => ["reports", "job", jobId] as const,
+  // GET /api/scores (composite threat scores, 위협 점수 dashboard)
+  scores: (windowDays?: number) =>
+    ["scores", "list", windowDays ?? "default"] as const,
+  // GET /api/scores/history (threat-level histogram over time)
+  scoresHistory: (days?: number) =>
+    ["scores", "history", days ?? "default"] as const,
 };
