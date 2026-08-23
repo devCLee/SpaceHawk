@@ -110,9 +110,11 @@ export interface ConjunctionsResult {
 
 /** Fetch screened conjunctions. Returns `available: false` until the engine's
  * Stage-4 `/conjunctions` endpoint exists (graceful, never throws). */
-export async function fetchConjunctions(): Promise<ConjunctionsResult> {
+export async function fetchConjunctions(limit?: number): Promise<ConjunctionsResult> {
   try {
-    const res = await fetch(`${ENGINE_URL}/conjunctions`, {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", String(limit));
+    const res = await fetch(`${ENGINE_URL}/conjunctions?${params.toString()}`, {
       cache: "no-store",
       headers: await engineAuthHeaders(),
     });
@@ -224,10 +226,16 @@ export interface Alert {
   created_at: string | null;
 }
 
-/** Fetch the durable alert log, optionally filtered by triage status. */
-export async function fetchAlerts(status?: string): Promise<Alert[]> {
+/** Fetch the durable alert log, optionally filtered by triage status and type. */
+export async function fetchAlerts(
+  status?: string,
+  type?: string,
+  limit?: number
+): Promise<Alert[]> {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
+  if (type) params.set("type", type);
+  if (limit) params.set("limit", String(limit));
   const res = await fetch(`${ENGINE_URL}/alerts?${params.toString()}`, {
     cache: "no-store",
     headers: await engineAuthHeaders(),
@@ -257,6 +265,40 @@ export async function acknowledgeAlert(
     throw new Error(`orbital-engine /alerts/${id}/ack failed: ${res.status}`);
   }
   return res.json() as Promise<Alert>;
+}
+
+/** One element set in an object's gp_history time series. Mirrors the engine's
+ * `HistoryPoint` response model. */
+export interface HistoryPoint {
+  object_id: string;
+  epoch: string;
+  data_source: string | null;
+  mean_motion: number | null;
+  eccentricity: number | null;
+  inclination: number | null;
+  ra_of_asc_node: number | null;
+  arg_of_pericenter: number | null;
+  mean_anomaly: number | null;
+  bstar: number | null;
+  semimajor_axis_km: number | null;
+  period_min: number | null;
+  apoapsis_km: number | null;
+  periapsis_km: number | null;
+}
+
+/** Fetch one object's element-set history (newest first). Throws on a non-2xx. */
+export async function fetchObjectHistory(
+  objectId: string,
+  limit = 1000
+): Promise<HistoryPoint[]> {
+  const res = await fetch(
+    `${ENGINE_URL}/catalog/${encodeURIComponent(objectId)}/history?limit=${limit}`,
+    { cache: "no-store", headers: await engineAuthHeaders() }
+  );
+  if (!res.ok) {
+    throw new Error(`orbital-engine /catalog/${objectId}/history failed: ${res.status}`);
+  }
+  return res.json() as Promise<HistoryPoint[]>;
 }
 
 /** Fetch one object's full detail. Returns null on 404, throws on other errors. */
@@ -338,11 +380,13 @@ export interface BaselinesResult {
  * `available: false` (never throws) when the engine endpoint is offline or the
  * caller lacks the MANEUVER_INTEL grant. */
 export async function fetchManeuvers(
-  objectId?: string
+  objectId?: string,
+  limit?: number
 ): Promise<ManeuversResult> {
   try {
     const params = new URLSearchParams();
     if (objectId) params.set("object_id", objectId);
+    if (limit) params.set("limit", String(limit));
     const res = await fetch(`${ENGINE_URL}/maneuvers?${params.toString()}`, {
       cache: "no-store",
       headers: await engineAuthHeaders(),
@@ -355,9 +399,11 @@ export async function fetchManeuvers(
 }
 
 /** Fetch the per-object behavioral baselines. Graceful (see `fetchManeuvers`). */
-export async function fetchBaselines(): Promise<BaselinesResult> {
+export async function fetchBaselines(limit?: number): Promise<BaselinesResult> {
   try {
-    const res = await fetch(`${ENGINE_URL}/maneuvers/baselines`, {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", String(limit));
+    const res = await fetch(`${ENGINE_URL}/maneuvers/baselines?${params.toString()}`, {
       cache: "no-store",
       headers: await engineAuthHeaders(),
     });
