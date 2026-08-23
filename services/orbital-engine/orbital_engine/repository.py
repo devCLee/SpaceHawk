@@ -504,13 +504,18 @@ async def record_alert(alert: dict[str, Any]) -> None:
 
 
 async def query_alerts(
-    *, status: str | None = None, limit: int = 100
+    *, status: str | None = None, alert_type: str | None = None, limit: int = 100
 ) -> list[dict[str, Any]]:
-    """Return alerts newest-first, optionally filtered by triage status."""
-    where = "WHERE status::text = :st " if status else ""
+    """Return alerts newest-first, optionally filtered by triage status and type."""
+    clauses: list[str] = []
     params: dict[str, Any] = {"lim": max(1, min(int(limit), 1000))}
     if status:
+        clauses.append("status::text = :st")
         params["st"] = status
+    if alert_type:
+        clauses.append("type = :ty")
+        params["ty"] = alert_type
+    where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
     sql = f"SELECT {_ALERT_SELECT} FROM alert {where}ORDER BY created_at DESC LIMIT :lim"
     async with get_engine().connect() as conn:
         result = await conn.execute(text(sql), params)

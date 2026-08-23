@@ -89,8 +89,21 @@ def test_get_alerts_filters_by_status(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(conj_api, "query_alerts", fake_alerts)
     resp = client.get("/alerts", params={"status": "NEW"})
     assert resp.status_code == 200
-    assert captured == {"status": "NEW", "limit": 100}
+    assert captured == {"status": "NEW", "alert_type": None, "limit": 100}
     assert resp.json()[0]["conjunction_id"] == "CDM:1"
+
+
+def test_get_alerts_filters_by_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    async def fake_alerts(**kwargs):
+        captured.update(kwargs)
+        return [ALERT]
+
+    monkeypatch.setattr(conj_api, "query_alerts", fake_alerts)
+    resp = client.get("/alerts", params={"type": "rpo", "limit": 500})
+    assert resp.status_code == 200
+    assert captured == {"status": None, "alert_type": "rpo", "limit": 500}
 
 
 def test_acknowledge_alert_found(monkeypatch: pytest.MonkeyPatch) -> None:
