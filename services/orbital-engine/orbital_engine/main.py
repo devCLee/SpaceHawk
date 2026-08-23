@@ -17,6 +17,7 @@ from orbital_engine.api import (
     debris,
     health,
     maneuvers,
+    scores,
     watchlist,
 )
 from orbital_engine.config import Settings, get_settings
@@ -101,6 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(conjunctions.router)
     app.include_router(debris.router)
     app.include_router(maneuvers.router)
+    app.include_router(scores.router)
     app.include_router(reports.router)
     app.include_router(watchlist.router)
     app.include_router(audit.router)

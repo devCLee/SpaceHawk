@@ -414,6 +414,130 @@ export async function fetchBaselines(limit?: number): Promise<BaselinesResult> {
   }
 }
 
+// --- Composite threat scores (mentoring #11 / S2: weighted per-object rollup
+//     of the five analysis methods, weights exposed for interpretability) ---
+
+/** Normalized 0..1 per-method scores; null = no signal in the window. */
+export interface ScoreComponents {
+  maneuver: number | null;
+  conjunction: number | null;
+  rpo: number | null;
+  debris: number | null;
+  anomaly: number | null;
+}
+
+/** Raw per-method evidence backing the components (tooltips/drill-down). */
+export interface ScoreRaw {
+  max_confidence: number | null;
+  max_delta_v_m_s: number | null;
+  maneuver_count: number | null;
+  max_pc: number | null;
+  min_miss_km: number | null;
+  severity: string | null;
+  conjunction_count: number | null;
+  max_coplanarity: number | null;
+  rpo_count: number | null;
+  debris_risk_score: number | null;
+  max_delta_v_sigma: number | null;
+  novel_type: boolean | null;
+  anomaly_count: number | null;
+}
+
+/** One object's composite threat score. Mirrors the engine's `ScoreItem`. */
+export interface ScoreItem {
+  object_id: string;
+  object_name: string;
+  composite: number;
+  level: string;
+  components: ScoreComponents;
+  raw: ScoreRaw;
+}
+
+export interface ScoreSummary {
+  total: number;
+  by_level: Record<string, number>;
+  by_method: Record<string, number>;
+}
+
+export interface ScoresResult {
+  /** False when the engine is offline or the caller lacks MANEUVER_INTEL. */
+  available: boolean;
+  generated_at: string | null;
+  window_days: number | null;
+  weights: Record<string, number>;
+  summary: ScoreSummary | null;
+  items: ScoreItem[];
+}
+
+/** One day's threat-level histogram. Mirrors the engine's `ScoreHistoryPoint`. */
+export interface ScoreHistoryPoint {
+  date: string;
+  by_level: Record<string, number>;
+}
+
+export interface ScoresHistoryResult {
+  available: boolean;
+  window_days: number | null;
+  days: number | null;
+  points: ScoreHistoryPoint[];
+}
+
+/** Fetch the ranked composite threat scores. Graceful (see `fetchManeuvers`). */
+export async function fetchScores(
+  windowDays?: number,
+  limit?: number
+): Promise<ScoresResult> {
+  const empty: ScoresResult = {
+    available: false,
+    generated_at: null,
+    window_days: null,
+    weights: {},
+    summary: null,
+    items: [],
+  };
+  try {
+    const params = new URLSearchParams();
+    if (windowDays) params.set("window_days", String(windowDays));
+    if (limit) params.set("limit", String(limit));
+    const res = await fetch(`${ENGINE_URL}/scores?${params.toString()}`, {
+      cache: "no-store",
+      headers: await engineAuthHeaders(),
+    });
+    if (!res.ok) return empty;
+    const body = (await res.json()) as Omit<ScoresResult, "available">;
+    return { available: true, ...body };
+  } catch {
+    return empty;
+  }
+}
+
+/** Fetch the threat-level histogram over the last N days. Graceful. */
+export async function fetchScoresHistory(
+  days?: number,
+  windowDays?: number
+): Promise<ScoresHistoryResult> {
+  const empty: ScoresHistoryResult = {
+    available: false,
+    window_days: null,
+    days: null,
+    points: [],
+  };
+  try {
+    const params = new URLSearchParams();
+    if (days) params.set("days", String(days));
+    if (windowDays) params.set("window_days", String(windowDays));
+    const res = await fetch(`${ENGINE_URL}/scores/history?${params.toString()}`, {
+      cache: "no-store",
+      headers: await engineAuthHeaders(),
+    });
+    if (!res.ok) return empty;
+    const body = (await res.json()) as Omit<ScoresHistoryResult, "available">;
+    return { available: true, ...body };
+  } catch {
+    return empty;
+  }
+}
+
 // --- Watchlist (A1/A2: per-user object-of-interest list, server source of
 //     truth so the daily report reads the same picks via owner_username) ---
 

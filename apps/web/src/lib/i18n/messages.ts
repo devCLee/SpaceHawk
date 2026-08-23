@@ -18,6 +18,7 @@ export const messages = {
   "header.sandbox": "샌드박스",
   "header.audit": "감사 로그",
   "header.history": "분석 이력",
+  "header.scores": "위협 점수",
   "header.signOut": "로그아웃",
   "header.modesAria": "작업 공간 모드",
   "header.accountMenu": "계정 메뉴",
@@ -290,6 +291,32 @@ export const messages = {
   "history.col.apoapsis": "원지점 (km)",
   "history.col.periapsis": "근지점 (km)",
   "history.col.bstar": "B*",
+
+  // Composite threat scoring (위협 점수) dashboard
+  "scores.title": "종합 위협 점수",
+  "scores.window": "최근 {days}일 분석 기준 · 구성요소·가중치 공개(해석 가능)",
+  "scores.kpi.total": "평가 대상",
+  "scores.method.maneuver": "기동",
+  "scores.method.conjunction": "근접/충돌",
+  "scores.method.rpo": "RPO",
+  "scores.method.debris": "잔해물",
+  "scores.method.anomaly": "이상 기동",
+  "scores.col.composite": "종합 점수",
+  "scores.col.level": "위협 등급",
+  "scores.info.title": "점수 산정 방식",
+  "scores.info.formula":
+    "종합 점수 = 100 × Σ(가중치 × 기법별 정규화 점수) ÷ Σ(적용된 가중치). 분석 창 내에 관측되지 않은 기법(— 표시)은 0점 처리가 아니라 가중치 재정규화로 제외됩니다.",
+  "scores.info.methods": "기법별 정규화 (0–1)",
+  "scores.info.method.maneuver": "기동 탐지 신뢰도를 그대로 사용",
+  "scores.info.method.conjunction":
+    "충돌확률(Pc) 로그 스케일 — 1e-7→0.0, 1e-5→0.5, 1e-3→1.0 · Pc가 없으면 스크리닝 심각도로 대체(HIGH 1.0 / MOD 0.6 / LOW 0.3)",
+  "scores.info.method.rpo": "보호자산 대비 동일평면 점수를 그대로 사용",
+  "scores.info.method.debris":
+    "잔해물 위험도 ÷ 100 · 잔해물 단독 신호 객체는 위험도 45 이상만 평가 대상",
+  "scores.info.method.anomaly":
+    "행동 기준선 이탈 σ ÷ 6 (최대 1.0) · 처음 보는 기동 유형은 최소 0.8",
+  "scores.info.weights": "가중치",
+  "scores.info.levels": "위협 등급 구간",
 
   // Debris layer + collision-risk analysis
   "debris.title": "우주 잔해",

@@ -30,7 +30,7 @@ import {
 import { http } from "@/lib/api/apiClient";
 import { t } from "@/lib/i18n/t";
 
-type ModeId = "live" | "sandbox" | "history" | "audit";
+type ModeId = "live" | "sandbox" | "scores" | "history" | "audit";
 type Pop = "alerts" | "account" | null;
 type AlertCat = "all" | "watch";
 
@@ -58,8 +58,15 @@ export default function Header() {
   // route yet.
   const onAudit = pathname?.startsWith("/admin/audit") ?? false;
   const onHistory = pathname?.startsWith("/history") ?? false;
+  const onScores = pathname?.startsWith("/scores") ?? false;
   const [mode, setActiveMode] = React.useState<ModeId>("live");
-  const activeMode: ModeId = onAudit ? "audit" : onHistory ? "history" : mode;
+  const activeMode: ModeId = onAudit
+    ? "audit"
+    : onHistory
+      ? "history"
+      : onScores
+        ? "scores"
+        : mode;
   const [pop, setPop] = React.useState<Pop>(null);
   const clusterRef = React.useRef<HTMLDivElement>(null);
   const imageryBtnRef = React.useRef<HTMLButtonElement>(null);
@@ -121,9 +128,13 @@ export default function Header() {
       router.push("/history");
       return;
     }
+    if (id === "scores") {
+      router.push("/scores");
+      return;
+    }
     setActiveMode(id);
     // Leaving a routed page back to a workspace mode returns to the dashboard.
-    if (onAudit || onHistory) router.push("/");
+    if (onAudit || onHistory || onScores) router.push("/");
   }
 
   const online = globe.mode === "online";
@@ -168,6 +179,12 @@ export default function Header() {
             onClick={() => selectMode("sandbox")}
           >
             {t("header.sandbox")}
+          </button>
+          <button
+            className={activeMode === "scores" ? "on" : ""}
+            onClick={() => selectMode("scores")}
+          >
+            {t("header.scores")}
           </button>
           <button
             className={activeMode === "history" ? "on" : ""}
