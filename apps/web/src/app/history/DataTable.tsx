@@ -28,6 +28,8 @@ interface DataTableProps<TData> {
   emptyText?: string;
   initialSorting?: SortingState;
   pageSize?: number;
+  /** When false, the body grows to fit and the page (not the table) scrolls. */
+  scrollInside?: boolean;
 }
 
 // Stable fallback so an undefined `data` doesn't recreate the array per render.
@@ -42,6 +44,7 @@ export default function DataTable<TData>({
   emptyText,
   initialSorting = [],
   pageSize = 25,
+  scrollInside = true,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>(initialSorting);
   const [globalFilter, setGlobalFilter] = useState("");
@@ -81,7 +84,11 @@ export default function DataTable<TData>({
         />
       )}
 
-      <div className="max-h-[calc(100vh-22rem)] overflow-auto rounded-lg border border-slate-800">
+      <div
+        className={`rounded-lg border border-slate-800 ${
+          scrollInside ? "max-h-[calc(100vh-22rem)] overflow-auto" : ""
+        }`}
+      >
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 z-20 bg-slate-900 text-slate-400">
             {table.getHeaderGroups().map((hg) => (
