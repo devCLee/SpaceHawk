@@ -56,6 +56,16 @@ services:
       # class/gp call per hour) — Space-Track throttles request rate, not row
       # count, and a full on-orbit GP retrieval is a documented pattern.
       ORBITAL_ENGINE_SPACETRACK_QUERY_LIMIT: "50000"
+      # Protected-asset watch-list (ROK payloads present in the catalog). With
+      # this unset the RPO loop no-ops at startup ("air-gap default") and no
+      # type='rpo' alert can ever fire. Also focuses conjunction self-screening
+      # on protected-vs-all pairs.
+      # 45920 KOREASAT 116 (ANASIS-II), 43823/45246 GEO-KOMPSAT-2A/2B,
+      # 29268/38338/40536/39227 KOMPSAT 2/3/3A/5, 47932 CAS500-1.
+      ORBITAL_ENGINE_PROTECTED_NORAD_IDS: "[45920, 43823, 45246, 29268, 38338, 40536, 39227, 47932]"
+      # Public GP history caps at ~4-6 epochs/object, so maneuver detections top
+      # out at 2/object — the default min of 3 leaves the baseline store empty.
+      ORBITAL_ENGINE_FINGERPRINT_MIN_MANEUVERS: "2"
     ports:
       - "8000:8000"
     depends_on:
