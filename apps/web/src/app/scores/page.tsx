@@ -8,6 +8,7 @@
 // engine comes back `available: false` → graceful unavailable state.
 
 import AuthGuard from "@/app/Components/guards/AuthGuard";
+import { Spinner } from "@/app/Components/ui/Spinner";
 import { useApiQuery } from "@/lib/api/useApiQuery";
 import { queryKeys } from "@/lib/api/queryKeys";
 import type {
@@ -314,7 +315,13 @@ function ScoresView() {
             </div>
             <div className="mb-2 flex items-center gap-10 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
               <SeverityPie byLevel={summary?.by_level ?? {}} />
-              <SeverityTrend points={history.data?.points ?? []} />
+              {history.isLoading ? (
+                <div className="flex h-32 min-w-0 flex-1 items-center justify-center">
+                  <Spinner className="size-6 text-slate-400" />
+                </div>
+              ) : (
+                <SeverityTrend points={history.data?.points ?? []} />
+              )}
             </div>
             <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
               {METHODS.map((m) => (
