@@ -69,6 +69,94 @@
         }
       }
     },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Authenticate and open a session",
+        "description": "Verify credentials, mint the session token, set the cookie.\n\nReturns 401 for unknown user, bad password, or an unapproved account \u2014 the\nsame opaque error in every case so the endpoint does not leak which failed.",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Current session subject",
+        "operationId": "me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Close the session",
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Logout Auth Logout Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/catalog": {
       "get": {
         "tags": [
@@ -328,7 +416,7 @@
         "tags": [
           "catalog"
         ],
-        "summary": "Trigger Celestrak ingest",
+        "summary": "Trigger a catalog ingest (all sources)",
         "operationId": "run_ingest_ingest_run_post",
         "responses": {
           "200": {
@@ -403,10 +491,1408 @@
           }
         }
       }
+    },
+    "/conjunctions": {
+      "get": {
+        "tags": [
+          "conjunctions"
+        ],
+        "summary": "Ranked conjunctions",
+        "operationId": "get_conjunctions_conjunctions_get",
+        "parameters": [
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact tier: LOW / MOD / HIGH",
+              "title": "Severity"
+            },
+            "description": "Exact tier: LOW / MOD / HIGH"
+          },
+          {
+            "name": "min_probability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Probability"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConjunctionResponse"
+                  },
+                  "title": "Response Get Conjunctions Conjunctions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts": {
+      "get": {
+        "tags": [
+          "conjunctions"
+        ],
+        "summary": "Durable alert log",
+        "operationId": "get_alerts_alerts_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "NEW / ACK / DISMISSED",
+              "title": "Status"
+            },
+            "description": "NEW / ACK / DISMISSED"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Alert type, e.g. rpo / conjunction",
+              "title": "Type"
+            },
+            "description": "Alert type, e.g. rpo / conjunction"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlertResponse"
+                  },
+                  "title": "Response Get Alerts Alerts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alerts/{alert_id}/ack": {
+      "post": {
+        "tags": [
+          "conjunctions"
+        ],
+        "summary": "Acknowledge/dismiss an alert",
+        "operationId": "acknowledge_alert_alerts__alert_id__ack_post",
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Alert Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/debris": {
+      "get": {
+        "tags": [
+          "debris"
+        ],
+        "summary": "Tracked debris + risk",
+        "operationId": "get_debris_debris_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20000,
+              "minimum": 1,
+              "default": 2000,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DebrisObject"
+                  },
+                  "title": "Response Get Debris Debris Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/debris/risk": {
+      "get": {
+        "tags": [
+          "debris"
+        ],
+        "summary": "Debris risk analysis",
+        "operationId": "get_debris_risk_debris_risk_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebrisRiskSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/maneuvers": {
+      "get": {
+        "tags": [
+          "maneuvers"
+        ],
+        "summary": "Detected maneuvers",
+        "operationId": "get_maneuvers_maneuvers_get",
+        "parameters": [
+          {
+            "name": "object_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter to one object",
+              "title": "Object Id"
+            },
+            "description": "Filter to one object"
+          },
+          {
+            "name": "maneuver_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact purpose class",
+              "title": "Maneuver Type"
+            },
+            "description": "Exact purpose class"
+          },
+          {
+            "name": "min_confidence",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Confidence"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManeuverResponse"
+                  },
+                  "title": "Response Get Maneuvers Maneuvers Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/maneuvers/baselines": {
+      "get": {
+        "tags": [
+          "maneuvers"
+        ],
+        "summary": "Per-object behavioral baselines",
+        "operationId": "get_baselines_maneuvers_baselines_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BaselineResponse"
+                  },
+                  "title": "Response Get Baselines Maneuvers Baselines Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scores": {
+      "get": {
+        "tags": [
+          "scores"
+        ],
+        "summary": "Composite threat scores",
+        "operationId": "get_scores_scores_get",
+        "parameters": [
+          {
+            "name": "window_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 30,
+              "title": "Window Days"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "minimum": 1,
+              "default": 1000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoresResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scores/history": {
+      "get": {
+        "tags": [
+          "scores"
+        ],
+        "summary": "Threat-level histogram over the last N days",
+        "operationId": "get_scores_history_scores_history_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 2,
+              "default": 14,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "window_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 30,
+              "title": "Window Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoresHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Create (idempotently) a daily-report job",
+        "operationId": "create_report_reports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/{job_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Report job status (+ download_url once DONE)",
+        "operationId": "get_report_reports__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/{job_id}/download": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Download the finished PDF report",
+        "operationId": "download_report_reports__job_id__download_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/pdf": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/watchlist": {
+      "get": {
+        "tags": [
+          "watchlist"
+        ],
+        "summary": "The current user's watchlist",
+        "operationId": "get_watchlist_watchlist_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "watchlist"
+        ],
+        "summary": "Add an object to the current user's watchlist (idempotent)",
+        "operationId": "add_to_watchlist_watchlist_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddWatchlistRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/watchlist/{object_id}": {
+      "delete": {
+        "tags": [
+          "watchlist"
+        ],
+        "summary": "Remove an object from the current user's watchlist (no-op if absent)",
+        "operationId": "remove_from_watchlist_watchlist__object_id__delete",
+        "parameters": [
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Object Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "Query the audit log (ADMIN)",
+        "operationId": "get_audit_audit_get",
+        "parameters": [
+          {
+            "name": "subject",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring match on subject",
+              "title": "Subject"
+            },
+            "description": "Substring match on subject"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring match on request path",
+              "title": "Path"
+            },
+            "description": "Substring match on request path"
+          },
+          {
+            "name": "source_ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring match on source IP",
+              "title": "Source Ip"
+            },
+            "description": "Substring match on source IP"
+          },
+          {
+            "name": "decision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "permit / deny (OR)",
+              "title": "Decision"
+            },
+            "description": "permit / deny (OR)"
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by role (OR)",
+              "title": "Role"
+            },
+            "description": "Filter by role (OR)"
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by data domain (OR)",
+              "title": "Domain"
+            },
+            "description": "Filter by data domain (OR)"
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by action (OR)",
+              "title": "Action"
+            },
+            "description": "Filter by action (OR)"
+          },
+          {
+            "name": "ts_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Earliest ts (inclusive)",
+              "title": "Ts From"
+            },
+            "description": "Earliest ts (inclusive)"
+          },
+          {
+            "name": "ts_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Latest ts (inclusive)",
+              "title": "Ts To"
+            },
+            "description": "Latest ts (inclusive)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Page size",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "Page size"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Rows to skip (page * size)",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Rows to skip (page * size)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AckRequest": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACK",
+              "DISMISSED"
+            ],
+            "title": "Status",
+            "default": "ACK"
+          },
+          "acknowledged_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged By"
+          }
+        },
+        "type": "object",
+        "title": "AckRequest"
+      },
+      "AddWatchlistRequest": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "title": "Object Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id"
+        ],
+        "title": "AddWatchlistRequest",
+        "description": "Body for adding one object to the current user's watchlist."
+      },
+      "AlertResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "object_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Id"
+          },
+          "conjunction_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conjunction Id"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "acknowledged_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged By"
+          },
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "message",
+          "status"
+        ],
+        "title": "AlertResponse",
+        "description": "One durable alert in the triage log."
+      },
+      "AuditEntry": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ts"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "service": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service"
+          },
+          "source_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ip"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "decision": {
+            "type": "string",
+            "title": "Decision"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ts",
+          "domain",
+          "action",
+          "decision",
+          "code",
+          "reason"
+        ],
+        "title": "AuditEntry"
+      },
+      "AuditPage": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "total"
+        ],
+        "title": "AuditPage",
+        "description": "One page of audit rows plus the total matching count (for page-count calc)."
+      },
+      "BaselineResponse": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "title": "Object Id"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "sample_count": {
+            "type": "integer",
+            "title": "Sample Count"
+          },
+          "mean_interval_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Interval Days"
+          },
+          "interval_mad_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Mad Days"
+          },
+          "mean_delta_v_m_s": {
+            "type": "number",
+            "title": "Mean Delta V M S"
+          },
+          "delta_v_mad_m_s": {
+            "type": "number",
+            "title": "Delta V Mad M S"
+          },
+          "type_distribution": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Type Distribution"
+          },
+          "last_epoch": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Epoch"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "object_name",
+          "sample_count",
+          "mean_delta_v_m_s",
+          "delta_v_mad_m_s",
+          "last_epoch"
+        ],
+        "title": "BaselineResponse",
+        "description": "One object's behavioral fingerprint \u2014 mirrors ``ManeuverBaseline``."
+      },
       "CatalogObject": {
         "properties": {
           "object_id": {
@@ -490,6 +1976,405 @@
           "object_name"
         ],
         "title": "CatalogObject"
+      },
+      "Clearance": {
+        "type": "string",
+        "enum": [
+          "U",
+          "C",
+          "S"
+        ],
+        "title": "Clearance",
+        "description": "Subject clearance, same scale as ``ClassificationType`` (U < C < S)."
+      },
+      "ConjunctionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "cdm_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cdm Id"
+          },
+          "primary_object_id": {
+            "type": "string",
+            "title": "Primary Object Id"
+          },
+          "primary_norad_cat_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Norad Cat Id"
+          },
+          "primary_name": {
+            "type": "string",
+            "title": "Primary Name"
+          },
+          "secondary_object_id": {
+            "type": "string",
+            "title": "Secondary Object Id"
+          },
+          "secondary_norad_cat_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Norad Cat Id"
+          },
+          "secondary_name": {
+            "type": "string",
+            "title": "Secondary Name"
+          },
+          "tca": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Tca"
+          },
+          "miss_distance_km": {
+            "type": "number",
+            "title": "Miss Distance Km"
+          },
+          "relative_speed_km_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Speed Km S"
+          },
+          "probability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "screened_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screened At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "primary_object_id",
+          "primary_name",
+          "secondary_object_id",
+          "secondary_name",
+          "tca",
+          "miss_distance_km",
+          "severity"
+        ],
+        "title": "ConjunctionResponse",
+        "description": "One screened/CDM conjunction \u2014 mirrors the web `Conjunction` contract."
+      },
+      "CreateReportRequest": {
+        "properties": {
+          "report_type": {
+            "type": "string",
+            "title": "Report Type",
+            "default": "daily"
+          },
+          "report_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Report Date"
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filters"
+          },
+          "images": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportImagesRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_date"
+        ],
+        "title": "CreateReportRequest",
+        "description": "Request body for a daily-report job."
+      },
+      "CreateReportResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "CreateReportResponse",
+        "description": "The accepted job: id + current (PENDING) status."
+      },
+      "DebrisObject": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "title": "Object Id"
+          },
+          "norad_cat_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Norad Cat Id"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Code"
+          },
+          "rcs_size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcs Size"
+          },
+          "inclination": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inclination"
+          },
+          "eccentricity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eccentricity"
+          },
+          "period_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Min"
+          },
+          "apoapsis_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apoapsis Km"
+          },
+          "periapsis_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Periapsis Km"
+          },
+          "mean_altitude_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Altitude Km"
+          },
+          "speed_km_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed Km S"
+          },
+          "risk_score": {
+            "type": "number",
+            "title": "Risk Score",
+            "default": 0.0
+          },
+          "risk_level": {
+            "type": "string",
+            "title": "Risk Level",
+            "default": "Low"
+          },
+          "tle_line0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tle Line0"
+          },
+          "tle_line1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tle Line1"
+          },
+          "tle_line2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tle Line2"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "object_name"
+        ],
+        "title": "DebrisObject",
+        "description": "One tracked-debris object with derived orbital params + risk."
+      },
+      "DebrisRiskSummary": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "by_level": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Level"
+          },
+          "density_by_shell": {
+            "items": {
+              "$ref": "#/components/schemas/ShellBin"
+            },
+            "type": "array",
+            "title": "Density By Shell"
+          },
+          "conjunctions": {
+            "items": {
+              "$ref": "#/components/schemas/ConjunctionResponse"
+            },
+            "type": "array",
+            "title": "Conjunctions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total"
+        ],
+        "title": "DebrisRiskSummary",
+        "description": "Population-level debris risk analysis."
       },
       "HTTPValidationError": {
         "properties": {
@@ -714,6 +2599,230 @@
           "ok"
         ],
         "title": "LivenessStatus"
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "ManeuverResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "object_id": {
+            "type": "string",
+            "title": "Object Id"
+          },
+          "norad_cat_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Norad Cat Id"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "epoch_before": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Epoch Before"
+          },
+          "epoch_after": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Epoch After"
+          },
+          "detected_epoch": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Detected Epoch"
+          },
+          "delta_sma_km": {
+            "type": "number",
+            "title": "Delta Sma Km"
+          },
+          "delta_ecc": {
+            "type": "number",
+            "title": "Delta Ecc"
+          },
+          "delta_inc_deg": {
+            "type": "number",
+            "title": "Delta Inc Deg"
+          },
+          "delta_raan_deg": {
+            "type": "number",
+            "title": "Delta Raan Deg"
+          },
+          "detection_statistic": {
+            "type": "number",
+            "title": "Detection Statistic"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "sma_before_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sma Before Km"
+          },
+          "inclination_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inclination Deg"
+          },
+          "delta_v_m_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta V M S"
+          },
+          "ric_radial_m_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ric Radial M S"
+          },
+          "ric_in_track_m_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ric In Track M S"
+          },
+          "ric_cross_track_m_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ric Cross Track M S"
+          },
+          "maneuver_type": {
+            "type": "string",
+            "title": "Maneuver Type"
+          },
+          "detected_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "object_id",
+          "object_name",
+          "epoch_before",
+          "epoch_after",
+          "detected_epoch",
+          "delta_sma_km",
+          "delta_ecc",
+          "delta_inc_deg",
+          "delta_raan_deg",
+          "detection_statistic",
+          "confidence",
+          "maneuver_type"
+        ],
+        "title": "ManeuverResponse",
+        "description": "One detected maneuver \u2014 mirrors the canonical ``Maneuver`` record."
+      },
+      "MeResponse": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "service": {
+            "$ref": "#/components/schemas/Service"
+          },
+          "clearance": {
+            "$ref": "#/components/schemas/Clearance"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scope"
+          },
+          "grants": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Grants"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "role",
+          "service",
+          "clearance"
+        ],
+        "title": "MeResponse",
+        "description": "The subject attributes the UI uses to shape itself (no token, no hash)."
       },
       "ObjectDetail": {
         "properties": {
@@ -1118,6 +3227,501 @@
         ],
         "title": "ReadinessStatus"
       },
+      "ReportImagesRequest": {
+        "properties": {
+          "country_globes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Country Globes"
+          },
+          "debris_density": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debris Density"
+          },
+          "debris_heatmap": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debris Heatmap"
+          }
+        },
+        "type": "object",
+        "title": "ReportImagesRequest",
+        "description": "Optional web-supplied report images as base64-encoded PNGs.\n\nAll fields optional so a no-image POST is valid. ``country_globes`` maps a\nreport-country code (NK/CN/RU/JP) to a base64 PNG; unknown keys are dropped."
+      },
+      "ReportStatus": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "RUNNING",
+          "DONE",
+          "FAILED"
+        ],
+        "title": "ReportStatus",
+        "description": "Lifecycle of a report job (matches the ``report_job_status`` enum in 0010)."
+      },
+      "ReportStatusResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          },
+          "report_type": {
+            "type": "string",
+            "title": "Report Type"
+          },
+          "report_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Report Date"
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url"
+          },
+          "error_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Reason"
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "report_type",
+          "report_date"
+        ],
+        "title": "ReportStatusResponse",
+        "description": "A job's status; ``download_url`` is present only once DONE, ``error_reason`` only on FAILED."
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "VIEWER",
+          "ANALYST",
+          "ADMIN"
+        ],
+        "title": "Role",
+        "description": "Coarse RBAC grouping (a convenience over ABAC; never widens a deny).\n\nOrdered least \u2192 most privilege. ``VIEWER`` = the roadmap's \"general\" users\n(browse the catalog/visualisation); ``ANALYST`` = the \"core\" operators\n(screening, alert triage, intelligence, export); ``ADMIN`` = administration\nand audit."
+      },
+      "ScoreComponents": {
+        "properties": {
+          "maneuver": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maneuver"
+          },
+          "conjunction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conjunction"
+          },
+          "rpo": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpo"
+          },
+          "debris": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debris"
+          },
+          "anomaly": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anomaly"
+          }
+        },
+        "type": "object",
+        "title": "ScoreComponents",
+        "description": "Normalized 0..1 per-method scores; None = no signal in the window."
+      },
+      "ScoreHistoryPoint": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "by_level": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Level"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date"
+        ],
+        "title": "ScoreHistoryPoint",
+        "description": "Threat-level histogram of the scored population at one past day."
+      },
+      "ScoreItem": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "title": "Object Id"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "composite": {
+            "type": "number",
+            "title": "Composite"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "components": {
+            "$ref": "#/components/schemas/ScoreComponents"
+          },
+          "raw": {
+            "$ref": "#/components/schemas/ScoreRaw"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "object_name",
+          "composite",
+          "level",
+          "components",
+          "raw"
+        ],
+        "title": "ScoreItem",
+        "description": "One object's composite threat score with its explainable breakdown."
+      },
+      "ScoreRaw": {
+        "properties": {
+          "max_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Confidence"
+          },
+          "max_delta_v_m_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Delta V M S"
+          },
+          "maneuver_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maneuver Count"
+          },
+          "max_pc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Pc"
+          },
+          "min_miss_km": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Miss Km"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "conjunction_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conjunction Count"
+          },
+          "max_coplanarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Coplanarity"
+          },
+          "rpo_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpo Count"
+          },
+          "debris_risk_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debris Risk Score"
+          },
+          "max_delta_v_sigma": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Delta V Sigma"
+          },
+          "novel_type": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Novel Type"
+          },
+          "anomaly_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anomaly Count"
+          }
+        },
+        "type": "object",
+        "title": "ScoreRaw",
+        "description": "Underlying raw evidence for drill-down/tooltips."
+      },
+      "ScoreSummary": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "by_level": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Level"
+          },
+          "by_method": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Method"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total"
+        ],
+        "title": "ScoreSummary",
+        "description": "Population rollup for the dashboard KPI tiles."
+      },
+      "ScoresHistoryResponse": {
+        "properties": {
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreHistoryPoint"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_days",
+          "days",
+          "points"
+        ],
+        "title": "ScoresHistoryResponse"
+      },
+      "ScoresResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Weights"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ScoreSummary"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window_days",
+          "weights",
+          "summary",
+          "items"
+        ],
+        "title": "ScoresResponse"
+      },
+      "Service": {
+        "type": "string",
+        "enum": [
+          "AIR_FORCE",
+          "ARMY",
+          "NAVY",
+          "JOINT"
+        ],
+        "title": "Service",
+        "description": "Owning/affiliated service (the tri-service axis). ``JOINT`` spans all."
+      },
       "ServiceInfo": {
         "properties": {
           "name": {
@@ -1140,6 +3744,25 @@
           "environment"
         ],
         "title": "ServiceInfo"
+      },
+      "ShellBin": {
+        "properties": {
+          "altitude_km": {
+            "type": "integer",
+            "title": "Altitude Km"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "altitude_km",
+          "count"
+        ],
+        "title": "ShellBin",
+        "description": "Debris count in one 100 km altitude shell (density-by-shell profile)."
       },
       "StateObject": {
         "properties": {
@@ -1225,6 +3848,23 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WatchlistResponse": {
+        "properties": {
+          "object_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Object Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_ids"
+        ],
+        "title": "WatchlistResponse",
+        "description": "The current user's watchlisted catalog object ids."
       }
     }
   }
