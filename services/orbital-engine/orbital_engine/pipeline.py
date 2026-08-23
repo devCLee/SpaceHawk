@@ -34,7 +34,7 @@ from orbital_engine.repository import (
     upsert_objects,
 )
 from orbital_engine.rpo import screen_rpo
-from orbital_engine.screening import screen_objects
+from orbital_engine.screening import enrich_relative_speed, screen_objects
 from orbital_engine.state import publish_alert, write_latest_state, write_object_states
 
 log = get_logger("pipeline")
@@ -137,6 +137,10 @@ async def run_screening_loop(settings: Settings, stop: asyncio.Event) -> None:
             else:
                 cdm_conjunctions = []
             rows = await fetch_catalog(settings.ingest_limit)
+            # Public CDMs carry no relative velocity — compute |v1−v2| at TCA
+            # from the catalog TLEs already in hand for the self-screen.
+            if cdm_conjunctions:
+                enrich_relative_speed(cdm_conjunctions, rows)
             screened = screen_objects(rows, settings)
             written = await upsert_conjunctions(cdm_conjunctions + screened)
             for alert in alerter.evaluate(cdm_conjunctions + screened):

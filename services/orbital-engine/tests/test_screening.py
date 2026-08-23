@@ -7,10 +7,16 @@ from datetime import UTC, datetime
 from sgp4.api import Satrec, jday
 
 from orbital_engine.config import Settings
-from orbital_engine.domain.conjunction import ConjunctionSeverity, estimate_pc
+from orbital_engine.domain.conjunction import (
+    Conjunction,
+    ConjunctionSeverity,
+    ConjunctionSource,
+    estimate_pc,
+)
 from orbital_engine.screening import (
     apogee_perigee_gate,
     closest_approach,
+    enrich_relative_speed,
     orbit_altitudes,
     screen_objects,
 )
@@ -76,6 +82,46 @@ def test_screen_objects_prunes_non_overlapping_shells() -> None:
     leo = _row("A", 25544)
     geo = _row("C", 99999, mean_motion=1.0027, ecc=0.0001)  # ~GEO altitude band
     assert screen_objects([leo, geo], settings, now=NOW) == []
+
+
+def _cdm_conjunction(
+    p_norad: int | None, s_norad: int | None, rel: float | None = None
+) -> Conjunction:
+    return Conjunction(
+        id=f"CDM:{p_norad}:{s_norad}",
+        source=ConjunctionSource.CDM,
+        primary_object_id="A",
+        primary_norad_cat_id=p_norad,
+        primary_name="A",
+        secondary_object_id="B",
+        secondary_norad_cat_id=s_norad,
+        secondary_name="B",
+        tca=NOW,
+        miss_distance_km=1.0,
+        relative_speed_km_s=rel,
+        severity=ConjunctionSeverity.LOW,
+    )
+
+
+def test_enrich_relative_speed_fills_from_catalog_tles() -> None:
+    # Identical element sets → both participants share a state, so the computed
+    # relative speed at TCA is ~0 (and, critically, no longer None).
+    c = _cdm_conjunction(25544, 25545)
+    enriched = enrich_relative_speed([c], [_row("A", 25544), _row("B", 25545)])
+    assert enriched == 1
+    assert c.relative_speed_km_s is not None
+    assert c.relative_speed_km_s < 1e-6
+
+
+def test_enrich_relative_speed_leaves_gaps_and_existing_values_alone() -> None:
+    missing_tle = _cdm_conjunction(25544, 99999)  # 99999 not in the catalog rows
+    already_set = _cdm_conjunction(25544, 25545, rel=7.5)
+    enriched = enrich_relative_speed(
+        [missing_tle, already_set], [_row("A", 25544), _row("B", 25545)]
+    )
+    assert enriched == 0
+    assert missing_tle.relative_speed_km_s is None
+    assert already_set.relative_speed_km_s == 7.5
 
 
 def test_screen_objects_protected_only_pairs_against_watchlist() -> None:
